@@ -23,7 +23,7 @@ export async function sendVerificationEmail(
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      from: "Artifact Use <artifacts@example.com>",
+      from: `${env.MAIL_FROM_NAME || "Artifact Use"} <${env.MAIL_FROM || "artifacts@example.com"}>`,
       to: [email],
       subject,
       html,

@@ -9,12 +9,10 @@ const target = process.argv[2]
 const config = {
   mcpServers: {
     "artifact-use": {
-      command: "npx",
-      args: ["-y", "@artifact-use/mcp-server"],
-      env: {
-        ARTIFACT_USE_API_BASE:
-          process.env.ARTIFACT_USE_API_BASE || "https://art-use.iofold.com",
-        ARTIFACT_USE_TOKEN: "${ARTIFACT_USE_TOKEN}",
+      type: "http",
+      url: `${process.env.ARTIFACT_USE_API_BASE || "https://art-use.iofold.com"}/mcp`,
+      headers: {
+        Authorization: "Bearer ${ARTIFACT_USE_TOKEN}",
       },
     },
   },

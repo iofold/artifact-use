@@ -5,21 +5,23 @@ description: Use when publishing, sharing, gating, or checking stats for Artifac
 
 # Artifact Use
 
-Use Artifact Use to publish static artifacts through the hosted API at `https://art-use.iofold.com`.
+Use Artifact Use to publish static artifacts through hosted HTTP MCP at `https://art-use.iofold.com/mcp` and the hosted API at `https://art-use.iofold.com`.
 
 Rules:
 
 - Do not use Wrangler or Cloudflare tokens.
 - Authenticate with `ARTIFACT_USE_TOKEN`.
-- Use `artifact_use_publish_folder` for local folders and `artifact_use_publish_html` for one-file HTML.
+- Use `artifact_use_publish_html` for one-file HTML.
+- Use `artifact_use_publish_files` for small multi-file HTTP MCP artifacts with inline file content.
+- Use the CLI or local stdio MCP for large local folders.
 - Prefer `email` gate by default, `verified_email` for inbox control, and `allowlist` for customer-only access.
 - Keep tenant and artifact slugs lower-case hyphen-case.
 - Dry-run folder publishes when possible.
 
 MCP tools:
 
-- `artifact_use_publish_folder`
 - `artifact_use_publish_html`
+- `artifact_use_publish_files`
 - `artifact_use_list_artifacts`
 - `artifact_use_get_stats`
 - `artifact_use_create_share_link`

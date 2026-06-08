@@ -17,7 +17,10 @@ https://art-use.iofold.com
 
 - Never use Wrangler, Cloudflare API tokens, or direct R2 credentials for publishing.
 - Authenticate with WorkOS-derived bearer auth via `ARTIFACT_USE_TOKEN`.
-- Prefer the MCP tool `artifact_use_publish_folder` for folders and `artifact_use_publish_html` for single-file HTML.
+- Prefer HTTP MCP at `https://art-use.iofold.com/mcp`.
+- Use `artifact_use_publish_html` for single-file HTML.
+- Use `artifact_use_publish_files` for small multi-file artifacts where file content can be passed inline.
+- Use the CLI for large local folders that must be walked from disk.
 - For CLI usage, prefer `--json` payloads and JSON output.
 - Run dry-run before publishing a folder when the artifact is large or generated.
 - Keep tenant and artifact slugs lower-case hyphen-case.
@@ -48,8 +51,9 @@ artifact-use publish-folder --json '{
 
 ## MCP Tools
 
-- `artifact_use_publish_folder` publishes a local folder and returns the live URL.
 - `artifact_use_publish_html` publishes one HTML string.
+- `artifact_use_publish_files` publishes small multi-file artifacts over HTTP MCP with inline text/base64 file contents.
+- `artifact_use_publish_folder` is available only in the optional local stdio MCP server.
 - `artifact_use_list_artifacts` lists tenant artifacts.
 - `artifact_use_get_stats` returns views, unique viewers, share links, and recent visits.
 - `artifact_use_create_share_link` creates tracked share links.

@@ -1,10 +1,10 @@
 {
   "mcpServers": {
     "artifact-use": {
-      "command": "node",
-      "args": ["./scripts/start-mcp.mjs"],
-      "env": {
-        "ARTIFACT_USE_API_BASE": "https://art-use.iofold.com"
+      "type": "http",
+      "url": "https://art-use.iofold.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${ARTIFACT_USE_TOKEN}"
       }
     }
   }

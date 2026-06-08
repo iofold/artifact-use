@@ -1,7 +1,12 @@
 # MCP Installation
 
-Artifact Use ships a local stdio MCP server because local agents often need to publish folders from the filesystem.
-The server calls the hosted API at `https://art-use.iofold.com` by default.
+Artifact Use exposes HTTP MCP at:
+
+```text
+https://art-use.iofold.com/mcp
+```
+
+The repository also ships a local stdio MCP server for environments that need the tool itself to walk a folder on disk.
 
 ## Environment
 
@@ -18,18 +23,25 @@ Use the bundled Codex plugin under:
 plugins/codex/artifact-use
 ```
 
-Or copy `integrations/codex.mcp.json` into a project `.mcp.json`.
+Or copy `integrations/codex.mcp.json` into a project `.mcp.json`. The default config uses HTTP MCP.
 
 ## Claude Code
 
-Merge `integrations/claude-code/settings.example.json` into your Claude Code settings.
+Merge `integrations/claude-code/settings.example.json` into your Claude Code settings. The default config uses HTTP MCP.
 
 ## Tools
 
 - `artifact_use_publish_folder`
 - `artifact_use_publish_html`
+- `artifact_use_publish_files`
 - `artifact_use_list_artifacts`
 - `artifact_use_get_stats`
 - `artifact_use_create_share_link`
 
-The hosted Worker also exposes a minimal `/mcp` HTTP endpoint for clients that support remote OAuth MCP, but folder publishing should use the local stdio server so the tool can read local files.
+## Folder Publishing Over MCP
+
+HTTP MCP cannot read local files by itself. Use one of these paths:
+
+- `artifact_use_publish_html` for one HTML string.
+- `artifact_use_publish_files` for small multi-file artifacts where the agent passes inline text or base64 file content.
+- Local CLI or local stdio MCP for large folders that must be walked from disk.

@@ -44,6 +44,9 @@ Readers never see partial uploads.
 A folder artifact is a static website with an `index.html` entrypoint and related assets.
 The manifest lists every path, content type, size, and SHA-256 hash.
 
+HTTP MCP can publish small multi-file artifacts through inline file payloads.
+Large local folders should use the CLI or local stdio MCP, because a remote HTTP MCP server cannot inspect a client's filesystem.
+
 Recommended v1 limits:
 
 - 95 MiB per package.

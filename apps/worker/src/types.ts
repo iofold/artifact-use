@@ -8,9 +8,12 @@ export interface Env {
   WORKOS_AUDIENCE: string;
   WORKOS_ISSUER: string;
   WORKOS_JWKS_URL: string;
+  MAIL_FROM?: string;
+  MAIL_FROM_NAME?: string;
   DEFAULT_PACKAGE_LIMIT_BYTES?: string;
   DEFAULT_FILE_LIMIT_BYTES?: string;
   DEFAULT_FILE_COUNT_LIMIT?: string;
+  HTTP_MCP_INLINE_FILE_LIMIT_BYTES?: string;
   ALLOW_DEBUG_CODES?: string;
   SESSION_SECRET: string;
   RESEND_API_KEY?: string;

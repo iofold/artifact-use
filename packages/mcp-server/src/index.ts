@@ -209,9 +209,7 @@ function requireToken(): void {
   if (!TOKEN) throw new Error("ARTIFACT_USE_TOKEN is required");
 }
 
-async function walk(
-  root: string,
-): Promise<
+async function walk(root: string): Promise<
   Array<{
     path: string;
     content_type: string;

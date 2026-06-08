@@ -1,6 +1,9 @@
 name = "artifact-use"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
+# iofold Cloudflare account. This matches the account used for the existing
+# legacy-artifacts bucket/deploy flow; override with CLOUDFLARE_ACCOUNT_ID if needed.
+account_id = "00000000000000000000000000000000"
 
 [[routes]]
 pattern = "art-use.iofold.com"
@@ -23,9 +26,12 @@ WORKOS_AUTHKIT_URL = "https://replace-me.authkit.app"
 WORKOS_AUDIENCE = "https://art-use.iofold.com"
 WORKOS_ISSUER = "https://replace-me.authkit.app"
 WORKOS_JWKS_URL = "https://replace-me.authkit.app/oauth2/jwks"
+MAIL_FROM = "artifacts@example.com"
+MAIL_FROM_NAME = "Artifact Use"
 DEFAULT_PACKAGE_LIMIT_BYTES = "99614720"
 DEFAULT_FILE_LIMIT_BYTES = "78643200"
 DEFAULT_FILE_COUNT_LIMIT = "200"
+HTTP_MCP_INLINE_FILE_LIMIT_BYTES = "2097152"
 ALLOW_DEBUG_CODES = "false"
 
 # Secrets:

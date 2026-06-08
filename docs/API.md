@@ -19,6 +19,23 @@ GET /.well-known/oauth-protected-resource
 GET /.well-known/oauth-authorization-server
 ```
 
+## MCP
+
+```http
+POST /mcp
+```
+
+Tools:
+
+- `artifact_use_publish_html`
+- `artifact_use_publish_files`
+- `artifact_use_list_artifacts`
+- `artifact_use_set_gate`
+- `artifact_use_create_share_link`
+- `artifact_use_get_stats`
+
+`artifact_use_publish_files` is intended for small HTTP MCP artifacts. Each file can contain `content` or `content_base64`.
+
 ## Tenant
 
 ```http

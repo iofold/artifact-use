@@ -46,11 +46,23 @@ Run the CLI in JSON mode:
 ARTIFACT_USE_TOKEN=... npm run cli -- schema --all
 ```
 
-Run the local MCP server:
+Use the hosted HTTP MCP endpoint:
 
-```bash
-ARTIFACT_USE_TOKEN=... npm run mcp
+```json
+{
+  "mcpServers": {
+    "artifact-use": {
+      "type": "http",
+      "url": "https://art-use.iofold.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${ARTIFACT_USE_TOKEN}"
+      }
+    }
+  }
+}
 ```
+
+The local stdio MCP server remains available for environments that need a local tool to walk a folder from disk.
 
 ## Cloudflare Setup
 
@@ -84,6 +96,8 @@ The CLI will:
 2. Create a draft version.
 3. Upload every file through the service-owned Worker API.
 4. Complete the version and receive a live URL.
+
+For HTTP MCP-only clients, use `artifact_use_publish_files` for small multi-file artifacts by passing inline file content. Use the CLI for large local folders because a remote MCP server cannot read a client filesystem.
 
 ## Open-Source Scope
 
