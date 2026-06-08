@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "artifact-use": {
+      "command": "npx",
+      "args": ["-y", "@artifact-use/mcp-server"],
+      "env": {
+        "ARTIFACT_USE_API_BASE": "https://art-use.iofold.com",
+        "ARTIFACT_USE_TOKEN": "${ARTIFACT_USE_TOKEN}"
+      }
+    }
+  }
+}

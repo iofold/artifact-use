@@ -1,0 +1,319 @@
+import type {
+  Artifact,
+  ArtifactFile,
+  ArtifactVersion,
+  Creator,
+  Env,
+  GateLevel,
+  Tenant,
+} from "./types";
+import { nowSec, randomId } from "./util";
+
+export async function getTenantBySlug(
+  env: Env,
+  slug: string,
+): Promise<Tenant | null> {
+  return env.DB.prepare("SELECT * FROM tenants WHERE slug = ?")
+    .bind(slug)
+    .first<Tenant>();
+}
+
+export async function ensureTenant(
+  env: Env,
+  creator: Creator,
+  slug: string,
+  name?: string | null,
+): Promise<Tenant> {
+  const existing = await env.DB.prepare(
+    "SELECT * FROM tenants WHERE org_id = ?",
+  )
+    .bind(creator.orgId)
+    .first<Tenant>();
+  const now = nowSec();
+  if (existing) {
+    if (existing.slug !== slug) {
+      const taken = await getTenantBySlug(env, slug);
+      if (taken && taken.org_id !== creator.orgId)
+        throw new Error("tenant slug is already taken");
+      await env.DB.prepare(
+        "UPDATE tenants SET slug = ?, name = COALESCE(?, name), updated_at = ? WHERE org_id = ?",
+      )
+        .bind(slug, name || null, now, creator.orgId)
+        .run();
+    }
+    return (await env.DB.prepare("SELECT * FROM tenants WHERE org_id = ?")
+      .bind(creator.orgId)
+      .first<Tenant>()) as Tenant;
+  }
+  const taken = await getTenantBySlug(env, slug);
+  if (taken) throw new Error("tenant slug is already taken");
+  await env.DB.prepare(
+    "INSERT INTO tenants (org_id, slug, name, owner_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+  )
+    .bind(creator.orgId, slug, name || null, creator.email, now, now)
+    .run();
+  return (await env.DB.prepare("SELECT * FROM tenants WHERE org_id = ?")
+    .bind(creator.orgId)
+    .first<Tenant>()) as Tenant;
+}
+
+export async function getArtifactByPath(
+  env: Env,
+  tenant: string,
+  slug: string,
+): Promise<Artifact | null> {
+  return env.DB.prepare(
+    "SELECT * FROM artifacts WHERE tenant_slug = ? AND slug = ?",
+  )
+    .bind(tenant, slug)
+    .first<Artifact>();
+}
+
+export async function getArtifactForOrg(
+  env: Env,
+  orgId: string,
+  slug: string,
+): Promise<Artifact | null> {
+  return env.DB.prepare("SELECT * FROM artifacts WHERE org_id = ? AND slug = ?")
+    .bind(orgId, slug)
+    .first<Artifact>();
+}
+
+export async function upsertArtifact(
+  env: Env,
+  creator: Creator,
+  tenantSlug: string,
+  artifactSlug: string,
+  title: string,
+  gateLevel: GateLevel,
+): Promise<Artifact> {
+  const existing = await getArtifactForOrg(env, creator.orgId, artifactSlug);
+  const now = nowSec();
+  if (existing) {
+    await env.DB.prepare(
+      "UPDATE artifacts SET title = ?, gate_level = ?, tenant_slug = ?, updated_at = ? WHERE id = ?",
+    )
+      .bind(
+        title || existing.title,
+        gateLevel || existing.gate_level,
+        tenantSlug,
+        now,
+        existing.id,
+      )
+      .run();
+    return (await env.DB.prepare("SELECT * FROM artifacts WHERE id = ?")
+      .bind(existing.id)
+      .first<Artifact>()) as Artifact;
+  }
+  const id = randomId("art");
+  await env.DB.prepare(
+    `INSERT INTO artifacts
+      (id, org_id, tenant_slug, slug, title, gate_level, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(
+      id,
+      creator.orgId,
+      tenantSlug,
+      artifactSlug,
+      title || artifactSlug,
+      gateLevel,
+      creator.sub,
+      now,
+      now,
+    )
+    .run();
+  return (await env.DB.prepare("SELECT * FROM artifacts WHERE id = ?")
+    .bind(id)
+    .first<Artifact>()) as Artifact;
+}
+
+export async function createDraftVersion(
+  env: Env,
+  creator: Creator,
+  artifact: Artifact,
+  entrypoint: string,
+): Promise<ArtifactVersion> {
+  const id = randomId("ver");
+  const now = nowSec();
+  await env.DB.prepare(
+    `INSERT INTO artifact_versions
+      (id, artifact_id, org_id, status, entrypoint, created_by, created_at)
+     VALUES (?, ?, ?, 'draft', ?, ?, ?)`,
+  )
+    .bind(id, artifact.id, creator.orgId, entrypoint, creator.sub, now)
+    .run();
+  return (await getVersionForOrg(env, creator.orgId, id)) as ArtifactVersion;
+}
+
+export async function getVersionForOrg(
+  env: Env,
+  orgId: string,
+  id: string,
+): Promise<ArtifactVersion | null> {
+  return env.DB.prepare(
+    "SELECT * FROM artifact_versions WHERE id = ? AND org_id = ?",
+  )
+    .bind(id, orgId)
+    .first<ArtifactVersion>();
+}
+
+export async function getVersion(
+  env: Env,
+  id: string,
+): Promise<ArtifactVersion | null> {
+  return env.DB.prepare("SELECT * FROM artifact_versions WHERE id = ?")
+    .bind(id)
+    .first<ArtifactVersion>();
+}
+
+export async function getFile(
+  env: Env,
+  versionId: string,
+  path: string,
+): Promise<ArtifactFile | null> {
+  return env.DB.prepare(
+    "SELECT * FROM artifact_files WHERE version_id = ? AND path = ?",
+  )
+    .bind(versionId, path)
+    .first<ArtifactFile>();
+}
+
+export async function upsertFile(
+  env: Env,
+  versionId: string,
+  path: string,
+  storageKey: string,
+  contentType: string,
+  size: number,
+  sha256: string | null,
+): Promise<void> {
+  const now = nowSec();
+  await env.DB.prepare(
+    `INSERT INTO artifact_files (version_id, path, storage_key, content_type, size, sha256, uploaded_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(version_id, path)
+     DO UPDATE SET storage_key = excluded.storage_key, content_type = excluded.content_type,
+       size = excluded.size, sha256 = excluded.sha256, uploaded_at = excluded.uploaded_at`,
+  )
+    .bind(versionId, path, storageKey, contentType, size, sha256, now)
+    .run();
+}
+
+export async function completeVersion(
+  env: Env,
+  version: ArtifactVersion,
+  manifestJson: string,
+  totalSize: number,
+  fileCount: number,
+): Promise<void> {
+  const now = nowSec();
+  await env.DB.batch([
+    env.DB.prepare(
+      "UPDATE artifact_versions SET status = 'complete', manifest_json = ?, total_size = ?, file_count = ?, completed_at = ? WHERE id = ?",
+    ).bind(manifestJson, totalSize, fileCount, now, version.id),
+    env.DB.prepare(
+      "UPDATE artifacts SET current_version_id = ?, updated_at = ? WHERE id = ?",
+    ).bind(version.id, now, version.artifact_id),
+  ]);
+}
+
+export async function listArtifactsForOrg(
+  env: Env,
+  orgId: string,
+): Promise<Artifact[]> {
+  const res = await env.DB.prepare(
+    "SELECT * FROM artifacts WHERE org_id = ? ORDER BY updated_at DESC",
+  )
+    .bind(orgId)
+    .all<Artifact>();
+  return res.results || [];
+}
+
+export async function updateArtifactAccess(
+  env: Env,
+  artifact: Artifact,
+  title: string | null,
+  gateLevel: GateLevel | null,
+  allowlistJson: string | null | undefined,
+): Promise<Artifact> {
+  const now = nowSec();
+  await env.DB.prepare(
+    "UPDATE artifacts SET title = COALESCE(?, title), gate_level = COALESCE(?, gate_level), allowlist_json = COALESCE(?, allowlist_json), updated_at = ? WHERE id = ?",
+  )
+    .bind(
+      title,
+      gateLevel,
+      allowlistJson === undefined ? null : allowlistJson,
+      now,
+      artifact.id,
+    )
+    .run();
+  return (await env.DB.prepare("SELECT * FROM artifacts WHERE id = ?")
+    .bind(artifact.id)
+    .first<Artifact>()) as Artifact;
+}
+
+export async function createShareLink(
+  env: Env,
+  artifact: Artifact,
+  creator: Creator,
+  recipientEmail: string | null,
+  recipientLabel: string | null,
+  expiresAt: number | null,
+): Promise<string> {
+  const id = randomId("sh").slice(3, 19);
+  await env.DB.prepare(
+    "INSERT INTO share_links (id, artifact_id, recipient_email, recipient_label, expires_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+  )
+    .bind(
+      id,
+      artifact.id,
+      recipientEmail,
+      recipientLabel,
+      expiresAt,
+      creator.sub,
+      nowSec(),
+    )
+    .run();
+  return id;
+}
+
+export async function insertView(
+  env: Env,
+  artifact: Artifact,
+  shareLinkId: string | null,
+  email: string,
+  verified: boolean,
+  request: Request,
+): Promise<number> {
+  const ua = request.headers.get("User-Agent");
+  const referrer = request.headers.get("Referer");
+  const ip = request.headers.get("CF-Connecting-IP") || "";
+  const ipHash = ip
+    ? await crypto.subtle
+        .digest("SHA-256", new TextEncoder().encode(ip))
+        .then((d) =>
+          [...new Uint8Array(d)]
+            .map((b) => b.toString(16).padStart(2, "0"))
+            .join("")
+            .slice(0, 32),
+        )
+    : null;
+  const result = await env.DB.prepare(
+    "INSERT INTO views (artifact_id, version_id, share_link_id, email, verified, ip_hash, ua, referrer, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  )
+    .bind(
+      artifact.id,
+      artifact.current_version_id,
+      shareLinkId,
+      email,
+      verified ? 1 : 0,
+      ipHash,
+      ua,
+      referrer,
+      nowSec(),
+    )
+    .run();
+  return Number(result.meta.last_row_id);
+}

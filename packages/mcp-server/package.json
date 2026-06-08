@@ -1,0 +1,21 @@
+{
+  "name": "@artifact-use/mcp-server",
+  "version": "0.1.0",
+  "description": "Local MCP server for publishing Artifact Use folders and HTML.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "artifact-use-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.4"
+  }
+}

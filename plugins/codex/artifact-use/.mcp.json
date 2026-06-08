@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "artifact-use": {
+      "command": "node",
+      "args": ["./scripts/start-mcp.mjs"],
+      "env": {
+        "ARTIFACT_USE_API_BASE": "https://art-use.iofold.com"
+      }
+    }
+  }
+}

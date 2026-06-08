@@ -1,0 +1,18 @@
+{
+  "name": "@artifact-use/cli",
+  "version": "0.1.0",
+  "description": "JSON-first CLI for Artifact Use.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "artifact-use": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.4"
+  }
+}

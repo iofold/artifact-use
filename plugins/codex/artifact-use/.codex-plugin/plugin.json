@@ -1,0 +1,19 @@
+{
+  "name": "artifact-use",
+  "version": "0.1.0",
+  "description": "Publish and manage gated, tenant-scoped artifacts through Artifact Use without Cloudflare credentials.",
+  "author": {
+    "name": "Artifact Use contributors"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Artifact Use",
+    "shortDescription": "Publish artifacts with WorkOS auth.",
+    "longDescription": "Artifact Use lets Codex publish single-file or folder artifacts to a hosted Cloudflare-backed service through MCP/CLI using WorkOS OAuth tokens, with tenant-prefixed URLs, viewer gates, stats, and share links.",
+    "developerName": "Artifact Use contributors",
+    "category": "Productivity",
+    "capabilities": ["mcp", "artifact-publishing", "static-hosting"],
+    "defaultPrompt": "Publish this artifact with Artifact Use."
+  },
+  "mcpServers": "./.mcp.json"
+}

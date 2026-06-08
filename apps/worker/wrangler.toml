@@ -1,0 +1,34 @@
+name = "artifact-use"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+
+[[routes]]
+pattern = "art-use.iofold.com"
+custom_domain = true
+zone_name = "iofold.com"
+
+[[r2_buckets]]
+binding = "BUCKET"
+bucket_name = "artifact-use"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "artifact-use"
+database_id = "replace-with-d1-database-id"
+migrations_dir = "migrations"
+
+[vars]
+SITE_BASE_URL = "https://art-use.iofold.com"
+WORKOS_AUTHKIT_URL = "https://replace-me.authkit.app"
+WORKOS_AUDIENCE = "https://art-use.iofold.com"
+WORKOS_ISSUER = "https://replace-me.authkit.app"
+WORKOS_JWKS_URL = "https://replace-me.authkit.app/oauth2/jwks"
+DEFAULT_PACKAGE_LIMIT_BYTES = "99614720"
+DEFAULT_FILE_LIMIT_BYTES = "78643200"
+DEFAULT_FILE_COUNT_LIMIT = "200"
+ALLOW_DEBUG_CODES = "false"
+
+# Secrets:
+#   SESSION_SECRET
+#   RESEND_API_KEY
+#   DEV_AUTH_TOKEN        optional local development escape hatch

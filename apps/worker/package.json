@@ -1,0 +1,21 @@
+{
+  "name": "@artifact-use/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "migrate:local": "wrangler d1 migrations apply artifact-use --local",
+    "migrate:remote": "wrangler d1 migrations apply artifact-use --remote"
+  },
+  "dependencies": {
+    "jose": "^5.9.6"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20260601.0",
+    "wrangler": "^4.19.1"
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "name": "artifact-use",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Multi-tenant, agent-friendly artifact publishing on Cloudflare R2/D1 with WorkOS creator auth.",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "apps/worker",
+    "packages/cli",
+    "packages/mcp-server"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "typecheck": "npm run typecheck --workspaces",
+    "test": "npm run typecheck",
+    "format": "prettier --write .",
+    "check": "prettier --check . && npm run typecheck",
+    "worker:dev": "npm --workspace apps/worker run dev",
+    "worker:deploy": "npm --workspace apps/worker run deploy",
+    "cli": "npm --workspace packages/cli run dev --",
+    "mcp": "npm --workspace packages/mcp-server run dev"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "prettier": "^3.5.3",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=20.11"
+  }
+}
