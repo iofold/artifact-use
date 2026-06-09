@@ -19,6 +19,12 @@ GET /.well-known/oauth-protected-resource
 GET /.well-known/oauth-authorization-server
 ```
 
+The OAuth protected resource is the hosted MCP endpoint:
+
+```text
+https://art-use.iofold.com/mcp
+```
+
 ## MCP
 
 ```http

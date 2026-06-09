@@ -16,7 +16,8 @@ The Worker owns R2 writes through its binding.
 
 ## Tenancy
 
-Creators authenticate with WorkOS. The Worker expects a JWT with an organization identifier and permissions.
+Creators authenticate with WorkOS. The Worker expects a JWT with an organization identifier and permissions or OAuth scopes.
+Read/write authorization is configurable, so a hosted deployment can start with WorkOS `openid` scopes and later tighten to dedicated `artifacts:*` scopes.
 The D1 `tenants` table maps `org_id` to a public `tenant_slug`.
 
 Public URLs use tenant prefixes:

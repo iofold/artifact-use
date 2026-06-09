@@ -50,20 +50,27 @@ export async function getCreator(
   );
   const sub = String(claims.sub || "");
   if (!orgId || !sub) throw new Error("WorkOS token is missing org_id or sub");
-  const permissionsRaw = claims.permissions;
   const permissions = new Set<string>();
-  if (Array.isArray(permissionsRaw))
-    for (const p of permissionsRaw) permissions.add(String(p));
+  for (const claimName of ["permissions", "scope", "scp", "roles", "role"]) {
+    for (const value of extractStringArray(claims[claimName])) {
+      permissions.add(value);
+    }
+  }
   const email = typeof claims.email === "string" ? claims.email : null;
   return { sub, orgId, email, permissions, raw: claims };
 }
 
-export function requirePermission(creator: Creator, permission: string): void {
-  if (
-    creator.permissions.has(permission) ||
-    creator.permissions.has("artifacts:admin")
-  )
+export function requirePermission(
+  creator: Creator,
+  env: Env,
+  permission: string,
+): void {
+  if (creator.permissions.has(permission) || creator.permissions.has("artifacts:admin"))
     return;
+  const accepted = configuredScopes(env, permission);
+  if (accepted.some((scope) => creator.permissions.has(scope))) {
+    return;
+  }
   throw new Error(`missing permission: ${permission}`);
 }
 
@@ -77,6 +84,55 @@ export function unauthorized(env: Env): Response {
       },
     },
   );
+}
+
+export function oauthResource(env: Env): string {
+  return env.WORKOS_AUDIENCE || `${env.SITE_BASE_URL}/mcp`;
+}
+
+export function supportedScopes(env: Env): string[] {
+  return configuredScopes(env, "all");
+}
+
+function configuredScopes(env: Env, kind: string): string[] {
+  if (kind === "all") {
+    return splitList(env.ARTIFACT_USE_AUTH_SCOPES) || [
+      "openid",
+      "profile",
+      "email",
+      "offline_access",
+      "artifacts:publish",
+      "artifacts:read",
+      "artifacts:manage_access",
+      "artifacts:view_stats",
+    ];
+  }
+  if (kind === "artifacts:read" || kind === "artifacts:view_stats") {
+    return splitList(env.ARTIFACT_USE_READ_SCOPES) || [
+      "artifacts:read",
+      "artifacts:view_stats",
+      "artifacts:admin",
+    ];
+  }
+  return splitList(env.ARTIFACT_USE_WRITE_SCOPES) || [
+    "artifacts:publish",
+    "artifacts:manage_access",
+    "artifacts:admin",
+  ];
+}
+
+function splitList(value?: string): string[] | null {
+  if (!value) return null;
+  return value
+    .split(/[\s,]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function extractStringArray(value: unknown): string[] {
+  if (typeof value === "string") return splitList(value) || [];
+  if (Array.isArray(value)) return value.flatMap((item) => extractStringArray(item));
+  return [];
 }
 
 function base64Url(bytes: Uint8Array): string {

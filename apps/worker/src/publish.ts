@@ -43,7 +43,7 @@ export async function handlePublish(
 
   try {
     if (request.method === "POST" && path === "/api/v1/publish/start") {
-      requirePermission(creator, "artifacts:publish");
+      requirePermission(creator, env, "artifacts:publish");
       const body = (await request.json()) as StartBody;
       const tenantSlug = assertSlug("tenant", String(body.tenant || ""));
       const artifactSlug = assertSlug("artifact", String(body.artifact || ""));
@@ -84,7 +84,7 @@ export async function handlePublish(
       /^\/api\/v1\/publish\/([^/]+)\/files\/(.+)$/,
     );
     if (request.method === "PUT" && uploadMatch) {
-      requirePermission(creator, "artifacts:publish");
+      requirePermission(creator, env, "artifacts:publish");
       const versionId = uploadMatch[1] || "";
       const assetPath = validateAssetPath(uploadMatch[2] || "");
       const version = await getVersionForOrg(env, creator.orgId, versionId);
@@ -135,7 +135,7 @@ export async function handlePublish(
 
     const completeMatch = path.match(/^\/api\/v1\/publish\/([^/]+)\/complete$/);
     if (request.method === "POST" && completeMatch) {
-      requirePermission(creator, "artifacts:publish");
+      requirePermission(creator, env, "artifacts:publish");
       const versionId = completeMatch[1] || "";
       const version = await getVersionForOrg(env, creator.orgId, versionId);
       if (!version)
@@ -174,7 +174,7 @@ export async function handlePublish(
     }
 
     if (request.method === "POST" && path === "/api/v1/publish/html") {
-      requirePermission(creator, "artifacts:publish");
+      requirePermission(creator, env, "artifacts:publish");
       const body = (await request.json()) as StartBody & { html?: string };
       const html = String(body.html || "");
       if (!html) return error(400, "html_required", "html is required");

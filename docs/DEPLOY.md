@@ -40,10 +40,20 @@ Use those values to set Worker vars:
 WORKOS_AUTHKIT_URL = "https://<WORKOS_AUTHKIT_DOMAIN>"
 WORKOS_ISSUER = "https://<WORKOS_AUTHKIT_DOMAIN>"
 WORKOS_JWKS_URL = "https://<WORKOS_AUTHKIT_DOMAIN>/oauth2/jwks"
-WORKOS_AUDIENCE = "https://art-use.iofold.com"
+WORKOS_AUDIENCE = "https://art-use.iofold.com/mcp"
 ```
 
 The Worker validates bearer tokens through JWKS; it does not need `WORKOS_API_KEY` at runtime for the current v1.
+For the existing iofold/deployment WorkOS setup, the deploy can temporarily map read/write authorization to `openid`:
+
+```toml
+ARTIFACT_USE_AUTH_SCOPES = "openid profile email offline_access"
+ARTIFACT_USE_READ_SCOPES = "openid"
+ARTIFACT_USE_WRITE_SCOPES = "openid"
+```
+
+For stricter production authorization, switch read/write scopes to `artifacts:*` and configure those scopes in WorkOS.
+The WorkOS/AuthKit client may also need `https://art-use.iofold.com/mcp` configured as an allowed MCP resource indicator/audience.
 
 ## Cloudflare Vars
 

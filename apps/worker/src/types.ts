@@ -8,6 +8,9 @@ export interface Env {
   WORKOS_AUDIENCE: string;
   WORKOS_ISSUER: string;
   WORKOS_JWKS_URL: string;
+  ARTIFACT_USE_AUTH_SCOPES?: string;
+  ARTIFACT_USE_READ_SCOPES?: string;
+  ARTIFACT_USE_WRITE_SCOPES?: string;
   MAIL_FROM?: string;
   MAIL_FROM_NAME?: string;
   DEFAULT_PACKAGE_LIMIT_BYTES?: string;

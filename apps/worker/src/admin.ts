@@ -38,7 +38,7 @@ export async function handleAdminApi(
     }
 
     if (request.method === "POST" && path === "/api/v1/tenants") {
-      requirePermission(creator, "artifacts:publish");
+      requirePermission(creator, env, "artifacts:publish");
       const body = (await request.json()) as { tenant?: string; name?: string };
       const tenant = await ensureTenant(
         env,
@@ -50,7 +50,7 @@ export async function handleAdminApi(
     }
 
     if (request.method === "GET" && path === "/api/v1/tenant") {
-      requirePermission(creator, "artifacts:read");
+      requirePermission(creator, env, "artifacts:read");
       const tenant = await env.DB.prepare(
         "SELECT * FROM tenants WHERE org_id = ?",
       )
@@ -60,7 +60,7 @@ export async function handleAdminApi(
     }
 
     if (request.method === "GET" && path === "/api/v1/artifacts") {
-      requirePermission(creator, "artifacts:read");
+      requirePermission(creator, env, "artifacts:read");
       return json({ artifacts: await listArtifactsForOrg(env, creator.orgId) });
     }
 
@@ -76,12 +76,12 @@ export async function handleAdminApi(
       return error(404, "artifact_not_found", "artifact not found");
 
     if (request.method === "GET" && !action) {
-      requirePermission(creator, "artifacts:read");
+      requirePermission(creator, env, "artifacts:read");
       return json({ artifact });
     }
 
     if (request.method === "PATCH" && !action) {
-      requirePermission(creator, "artifacts:manage_access");
+      requirePermission(creator, env, "artifacts:manage_access");
       const body = (await request.json()) as {
         title?: string;
         gate_level?: GateLevel;
@@ -105,7 +105,7 @@ export async function handleAdminApi(
     }
 
     if (request.method === "POST" && action === "share-links") {
-      requirePermission(creator, "artifacts:manage_access");
+      requirePermission(creator, env, "artifacts:manage_access");
       const body = (await request.json()) as {
         recipient_email?: string;
         recipient_label?: string;
@@ -131,7 +131,7 @@ export async function handleAdminApi(
     }
 
     if (request.method === "GET" && action === "stats") {
-      requirePermission(creator, "artifacts:view_stats");
+      requirePermission(creator, env, "artifacts:view_stats");
       const views = await env.DB.prepare(
         "SELECT COUNT(*) AS total, COUNT(DISTINCT email) AS unique_viewers, MAX(ts) AS last_ts FROM views WHERE artifact_id = ?",
       )
@@ -161,7 +161,7 @@ export async function handleAdminApi(
     }
 
     if (request.method === "GET" && action === "comments") {
-      requirePermission(creator, "artifacts:read");
+      requirePermission(creator, env, "artifacts:read");
       const rows = await env.DB.prepare(
         "SELECT * FROM comments WHERE artifact_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 100",
       )

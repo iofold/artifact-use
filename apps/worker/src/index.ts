@@ -1,5 +1,6 @@
 import type { Env } from "./types";
 import { handleAdminApi } from "./admin";
+import { oauthResource, supportedScopes } from "./auth";
 import { handleGateRoute } from "./gate";
 import { handleMcp } from "./mcp";
 import { handlePublish } from "./publish";
@@ -39,27 +40,14 @@ async function route(
   try {
     if (path === "/.well-known/oauth-protected-resource") {
       return json({
-        resource: env.SITE_BASE_URL,
+        resource: oauthResource(env),
         authorization_servers: [env.WORKOS_AUTHKIT_URL],
         bearer_methods_supported: ["header"],
-        scopes_supported: [
-          "artifacts:publish",
-          "artifacts:read",
-          "artifacts:manage_access",
-          "artifacts:view_stats",
-        ],
+        scopes_supported: supportedScopes(env),
       });
     }
     if (path === "/.well-known/oauth-authorization-server") {
-      return json({
-        issuer: env.WORKOS_ISSUER,
-        authorization_endpoint: `${env.WORKOS_AUTHKIT_URL}/authorize`,
-        token_endpoint: `${env.WORKOS_AUTHKIT_URL}/oauth2/token`,
-        jwks_uri: env.WORKOS_JWKS_URL,
-        response_types_supported: ["code"],
-        grant_types_supported: ["authorization_code", "refresh_token"],
-        code_challenge_methods_supported: ["S256"],
-      });
+      return json(await authorizationServerMetadata(env));
     }
     if (path === "/health") return json({ ok: true, name: "artifact-use" });
     if (path === "/mcp") return handleMcp(request, env);
@@ -79,4 +67,21 @@ async function route(
       e instanceof Error ? e.message : "internal error",
     );
   }
+}
+
+async function authorizationServerMetadata(env: Env): Promise<unknown> {
+  const authkit = env.WORKOS_AUTHKIT_URL.replace(/\/$/, "");
+  const oauth = await fetch(`${authkit}/.well-known/oauth-authorization-server`);
+  if (oauth.ok) return oauth.json();
+  const oidc = await fetch(`${authkit}/.well-known/openid-configuration`);
+  if (oidc.ok) return oidc.json();
+  return {
+    issuer: env.WORKOS_ISSUER,
+    authorization_endpoint: `${authkit}/oauth2/authorize`,
+    token_endpoint: `${authkit}/oauth2/token`,
+    jwks_uri: env.WORKOS_JWKS_URL,
+    response_types_supported: ["code"],
+    grant_types_supported: ["authorization_code", "refresh_token"],
+    code_challenge_methods_supported: ["S256"],
+  };
 }
