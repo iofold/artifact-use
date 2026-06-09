@@ -102,4 +102,4 @@ The deployed Worker exposes:
 https://art-use.iofold.com/mcp
 ```
 
-Use a WorkOS bearer token in the `Authorization` header. The plugin and integration examples default to this HTTP MCP endpoint.
+The remote MCP endpoint requires authentication from the first request. OAuth-capable clients should be configured with only the URL and will receive a protected-resource challenge that starts WorkOS/AuthKit login. Non-OAuth clients may still pass a WorkOS bearer token in the `Authorization` header.

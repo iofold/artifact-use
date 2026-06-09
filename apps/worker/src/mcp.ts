@@ -6,31 +6,12 @@ import { error, json } from "./util";
 
 const TOOLS = [
   {
-    name: "artifact_use_publish_html",
+    name: "artifact_publish",
     description:
-      "Publish a single HTML artifact to the authenticated WorkOS organization.",
+      "Publish or update a static artifact. Pass html for a single-file artifact, or files for a small multi-file artifact.",
     inputSchema: {
       type: "object",
-      required: ["tenant", "artifact", "html"],
-      properties: {
-        tenant: { type: "string" },
-        artifact: { type: "string" },
-        title: { type: "string" },
-        gate_level: {
-          type: "string",
-          enum: ["public", "email", "verified_email", "allowlist"],
-        },
-        html: { type: "string" },
-      },
-    },
-  },
-  {
-    name: "artifact_use_publish_files",
-    description:
-      "Publish a small multi-file static artifact over HTTP MCP. Each file is sent inline as text or base64; use the CLI for large local folders.",
-    inputSchema: {
-      type: "object",
-      required: ["tenant", "artifact", "files"],
+      required: ["tenant", "artifact"],
       properties: {
         tenant: { type: "string" },
         artifact: { type: "string" },
@@ -40,8 +21,11 @@ const TOOLS = [
           enum: ["public", "email", "verified_email", "allowlist"],
         },
         entrypoint: { type: "string", default: "index.html" },
+        html: { type: "string" },
         files: {
           type: "array",
+          description:
+            "Inline files for multi-file artifacts. Use content for text or content_base64 for binary.",
           items: {
             type: "object",
             required: ["path"],
@@ -57,18 +41,17 @@ const TOOLS = [
     },
   },
   {
-    name: "artifact_use_list_artifacts",
+    name: "artifact_manage",
     description:
-      "List artifacts visible to the authenticated WorkOS organization.",
-    inputSchema: { type: "object", properties: {} },
-  },
-  {
-    name: "artifact_use_set_gate",
-    description: "Update an artifact gate level or allowlist.",
+      "List artifacts, fetch stats, update access, or create a tracked share link.",
     inputSchema: {
       type: "object",
-      required: ["tenant", "artifact", "gate_level"],
+      required: ["action"],
       properties: {
+        action: {
+          type: "string",
+          enum: ["list", "stats", "set_access", "share_link"],
+        },
         tenant: { type: "string" },
         artifact: { type: "string" },
         gate_level: {
@@ -76,37 +59,17 @@ const TOOLS = [
           enum: ["public", "email", "verified_email", "allowlist"],
         },
         allowlist: { type: "object" },
-      },
-    },
-  },
-  {
-    name: "artifact_use_create_share_link",
-    description: "Create a tracked share link for an artifact.",
-    inputSchema: {
-      type: "object",
-      required: ["tenant", "artifact"],
-      properties: {
-        tenant: { type: "string" },
-        artifact: { type: "string" },
         recipient_email: { type: "string" },
         recipient_label: { type: "string" },
         expires_days: { type: "number" },
       },
     },
   },
-  {
-    name: "artifact_use_get_stats",
-    description:
-      "Fetch artifact views, unique viewers, share links, and recent visits.",
-    inputSchema: {
-      type: "object",
-      required: ["tenant", "artifact"],
-      properties: { tenant: { type: "string" }, artifact: { type: "string" } },
-    },
-  },
 ];
 
 export async function handleMcp(request: Request, env: Env): Promise<Response> {
+  const creator = await safeCreator(request, env);
+  if (creator instanceof Response) return creator;
   if (request.method === "GET")
     return json({ name: "artifact-use", transport: "streamable-http-minimal" });
   if (request.method !== "POST")
@@ -137,8 +100,6 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
         id,
         error: { code: -32601, message: "method not found" },
       });
-    const creator = await safeCreator(request, env);
-    if (creator instanceof Response) return creator;
     const params = body.params || {};
     const name = String(params.name || "");
     const args = (params.arguments || {}) as Record<string, unknown>;
@@ -173,7 +134,13 @@ async function callTool(
     Authorization: request.headers.get("Authorization") || "",
     "Content-Type": "application/json",
   };
-  if (name === "artifact_use_publish_html") {
+  if (name === "artifact_publish") {
+    if (Array.isArray(args.files)) {
+      return publishInlineFiles(request, env, headers, args);
+    }
+    if (typeof args.html !== "string" || !args.html.trim()) {
+      throw new Error("artifact_publish requires html or files");
+    }
     const r = await handlePublish(
       new Request(new URL("/api/v1/publish/html", request.url), {
         method: "POST",
@@ -185,72 +152,73 @@ async function callTool(
     );
     return r.json();
   }
-  if (name === "artifact_use_publish_files") {
-    return publishInlineFiles(request, env, headers, args);
-  }
-  if (name === "artifact_use_list_artifacts") {
-    const r = await handleAdminApi(
-      new Request(new URL("/api/v1/artifacts", request.url), {
-        method: "GET",
-        headers,
-      }),
-      env,
-      "/api/v1/artifacts",
-    );
-    return r.json();
-  }
-  if (name === "artifact_use_set_gate") {
-    const tenant = String(args.tenant || "");
-    const artifact = String(args.artifact || "");
-    const r = await handleAdminApi(
-      new Request(
-        new URL(`/api/v1/artifacts/${tenant}/${artifact}`, request.url),
-        {
-          method: "PATCH",
+  if (name === "artifact_manage") {
+    const action = String(args.action || "");
+    if (action === "list") {
+      const r = await handleAdminApi(
+        new Request(new URL("/api/v1/artifacts", request.url), {
+          method: "GET",
           headers,
-          body: JSON.stringify({
-            gate_level: args.gate_level,
-            allowlist: args.allowlist,
-          }),
-        },
-      ),
-      env,
-      `/api/v1/artifacts/${tenant}/${artifact}`,
-    );
-    return r.json();
-  }
-  if (name === "artifact_use_create_share_link") {
+        }),
+        env,
+        "/api/v1/artifacts",
+      );
+      return r.json();
+    }
     const tenant = String(args.tenant || "");
     const artifact = String(args.artifact || "");
-    const r = await handleAdminApi(
-      new Request(
-        new URL(
-          `/api/v1/artifacts/${tenant}/${artifact}/share-links`,
-          request.url,
+    if (!tenant || !artifact)
+      throw new Error(
+        `artifact_manage ${action || "action"} requires tenant and artifact`,
+      );
+    if (action === "set_access") {
+      const r = await handleAdminApi(
+        new Request(
+          new URL(`/api/v1/artifacts/${tenant}/${artifact}`, request.url),
+          {
+            method: "PATCH",
+            headers,
+            body: JSON.stringify({
+              gate_level: args.gate_level,
+              allowlist: args.allowlist,
+            }),
+          },
         ),
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify(args),
-        },
-      ),
-      env,
-      `/api/v1/artifacts/${tenant}/${artifact}/share-links`,
-    );
-    return r.json();
-  }
-  if (name === "artifact_use_get_stats") {
-    const tenant = String(args.tenant || "");
-    const artifact = String(args.artifact || "");
-    const r = await handleAdminApi(
-      new Request(
-        new URL(`/api/v1/artifacts/${tenant}/${artifact}/stats`, request.url),
-        { method: "GET", headers },
-      ),
-      env,
-      `/api/v1/artifacts/${tenant}/${artifact}/stats`,
-    );
-    return r.json();
+        env,
+        `/api/v1/artifacts/${tenant}/${artifact}`,
+      );
+      return r.json();
+    }
+    if (action === "share_link") {
+      const r = await handleAdminApi(
+        new Request(
+          new URL(
+            `/api/v1/artifacts/${tenant}/${artifact}/share-links`,
+            request.url,
+          ),
+          {
+            method: "POST",
+            headers,
+            body: JSON.stringify(args),
+          },
+        ),
+        env,
+        `/api/v1/artifacts/${tenant}/${artifact}/share-links`,
+      );
+      return r.json();
+    }
+    if (action === "stats") {
+      const r = await handleAdminApi(
+        new Request(
+          new URL(`/api/v1/artifacts/${tenant}/${artifact}/stats`, request.url),
+          { method: "GET", headers },
+        ),
+        env,
+        `/api/v1/artifacts/${tenant}/${artifact}/stats`,
+      );
+      return r.json();
+    }
+    throw new Error(`unknown artifact_manage action: ${action}`);
   }
   throw new Error(`unknown tool: ${name}`);
 }
@@ -370,7 +338,10 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 }
 
 function arrayBufferFor(bytes: Uint8Array): ArrayBuffer {
-  const sliced = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+  const sliced = bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  );
   return sliced as ArrayBuffer;
 }
 

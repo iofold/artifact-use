@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { Creator, Env, ViewerSession } from "./types";
-import { error, json } from "./util";
+import { json } from "./util";
 
 let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
 let jwksUrlCache = "";
@@ -45,11 +45,12 @@ export async function getCreator(
     audience: env.WORKOS_AUDIENCE,
   });
   const claims = verified.payload as Record<string, unknown>;
-  const orgId = String(
+  const sub = String(claims.sub || "");
+  if (!sub) throw new Error("WorkOS token is missing sub");
+  const rawOrgId = String(
     claims.org_id || claims.organization_id || claims.orgId || "",
   );
-  const sub = String(claims.sub || "");
-  if (!orgId || !sub) throw new Error("WorkOS token is missing org_id or sub");
+  const orgId = rawOrgId || userScopedOrgId(sub);
   const permissions = new Set<string>();
   for (const claimName of ["permissions", "scope", "scp", "roles", "role"]) {
     for (const value of extractStringArray(claims[claimName])) {
@@ -65,7 +66,10 @@ export function requirePermission(
   env: Env,
   permission: string,
 ): void {
-  if (creator.permissions.has(permission) || creator.permissions.has("artifacts:admin"))
+  if (
+    creator.permissions.has(permission) ||
+    creator.permissions.has("artifacts:admin")
+  )
     return;
   const accepted = configuredScopes(env, permission);
   if (accepted.some((scope) => creator.permissions.has(scope))) {
@@ -75,12 +79,24 @@ export function requirePermission(
 }
 
 export function unauthorized(env: Env): Response {
+  return authRequired(env, "unauthorized", "Bearer token required");
+}
+
+export function authRequired(
+  env: Env,
+  code: string,
+  message: string,
+): Response {
   return json(
-    { error: { code: "unauthorized", message: "Bearer token required" } },
+    { error: { code, message } },
     {
       status: 401,
       headers: {
-        "WWW-Authenticate": `Bearer resource_metadata="${env.SITE_BASE_URL}/.well-known/oauth-protected-resource"`,
+        "WWW-Authenticate": [
+          `Bearer error="${code}"`,
+          `error_description="${message.replaceAll('"', "'")}"`,
+          `resource_metadata="${env.SITE_BASE_URL}/.well-known/oauth-protected-resource"`,
+        ].join(", "),
       },
     },
   );
@@ -96,29 +112,35 @@ export function supportedScopes(env: Env): string[] {
 
 function configuredScopes(env: Env, kind: string): string[] {
   if (kind === "all") {
-    return splitList(env.ARTIFACT_USE_AUTH_SCOPES) || [
-      "openid",
-      "profile",
-      "email",
-      "offline_access",
-      "artifacts:publish",
-      "artifacts:read",
-      "artifacts:manage_access",
-      "artifacts:view_stats",
-    ];
+    return (
+      splitList(env.ARTIFACT_USE_AUTH_SCOPES) || [
+        "openid",
+        "profile",
+        "email",
+        "offline_access",
+        "artifacts:publish",
+        "artifacts:read",
+        "artifacts:manage_access",
+        "artifacts:view_stats",
+      ]
+    );
   }
   if (kind === "artifacts:read" || kind === "artifacts:view_stats") {
-    return splitList(env.ARTIFACT_USE_READ_SCOPES) || [
-      "artifacts:read",
-      "artifacts:view_stats",
-      "artifacts:admin",
-    ];
+    return (
+      splitList(env.ARTIFACT_USE_READ_SCOPES) || [
+        "artifacts:read",
+        "artifacts:view_stats",
+        "artifacts:admin",
+      ]
+    );
   }
-  return splitList(env.ARTIFACT_USE_WRITE_SCOPES) || [
-    "artifacts:publish",
-    "artifacts:manage_access",
-    "artifacts:admin",
-  ];
+  return (
+    splitList(env.ARTIFACT_USE_WRITE_SCOPES) || [
+      "artifacts:publish",
+      "artifacts:manage_access",
+      "artifacts:admin",
+    ]
+  );
 }
 
 function splitList(value?: string): string[] | null {
@@ -131,8 +153,13 @@ function splitList(value?: string): string[] | null {
 
 function extractStringArray(value: unknown): string[] {
   if (typeof value === "string") return splitList(value) || [];
-  if (Array.isArray(value)) return value.flatMap((item) => extractStringArray(item));
+  if (Array.isArray(value))
+    return value.flatMap((item) => extractStringArray(item));
   return [];
+}
+
+function userScopedOrgId(sub: string): string {
+  return `user_${sub.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 }
 
 function base64Url(bytes: Uint8Array): string {
@@ -215,8 +242,8 @@ export async function safeCreator(
     const creator = await getCreator(request, env);
     return creator || unauthorized(env);
   } catch (e) {
-    return error(
-      401,
+    return authRequired(
+      env,
       "invalid_token",
       e instanceof Error ? e.message : "invalid bearer token",
     );

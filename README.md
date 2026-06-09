@@ -53,14 +53,13 @@ Use the hosted HTTP MCP endpoint:
   "mcpServers": {
     "artifact-use": {
       "type": "http",
-      "url": "https://art-use.iofold.com/mcp",
-      "headers": {
-        "Authorization": "Bearer ${ARTIFACT_USE_TOKEN}"
-      }
+      "url": "https://art-use.iofold.com/mcp"
     }
   }
 }
 ```
+
+The MCP endpoint requires auth from the first request. OAuth-capable clients should prompt for WorkOS/AuthKit sign-in after receiving the protected-resource challenge.
 
 The local stdio MCP server remains available for environments that need a local tool to walk a folder from disk.
 
@@ -97,7 +96,12 @@ The CLI will:
 3. Upload every file through the service-owned Worker API.
 4. Complete the version and receive a live URL.
 
-For HTTP MCP-only clients, use `artifact_use_publish_files` for small multi-file artifacts by passing inline file content. Use the CLI for large local folders because a remote MCP server cannot read a client filesystem.
+MCP exposes two tools:
+
+- `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP.
+- `artifact_manage`: list artifacts, fetch stats, update access, or create share links.
+
+Remote HTTP MCP cannot read local files by itself. Use inline `files` only for small artifacts. For large folders, use the bundled local stdio MCP or CLI so the tool can walk the filesystem and upload bytes directly to the hosted API without putting file contents in model context.
 
 ## Open-Source Scope
 

@@ -10,20 +10,18 @@ Use Artifact Use to publish static artifacts through hosted HTTP MCP at `https:/
 Rules:
 
 - Do not use Wrangler or Cloudflare tokens.
-- Authenticate with `ARTIFACT_USE_TOKEN`.
-- Use `artifact_use_publish_html` for one-file HTML.
-- Use `artifact_use_publish_files` for small multi-file HTTP MCP artifacts with inline file content.
-- Use the CLI or local stdio MCP for large local folders.
+- Prefer HTTP MCP OAuth prompts for auth.
+- Use `ARTIFACT_USE_TOKEN` only for CLI, local stdio MCP, or non-OAuth clients.
+- Use `artifact_publish` for publishing.
+- Use `artifact_manage` for list/stats/access/share-link actions.
+- Use local stdio MCP `artifact_publish` with `dir` or the CLI for large local folders.
 - Prefer `email` gate by default, `verified_email` for inbox control, and `allowlist` for customer-only access.
 - Keep tenant and artifact slugs lower-case hyphen-case.
 - Dry-run folder publishes when possible.
 
 MCP tools:
 
-- `artifact_use_publish_html`
-- `artifact_use_publish_files`
-- `artifact_use_list_artifacts`
-- `artifact_use_get_stats`
-- `artifact_use_create_share_link`
+- `artifact_publish`
+- `artifact_manage`
 
 Folder limits: 95 MiB package, 75 MiB per file, 200 files, `index.html` entrypoint.

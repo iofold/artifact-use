@@ -8,7 +8,11 @@ https://art-use.iofold.com/mcp
 
 The repository also ships a local stdio MCP server for environments that need the tool itself to walk a folder on disk.
 
-## Environment
+## Auth
+
+Remote HTTP MCP requires auth from the first request. OAuth-capable clients receive a `401` with MCP protected-resource metadata and should prompt for WorkOS/AuthKit sign-in automatically.
+
+For CLI usage, local stdio MCP, or non-OAuth clients, pass a WorkOS bearer token explicitly:
 
 ```bash
 export ARTIFACT_USE_API_BASE=https://art-use.iofold.com
@@ -31,17 +35,15 @@ Merge `integrations/claude-code/settings.example.json` into your Claude Code set
 
 ## Tools
 
-- `artifact_use_publish_folder`
-- `artifact_use_publish_html`
-- `artifact_use_publish_files`
-- `artifact_use_list_artifacts`
-- `artifact_use_get_stats`
-- `artifact_use_create_share_link`
+- `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP.
+- `artifact_manage`: list artifacts, fetch stats, update access, or create share links.
 
-## Folder Publishing Over MCP
+## File Publishing Over MCP
 
 HTTP MCP cannot read local files by itself. Use one of these paths:
 
-- `artifact_use_publish_html` for one HTML string.
-- `artifact_use_publish_files` for small multi-file artifacts where the agent passes inline text or base64 file content.
-- Local CLI or local stdio MCP for large folders that must be walked from disk.
+- Remote `artifact_publish` with `html` for one HTML string.
+- Remote `artifact_publish` with `files` for small multi-file artifacts where the agent passes inline text or base64 file content. This is convenient but consumes MCP request size and may consume model context in some clients.
+- Local stdio MCP `artifact_publish` with `dir`, or the CLI `publish-folder`, for large folders. In this mode the tool reads files from disk and streams bytes to the hosted API; the model only sees the path, manifest, and final URL.
+
+Future remote-only large upload support should use an upload-session pattern: MCP creates a draft artifact and returns short-lived upload URLs; the client or companion CLI uploads bytes directly; MCP then completes the manifest. That keeps large images, PDFs, videos, and folders out of the LLM context.

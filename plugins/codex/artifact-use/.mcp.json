@@ -2,10 +2,7 @@
   "mcpServers": {
     "artifact-use": {
       "type": "http",
-      "url": "https://art-use.iofold.com/mcp",
-      "headers": {
-        "Authorization": "Bearer ${ARTIFACT_USE_TOKEN}"
-      }
+      "url": "https://art-use.iofold.com/mcp"
     }
   }
 }

@@ -28,19 +28,18 @@ https://art-use.iofold.com/mcp
 ## MCP
 
 ```http
+GET /mcp
 POST /mcp
 ```
 
+Both `GET /mcp` and `POST /mcp` require creator auth. Unauthenticated requests return `401` with a `WWW-Authenticate: Bearer resource_metadata="..."` challenge so OAuth-capable MCP clients can discover WorkOS/AuthKit and prompt sign-in before tool discovery.
+
 Tools:
 
-- `artifact_use_publish_html`
-- `artifact_use_publish_files`
-- `artifact_use_list_artifacts`
-- `artifact_use_set_gate`
-- `artifact_use_create_share_link`
-- `artifact_use_get_stats`
+- `artifact_publish`
+- `artifact_manage`
 
-`artifact_use_publish_files` is intended for small HTTP MCP artifacts. Each file can contain `content` or `content_base64`.
+`artifact_publish` accepts either `html` for a single-file artifact or `files` for small HTTP MCP multi-file artifacts. Each inline file can contain `content` or `content_base64`. Large folders should use the local stdio MCP or CLI so file bytes move directly from disk to the hosted API without entering model context.
 
 ## Tenant
 
