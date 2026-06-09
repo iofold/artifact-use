@@ -20,9 +20,12 @@ Worker secrets:
 ```bash
 npx wrangler secret put SESSION_SECRET
 npx wrangler secret put RESEND_API_KEY
+npx wrangler secret put WORKOS_CLIENT_ID
+npx wrangler secret put WORKOS_API_KEY
 ```
 
 `RESEND_API_KEY` is optional for `email` gates but required for production `verified_email`.
+`WORKOS_CLIENT_ID` and `WORKOS_API_KEY` are required only for the hosted publisher sign-up/sign-in web admin. The HTTP MCP resource only needs the WorkOS issuer/JWKS/audience vars.
 
 ## WorkOS Vars
 
@@ -42,6 +45,17 @@ WORKOS_ISSUER = "https://<WORKOS_AUTHKIT_DOMAIN>"
 WORKOS_JWKS_URL = "https://<WORKOS_AUTHKIT_DOMAIN>/oauth2/jwks"
 WORKOS_AUDIENCE = "https://art-use.iofold.com/mcp"
 ```
+
+The hosted publisher UI uses:
+
+```text
+https://art-use.iofold.com/login
+https://art-use.iofold.com/signup
+https://art-use.iofold.com/callback
+https://art-use.iofold.com/admin
+```
+
+Configure WorkOS redirects so `https://art-use.iofold.com/callback` is allowed.
 
 The Worker validates bearer tokens through JWKS; it does not need `WORKOS_API_KEY` at runtime for the current v1.
 For the existing iofold/deployment WorkOS setup, the deploy can temporarily map read/write authorization to `openid`:

@@ -4,6 +4,11 @@ import { oauthResource, supportedScopes } from "./auth";
 import { handleGateRoute } from "./gate";
 import { handleMcp } from "./mcp";
 import { handlePublish } from "./publish";
+import {
+  handlePublisherAdmin,
+  handlePublisherAuth,
+  renderHome,
+} from "./publisher";
 import { handleComments, servePublic } from "./serve";
 import { error, json } from "./util";
 
@@ -49,6 +54,17 @@ async function route(
     if (path === "/.well-known/oauth-authorization-server") {
       return json(await authorizationServerMetadata(env));
     }
+    if (path === "/") return renderHome(request, env);
+    if (
+      path === "/login" ||
+      path === "/signin" ||
+      path === "/signup" ||
+      path === "/callback" ||
+      path === "/logout"
+    )
+      return handlePublisherAuth(request, env, path);
+    if (path === "/admin" || path.startsWith("/admin/"))
+      return handlePublisherAdmin(request, env, path);
     if (path === "/health") return json({ ok: true, name: "artifact-use" });
     if (path === "/mcp") return handleMcp(request, env);
     if (path.startsWith("/api/v1/publish/"))

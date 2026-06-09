@@ -8,6 +8,8 @@ export interface Env {
   WORKOS_AUDIENCE: string;
   WORKOS_ISSUER: string;
   WORKOS_JWKS_URL: string;
+  WORKOS_CLIENT_ID?: string;
+  WORKOS_API_KEY?: string;
   ARTIFACT_USE_AUTH_SCOPES?: string;
   ARTIFACT_USE_READ_SCOPES?: string;
   ARTIFACT_USE_WRITE_SCOPES?: string;
@@ -97,5 +99,13 @@ export interface ViewerSession {
   email: string;
   verified: boolean;
   view_id: number;
+  exp: number;
+}
+
+export interface PublisherSession {
+  sub: string;
+  orgId: string;
+  email: string | null;
+  name: string | null;
   exp: number;
 }
