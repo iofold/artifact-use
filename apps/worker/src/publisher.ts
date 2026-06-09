@@ -45,18 +45,19 @@ export async function renderHome(
     <main class="home">
       <section class="hero">
         <div>
-          <p class="eyebrow">Cloudflare artifact publishing</p>
-          <h1>Publish static artifacts from agents without sharing Cloudflare keys.</h1>
-          <p class="lead">Tenant paths, WorkOS publisher auth, DocSend-style gates, and HTTP MCP for Claude Code, Codex, and other coding agents.</p>
+          <p class="eyebrow">Review-ready artifact links</p>
+          <h1>Turn agent output into polished links people can open, attribute, and discuss.</h1>
+          <p class="lead">Publish single-file HTML prototypes, PDFs, images, or complete multi-file folders with tenant paths, viewer attribution, access gates, and comments for feedback.</p>
           <div class="actions">
             <a class="button" href="/signup">Sign up</a>
             <a class="button ghost" href="/login">Sign in</a>
           </div>
         </div>
-        <div class="status" aria-label="Service status">
+        <div class="status" aria-label="Artifact Use features">
           <span></span>
-          <strong>Hosted at ${escapeHtml(new URL(env.SITE_BASE_URL).host)}</strong>
-          <em>${escapeHtml(env.SITE_BASE_URL)}/tenant/artifact/</em>
+          <strong>Single HTML or full folders</strong>
+          <em>WorkOS SSO publisher sign-in, email attribution, magic-link or email OTP links, whitelist gates, and comments.</em>
+          <small>${escapeHtml(env.SITE_BASE_URL)}/tenant/artifact/</small>
         </div>
       </section>
     </main>`,
@@ -250,6 +251,21 @@ async function renderAdmin(
           <div><strong>${uniqueViewers.size}</strong><span>Viewers</span></div>
         </div>
       </section>
+      <section class="setup">
+        <div>
+          <p class="eyebrow">Agent setup</p>
+          <h2>Connect your coding agent</h2>
+          <p class="muted">Use the remote MCP URL below. OAuth-capable MCP clients will prompt you to sign in with WorkOS.</p>
+        </div>
+        <div class="setup-grid">
+          <label>MCP URL
+            <input readonly value="${escapeHtml(env.SITE_BASE_URL)}/mcp" onclick="this.select()">
+          </label>
+          <label>MCP config
+            <textarea readonly rows="7" onclick="this.select()">${escapeHtml(mcpConfig(env))}</textarea>
+          </label>
+        </div>
+      </section>
       <section class="toolbar">
         <form method="post" action="/admin/tenant">
           <label>Tenant slug</label>
@@ -269,6 +285,21 @@ async function renderAdmin(
         }
       </section>
     </main>`,
+  );
+}
+
+function mcpConfig(env: Env): string {
+  return JSON.stringify(
+    {
+      mcpServers: {
+        "artifact-use": {
+          type: "http",
+          url: `${env.SITE_BASE_URL}/mcp`,
+        },
+      },
+    },
+    null,
+    2,
   );
 }
 
@@ -444,7 +475,7 @@ function page(title: string, body: string): Response {
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>
 :root{--ink:#17201d;--muted:#65736d;--line:#d8dfdc;--paper:#fbfcfa;--panel:#fff;--field:#f4f7f5;--accent:#0b6f5f;--accent2:#d6ff62}
-*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:Aptos,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}a{color:inherit;text-decoration:none}.top{height:66px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 clamp(18px,4vw,48px);background:rgba(251,252,250,.92);position:sticky;top:0;z-index:5}.brand{font-weight:800}.top nav{display:flex;gap:10px;align-items:center}.top nav a{padding:9px 10px;border-radius:6px;color:var(--muted)}.top nav a:hover{background:var(--field);color:var(--ink)}.button,button{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border:1px solid var(--accent);border-radius:6px;background:var(--accent);color:#fff;padding:0 14px;font:700 14px inherit;cursor:pointer}.button.ghost{background:transparent;color:var(--accent)}.button.small{min-height:34px;padding:0 11px}.home,.admin{max-width:1120px;margin:0 auto;padding:clamp(26px,5vw,56px) clamp(18px,4vw,34px)}.hero{min-height:calc(100vh - 150px);display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:44px;align-items:center}.eyebrow{font-size:12px;font-weight:800;text-transform:uppercase;color:var(--accent);margin:0 0 14px}.hero h1,.headline h1{font-size:clamp(36px,6vw,74px);line-height:.96;margin:0;max-width:780px}.lead{font-size:20px;line-height:1.5;color:var(--muted);max-width:680px}.actions{display:flex;gap:12px;margin-top:26px}.status{border-left:3px solid var(--accent);padding:18px 0 18px 20px}.status span{display:block;width:10px;height:10px;border-radius:50%;background:var(--accent2);box-shadow:0 0 0 5px rgba(214,255,98,.28);margin-bottom:16px}.status strong,.status em{display:block}.status em{margin-top:8px;color:var(--muted);font-style:normal;word-break:break-all}.headline{display:flex;align-items:end;justify-content:space-between;gap:24px;border-bottom:1px solid var(--line);padding-bottom:26px}.headline h1{font-size:clamp(32px,4vw,54px)}.muted{color:var(--muted)}.metrics{display:grid;grid-template-columns:repeat(3,110px);border:1px solid var(--line);background:var(--panel)}.metrics div{padding:16px;border-right:1px solid var(--line)}.metrics div:last-child{border-right:0}.metrics strong{display:block;font-size:26px}.metrics span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.toolbar{padding:24px 0;border-bottom:1px solid var(--line)}label{display:block;font-size:12px;font-weight:800;text-transform:uppercase;color:var(--muted);margin-bottom:8px}.inline{display:grid;grid-template-columns:minmax(160px,260px) minmax(160px,1fr) auto;gap:10px}input,select{width:100%;min-height:38px;border:1px solid var(--line);border-radius:6px;background:#fff;padding:8px 10px;font:inherit}.table{margin-top:22px}.table-head,.artifact-row{display:grid;grid-template-columns:minmax(240px,1fr) 310px 120px 82px;gap:14px;align-items:center}.table-head{padding:0 12px 10px;color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase}.artifact-row{background:#fff;border:1px solid var(--line);padding:12px;margin-bottom:10px}.artifact-row strong,.artifact-row span{display:block}.artifact-row span,.views span{color:var(--muted);font-size:13px;margin-top:3px}.access{display:grid;grid-template-columns:1fr auto;gap:8px}.empty{border:1px solid var(--line);background:#fff;padding:24px}.empty strong,.empty span{display:block}.empty span{color:var(--muted);margin-top:6px}.panel.narrow{max-width:520px;margin:14vh auto;padding:32px}.error{color:#a33434}@media(max-width:760px){.hero{grid-template-columns:1fr;min-height:auto}.headline{align-items:start;flex-direction:column}.metrics{grid-template-columns:repeat(3,minmax(0,1fr));width:100%}.inline,.table-head,.artifact-row{grid-template-columns:1fr}.table-head{display:none}.access{grid-template-columns:1fr}.actions{flex-wrap:wrap}}
+*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:Aptos,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}a{color:inherit;text-decoration:none}.top{height:66px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 clamp(18px,4vw,48px);background:rgba(251,252,250,.92);position:sticky;top:0;z-index:5}.brand{font-weight:800}.top nav{display:flex;gap:10px;align-items:center}.top nav a{padding:9px 10px;border-radius:6px;color:var(--muted)}.top nav a:hover{background:var(--field);color:var(--ink)}.button,button{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border:1px solid var(--accent);border-radius:6px;background:var(--accent);color:#fff;padding:0 14px;font:700 14px inherit;cursor:pointer}.button.ghost{background:transparent;color:var(--accent)}.button.small{min-height:34px;padding:0 11px}.home,.admin{max-width:1120px;margin:0 auto;padding:clamp(26px,5vw,56px) clamp(18px,4vw,34px)}.hero{min-height:calc(100vh - 150px);display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:44px;align-items:center}.eyebrow{font-size:12px;font-weight:800;text-transform:uppercase;color:var(--accent);margin:0 0 14px}.hero h1,.headline h1{font-size:clamp(36px,6vw,74px);line-height:.96;margin:0;max-width:780px}.lead{font-size:20px;line-height:1.5;color:var(--muted);max-width:680px}.actions{display:flex;gap:12px;margin-top:26px}.status{border-left:3px solid var(--accent);padding:18px 0 18px 20px}.status span{display:block;width:10px;height:10px;border-radius:50%;background:var(--accent2);box-shadow:0 0 0 5px rgba(214,255,98,.28);margin-bottom:16px}.status strong,.status em,.status small{display:block}.status em{margin-top:8px;color:var(--muted);font-style:normal;line-height:1.5}.status small{margin-top:14px;color:var(--muted);word-break:break-all}.headline{display:flex;align-items:end;justify-content:space-between;gap:24px;border-bottom:1px solid var(--line);padding-bottom:26px}.headline h1{font-size:clamp(32px,4vw,54px)}.muted{color:var(--muted)}.metrics{display:grid;grid-template-columns:repeat(3,110px);border:1px solid var(--line);background:var(--panel)}.metrics div{padding:16px;border-right:1px solid var(--line)}.metrics div:last-child{border-right:0}.metrics strong{display:block;font-size:26px}.metrics span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.setup{display:grid;grid-template-columns:280px minmax(0,1fr);gap:24px;padding:24px 0;border-bottom:1px solid var(--line)}.setup h2{margin:0 0 8px;font-size:24px}.setup-grid{display:grid;gap:12px}label{display:block;font-size:12px;font-weight:800;text-transform:uppercase;color:var(--muted);margin-bottom:8px}.toolbar{padding:24px 0;border-bottom:1px solid var(--line)}.inline{display:grid;grid-template-columns:minmax(160px,260px) minmax(160px,1fr) auto;gap:10px}input,select,textarea{width:100%;min-height:38px;border:1px solid var(--line);border-radius:6px;background:#fff;padding:8px 10px;font:inherit;text-transform:none;color:var(--ink)}textarea{resize:vertical;font-family:"SFMono-Regular",Consolas,monospace;font-size:13px;line-height:1.45}.table{margin-top:22px}.table-head,.artifact-row{display:grid;grid-template-columns:minmax(240px,1fr) 310px 120px 82px;gap:14px;align-items:center}.table-head{padding:0 12px 10px;color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase}.artifact-row{background:#fff;border:1px solid var(--line);padding:12px;margin-bottom:10px}.artifact-row strong,.artifact-row span{display:block}.artifact-row span,.views span{color:var(--muted);font-size:13px;margin-top:3px}.access{display:grid;grid-template-columns:1fr auto;gap:8px}.empty{border:1px solid var(--line);background:#fff;padding:24px}.empty strong,.empty span{display:block}.empty span{color:var(--muted);margin-top:6px}.panel.narrow{max-width:520px;margin:14vh auto;padding:32px}.error{color:#a33434}@media(max-width:760px){.hero{grid-template-columns:1fr;min-height:auto}.headline{align-items:start;flex-direction:column}.metrics{grid-template-columns:repeat(3,minmax(0,1fr));width:100%}.setup{grid-template-columns:1fr}.inline,.table-head,.artifact-row{grid-template-columns:1fr}.table-head{display:none}.access{grid-template-columns:1fr}.actions{flex-wrap:wrap}}
 </style></head><body>${body}</body></html>`,
     {
       headers: {
