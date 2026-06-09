@@ -27,9 +27,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         "Publish or update a static artifact. Use dir for local folders without sending file bytes through model context, html for single-file artifacts, or files for small inline multi-file artifacts.",
       inputSchema: {
         type: "object",
-        required: ["tenant", "artifact"],
+        required: ["artifact"],
         properties: {
-          tenant: { type: "string" },
+          tenant: {
+            type: "string",
+            description:
+              "Optional. Omit to use the authenticated account's default tenant.",
+          },
           artifact: { type: "string" },
           title: { type: "string" },
           dir: { type: "string" },
@@ -68,7 +72,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: "string",
             enum: ["list", "stats", "set_access", "share_link"],
           },
-          tenant: { type: "string" },
+          tenant: {
+            type: "string",
+            description:
+              "Optional for stats, set_access, and share_link when artifact is unique in the authenticated account.",
+          },
           artifact: { type: "string" },
           gate_level: {
             type: "string",
@@ -107,12 +115,21 @@ await server.connect(new StdioServerTransport());
 async function manageArtifact(args: Record<string, unknown>): Promise<unknown> {
   const action = String(args.action || "");
   if (action === "list") return api("GET", "/api/v1/artifacts");
-  const tenant = String(args.tenant || "");
+  let tenant = String(args.tenant || "");
   const artifact = String(args.artifact || "");
-  if (!tenant || !artifact)
-    throw new Error(
-      `artifact_manage ${action || "action"} requires tenant and artifact`,
-    );
+  if (!artifact)
+    throw new Error(`artifact_manage ${action || "action"} requires artifact`);
+  if (!tenant) {
+    const listed = (await api("GET", "/api/v1/artifacts")) as {
+      artifacts?: Array<{ slug: string; tenant_slug: string }>;
+    };
+    const match = (listed.artifacts || []).find((row) => row.slug === artifact);
+    if (!match)
+      throw new Error(
+        `artifact not found in authenticated account: ${artifact}`,
+      );
+    tenant = match.tenant_slug;
+  }
   if (action === "stats")
     return api("GET", `/api/v1/artifacts/${tenant}/${artifact}/stats`);
   if (action === "set_access")

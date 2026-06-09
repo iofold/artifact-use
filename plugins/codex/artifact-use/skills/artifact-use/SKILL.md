@@ -16,12 +16,13 @@ Rules:
 - Use `artifact_manage` for list/stats/access/share-link actions.
 - Use local stdio MCP `artifact_publish` with `dir` or the CLI for large local folders.
 - Prefer `email` gate by default, `verified_email` for inbox control, and `allowlist` for customer-only access.
-- Keep tenant and artifact slugs lower-case hyphen-case.
+- Do not guess tenant slugs. Omit `tenant` unless the user explicitly asks for a tenant path.
+- Keep explicit tenant and artifact slugs lower-case hyphen-case.
 - Dry-run folder publishes when possible.
 
 MCP tools:
 
-- `artifact_publish`
-- `artifact_manage`
+- `artifact_publish` (`tenant` optional)
+- `artifact_manage` (`action: "list"` returns `default_tenant`)
 
 Folder limits: 95 MiB package, 75 MiB per file, 200 files, `index.html` entrypoint.

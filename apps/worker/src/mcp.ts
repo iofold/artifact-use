@@ -1,6 +1,7 @@
-import type { Env } from "./types";
+import type { Creator, Env } from "./types";
 import { handleAdminApi } from "./admin";
 import { safeCreator } from "./auth";
+import { getArtifactForOrg } from "./db";
 import { handlePublish } from "./publish";
 import { error, json } from "./util";
 
@@ -11,9 +12,13 @@ const TOOLS = [
       "Publish or update a static artifact. Pass html for a single-file artifact, or files for a small multi-file artifact.",
     inputSchema: {
       type: "object",
-      required: ["tenant", "artifact"],
+      required: ["artifact"],
       properties: {
-        tenant: { type: "string" },
+        tenant: {
+          type: "string",
+          description:
+            "Optional. Omit to use the authenticated account's default tenant.",
+        },
         artifact: { type: "string" },
         title: { type: "string" },
         gate_level: {
@@ -52,7 +57,11 @@ const TOOLS = [
           type: "string",
           enum: ["list", "stats", "set_access", "share_link"],
         },
-        tenant: { type: "string" },
+        tenant: {
+          type: "string",
+          description:
+            "Optional for stats, set_access, and share_link when artifact is unique in the authenticated account.",
+        },
         artifact: { type: "string" },
         gate_level: {
           type: "string",
@@ -103,7 +112,7 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
     const params = body.params || {};
     const name = String(params.name || "");
     const args = (params.arguments || {}) as Record<string, unknown>;
-    const result = await callTool(request, env, name, args);
+    const result = await callTool(request, env, creator, name, args);
     return json({
       jsonrpc: "2.0",
       id,
@@ -127,6 +136,7 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
 async function callTool(
   request: Request,
   env: Env,
+  creator: Creator,
   name: string,
   args: Record<string, unknown>,
 ): Promise<unknown> {
@@ -165,12 +175,21 @@ async function callTool(
       );
       return r.json();
     }
-    const tenant = String(args.tenant || "");
+    let tenant = String(args.tenant || "");
     const artifact = String(args.artifact || "");
     if (!tenant || !artifact)
-      throw new Error(
-        `artifact_manage ${action || "action"} requires tenant and artifact`,
-      );
+      if (!artifact) {
+        throw new Error(
+          `artifact_manage ${action || "action"} requires artifact`,
+        );
+      } else {
+        const existing = await getArtifactForOrg(env, creator.orgId, artifact);
+        if (!existing)
+          throw new Error(
+            `artifact not found in authenticated account: ${artifact}`,
+          );
+        tenant = existing.tenant_slug;
+      }
     if (action === "set_access") {
       const r = await handleAdminApi(
         new Request(

@@ -55,6 +55,17 @@ export function isSlug(s: string): boolean {
   return /^[a-z0-9][a-z0-9-]{0,62}$/.test(s);
 }
 
+export function slugify(value: string, fallback = "publisher"): string {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .replace(/-{2,}/g, "-")
+    .slice(0, 63)
+    .replace(/-+$/g, "");
+  return isSlug(slug) ? slug : fallback;
+}
+
 export function assertSlug(kind: string, s: string): string {
   if (!isSlug(s))
     throw new Error(`${kind} must be lower-case hyphen-case, 1-63 chars`);

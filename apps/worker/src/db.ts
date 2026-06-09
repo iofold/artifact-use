@@ -7,7 +7,7 @@ import type {
   GateLevel,
   Tenant,
 } from "./types";
-import { nowSec, randomId } from "./util";
+import { assertSlug, nowSec, randomId, slugify } from "./util";
 
 export async function getTenantBySlug(
   env: Env,
@@ -18,12 +18,50 @@ export async function getTenantBySlug(
     .first<Tenant>();
 }
 
+export async function getTenantForOrg(
+  env: Env,
+  orgId: string,
+): Promise<Tenant | null> {
+  return env.DB.prepare("SELECT * FROM tenants WHERE org_id = ?")
+    .bind(orgId)
+    .first<Tenant>();
+}
+
+export async function resolveTenant(
+  env: Env,
+  creator: Creator,
+  requestedSlug?: string | null,
+  name?: string | null,
+): Promise<Tenant> {
+  const explicit = String(requestedSlug || "").trim();
+  if (explicit) return ensureTenant(env, creator, explicit, name);
+
+  const existing = await getTenantForOrg(env, creator.orgId);
+  if (existing) return existing;
+
+  const candidates = defaultTenantCandidates(creator);
+  for (const candidate of candidates) {
+    const taken = await getTenantBySlug(env, candidate);
+    if (!taken || taken.org_id === creator.orgId) {
+      return ensureTenant(env, creator, candidate, name);
+    }
+  }
+
+  return ensureTenant(
+    env,
+    creator,
+    slugify(`${candidates[0] || "publisher"}-${shortHash(creator.orgId)}`),
+    name,
+  );
+}
+
 export async function ensureTenant(
   env: Env,
   creator: Creator,
   slug: string,
   name?: string | null,
 ): Promise<Tenant> {
+  const tenantSlug = assertSlug("tenant", slug);
   const existing = await env.DB.prepare(
     "SELECT * FROM tenants WHERE org_id = ?",
   )
@@ -31,30 +69,66 @@ export async function ensureTenant(
     .first<Tenant>();
   const now = nowSec();
   if (existing) {
-    if (existing.slug !== slug) {
-      const taken = await getTenantBySlug(env, slug);
+    if (existing.slug !== tenantSlug) {
+      const taken = await getTenantBySlug(env, tenantSlug);
       if (taken && taken.org_id !== creator.orgId)
         throw new Error("tenant slug is already taken");
       await env.DB.prepare(
         "UPDATE tenants SET slug = ?, name = COALESCE(?, name), updated_at = ? WHERE org_id = ?",
       )
-        .bind(slug, name || null, now, creator.orgId)
+        .bind(tenantSlug, name || null, now, creator.orgId)
         .run();
     }
     return (await env.DB.prepare("SELECT * FROM tenants WHERE org_id = ?")
       .bind(creator.orgId)
       .first<Tenant>()) as Tenant;
   }
-  const taken = await getTenantBySlug(env, slug);
+  const taken = await getTenantBySlug(env, tenantSlug);
   if (taken) throw new Error("tenant slug is already taken");
   await env.DB.prepare(
     "INSERT INTO tenants (org_id, slug, name, owner_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
   )
-    .bind(creator.orgId, slug, name || null, creator.email, now, now)
+    .bind(creator.orgId, tenantSlug, name || null, creator.email, now, now)
     .run();
   return (await env.DB.prepare("SELECT * FROM tenants WHERE org_id = ?")
     .bind(creator.orgId)
     .first<Tenant>()) as Tenant;
+}
+
+function defaultTenantCandidates(creator: Creator): string[] {
+  const raw = creator.raw || {};
+  const values = [
+    stringClaim(raw.organization_slug),
+    stringClaim(raw.org_slug),
+    stringClaim(raw.organization_name),
+    stringClaim(raw.org_name),
+    emailDomainRoot(creator.email),
+    creator.email ? creator.email.split("@")[0] : null,
+    "publisher",
+  ];
+  return [
+    ...new Set(values.map((value) => slugify(value || "")).filter(Boolean)),
+  ];
+}
+
+function stringClaim(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function emailDomainRoot(email: string | null): string | null {
+  const domain = email?.split("@")[1]?.toLowerCase();
+  if (!domain) return null;
+  const parts = domain.split(".").filter(Boolean);
+  if (parts.length < 2) return parts[0] || null;
+  return parts.at(-2) || null;
+}
+
+function shortHash(value: string): string {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 33) ^ value.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(36).slice(0, 6);
 }
 
 export async function getArtifactByPath(

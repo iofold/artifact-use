@@ -39,7 +39,7 @@ Tools:
 - `artifact_publish`
 - `artifact_manage`
 
-`artifact_publish` accepts either `html` for a single-file artifact or `files` for small HTTP MCP multi-file artifacts. Each inline file can contain `content` or `content_base64`. Large folders should use the local stdio MCP or CLI so file bytes move directly from disk to the hosted API without entering model context.
+`artifact_publish` accepts either `html` for a single-file artifact or `files` for small HTTP MCP multi-file artifacts. `tenant` is optional; omit it to use the authenticated account's default tenant. Each inline file can contain `content` or `content_base64`. Large folders should use the local stdio MCP or CLI so file bytes move directly from disk to the hosted API without entering model context.
 
 ## Tenant
 
@@ -64,6 +64,8 @@ POST /api/v1/publish/html
 }
 ```
 
+`tenant` may be omitted; the server will use or create the authenticated account's default tenant.
+
 ## Publish Folder
 
 Start:
@@ -78,6 +80,8 @@ POST /api/v1/publish/start
   "entrypoint": "index.html"
 }
 ```
+
+`tenant` may be omitted; the server will use or create the authenticated account's default tenant.
 
 Upload each file:
 

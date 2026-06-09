@@ -9,8 +9,8 @@ import { safeCreator, requirePermission } from "./auth";
 import {
   completeVersion,
   createDraftVersion,
-  ensureTenant,
   getVersionForOrg,
+  resolveTenant,
   upsertArtifact,
   upsertFile,
 } from "./db";
@@ -25,7 +25,7 @@ import {
 } from "./util";
 
 interface StartBody {
-  tenant: string;
+  tenant?: string;
   artifact: string;
   title?: string;
   gate_level?: GateLevel;
@@ -45,7 +45,6 @@ export async function handlePublish(
     if (request.method === "POST" && path === "/api/v1/publish/start") {
       requirePermission(creator, env, "artifacts:publish");
       const body = (await request.json()) as StartBody;
-      const tenantSlug = assertSlug("tenant", String(body.tenant || ""));
       const artifactSlug = assertSlug("artifact", String(body.artifact || ""));
       const gateLevel = (body.gate_level || "email") as GateLevel;
       if (!GATE_LEVELS.has(gateLevel))
@@ -53,11 +52,11 @@ export async function handlePublish(
       const entrypoint = validateAssetPath(
         String(body.entrypoint || "index.html"),
       );
-      await ensureTenant(env, creator, tenantSlug);
+      const tenant = await resolveTenant(env, creator, body.tenant);
       const artifact = await upsertArtifact(
         env,
         creator,
-        tenantSlug,
+        tenant.slug,
         artifactSlug,
         body.title || artifactSlug,
         gateLevel,
@@ -180,16 +179,15 @@ export async function handlePublish(
       if (!html) return error(400, "html_required", "html is required");
       if (new TextEncoder().encode(html).byteLength > readLimit(env, "file"))
         return error(413, "file_too_large", "html exceeds file limit");
-      const tenantSlug = assertSlug("tenant", String(body.tenant || ""));
       const artifactSlug = assertSlug("artifact", String(body.artifact || ""));
       const gateLevel = (body.gate_level || "email") as GateLevel;
       if (!GATE_LEVELS.has(gateLevel))
         return error(400, "invalid_gate_level", "gate_level is not supported");
-      await ensureTenant(env, creator, tenantSlug);
+      const tenant = await resolveTenant(env, creator, body.tenant);
       const artifact = await upsertArtifact(
         env,
         creator,
-        tenantSlug,
+        tenant.slug,
         artifactSlug,
         body.title || artifactSlug,
         gateLevel,
@@ -235,7 +233,7 @@ export async function handlePublish(
         ok: true,
         artifact,
         version_id: version.id,
-        url: `${env.SITE_BASE_URL}/${tenantSlug}/${artifactSlug}/`,
+        url: `${env.SITE_BASE_URL}/${tenant.slug}/${artifactSlug}/`,
       });
     }
   } catch (e) {

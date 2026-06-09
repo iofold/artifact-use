@@ -98,8 +98,8 @@ The CLI will:
 
 MCP exposes two tools:
 
-- `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP.
-- `artifact_manage`: list artifacts, fetch stats, update access, or create share links.
+- `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP. `tenant` is optional; omit it to use the authenticated account's default tenant.
+- `artifact_manage`: list artifacts, fetch stats, update access, or create share links. `artifact_manage` with `action: "list"` returns `default_tenant`.
 
 Remote HTTP MCP cannot read local files by itself. Use inline `files` only for small artifacts. For large folders, use the bundled local stdio MCP or CLI so the tool can walk the filesystem and upload bytes directly to the hosted API without putting file contents in model context.
 

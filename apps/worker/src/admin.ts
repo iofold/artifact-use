@@ -4,6 +4,7 @@ import {
   createShareLink,
   ensureTenant,
   getArtifactByPath,
+  getTenantForOrg,
   listArtifactsForOrg,
   updateArtifactAccess,
 } from "./db";
@@ -27,6 +28,7 @@ export async function handleAdminApi(
 
   try {
     if (request.method === "GET" && path === "/api/v1/me") {
+      const tenant = await getTenantForOrg(env, creator.orgId);
       return json({
         creator: {
           sub: creator.sub,
@@ -34,6 +36,7 @@ export async function handleAdminApi(
           email: creator.email,
           permissions: [...creator.permissions],
         },
+        tenant,
       });
     }
 
@@ -51,17 +54,18 @@ export async function handleAdminApi(
 
     if (request.method === "GET" && path === "/api/v1/tenant") {
       requirePermission(creator, env, "artifacts:read");
-      const tenant = await env.DB.prepare(
-        "SELECT * FROM tenants WHERE org_id = ?",
-      )
-        .bind(creator.orgId)
-        .first();
+      const tenant = await getTenantForOrg(env, creator.orgId);
       return json({ tenant });
     }
 
     if (request.method === "GET" && path === "/api/v1/artifacts") {
       requirePermission(creator, env, "artifacts:read");
-      return json({ artifacts: await listArtifactsForOrg(env, creator.orgId) });
+      const tenant = await getTenantForOrg(env, creator.orgId);
+      return json({
+        tenant,
+        default_tenant: tenant?.slug || null,
+        artifacts: await listArtifactsForOrg(env, creator.orgId),
+      });
     }
 
     const match = path.match(

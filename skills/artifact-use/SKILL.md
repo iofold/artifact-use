@@ -23,7 +23,8 @@ https://art-use.iofold.com
 - For large local folders, prefer local stdio MCP `artifact_publish` with `dir` or the CLI so file bytes do not enter model context.
 - For CLI usage, prefer `--json` payloads and JSON output.
 - Run dry-run before publishing a folder when the artifact is large or generated.
-- Keep tenant and artifact slugs lower-case hyphen-case.
+- Do not guess tenant slugs. Omit `tenant` unless the user explicitly asks for a tenant path; the server resolves the authenticated account's default tenant.
+- Keep explicit tenant and artifact slugs lower-case hyphen-case.
 - Default gate is `email`; use `verified_email` when inbox control matters; use `allowlist` for customer-only artifacts.
 
 ## CLI
@@ -51,8 +52,8 @@ artifact-use publish-folder --json '{
 
 ## MCP Tools
 
-- `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP.
-- `artifact_manage`: list artifacts, fetch stats, update access, or create share links.
+- `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP. `tenant` is optional.
+- `artifact_manage`: list artifacts, fetch stats, update access, or create share links. `action: "list"` returns `default_tenant`.
 
 ## Folder Constraints
 
