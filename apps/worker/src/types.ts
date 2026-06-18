@@ -119,6 +119,7 @@ export interface PublisherSession {
   role?: string | null;
   roles?: string[];
   permissions?: string[];
+  sessionId?: string | null;
   organizationMembershipId?: string | null;
   exp: number;
 }

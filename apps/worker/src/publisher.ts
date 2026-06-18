@@ -187,9 +187,15 @@ export async function handlePublisherAuth(
   if (path === "/callback" && request.method === "GET")
     return finishAuth(request, env);
   if (path === "/logout" && request.method === "GET") {
-    return redirect("/login", {
-      "Set-Cookie": expireCookie(SESSION_COOKIE),
-    });
+    const session = await getPublisherSession(request, env);
+    const headers = new Headers();
+    headers.append("Set-Cookie", expireCookie(SESSION_COOKIE));
+    headers.append("Set-Cookie", expireCookie(STATE_COOKIE));
+    headers.append("Set-Cookie", expireCookie(INVITE_COOKIE));
+    return redirect(
+      session?.sessionId ? workosLogoutUrl(session.sessionId) : "/",
+      headers,
+    );
   }
   return error(405, "method_not_allowed", "method not allowed");
 }
@@ -276,6 +282,7 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
   const user = (auth.user || {}) as Record<string, unknown>;
   const userId = stringClaim(user.id) || stringClaim(auth.user_id);
   const email = stringClaim(user.email) || stringClaim(auth.email);
+  const accessClaims = decodeJwtClaims(stringClaim(auth.access_token)) || {};
   const fallbackOrgIds = [
     userId ? userScopedOrgId(userId) : "",
     email ? `email:${email}` : "",
@@ -283,12 +290,8 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
   const authOrgId =
     stringClaim(auth.organization_id) ||
     stringClaim(auth.organizationId) ||
-    stringClaim(
-      (decodeJwtClaims(stringClaim(auth.access_token)) || {}).org_id,
-    ) ||
-    stringClaim(
-      (decodeJwtClaims(stringClaim(auth.access_token)) || {}).organization_id,
-    );
+    stringClaim(accessClaims.org_id) ||
+    stringClaim(accessClaims.organization_id);
   let orgId = authOrgId || fallbackOrgIds[0] || "";
   if (!orgId || !userId)
     return error(
@@ -322,6 +325,10 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
     role: roles[0] || null,
     roles,
     permissions,
+    sessionId:
+      stringClaim(auth.session_id) ||
+      stringClaim(auth.sessionId) ||
+      stringClaim(accessClaims.sid),
     organizationMembershipId: stringClaim(auth.organization_membership_id),
     exp: nowSec() + 7 * 86400,
   };
@@ -1575,6 +1582,12 @@ function redirect(location: string, headers: HeadersInit = {}): Response {
     status: 302,
     headers: out,
   });
+}
+
+function workosLogoutUrl(sessionId: string): string {
+  const url = new URL("https://api.workos.com/user_management/sessions/logout");
+  url.searchParams.set("session_id", sessionId);
+  return url.toString();
 }
 
 function stringClaim(value: unknown): string | null {
