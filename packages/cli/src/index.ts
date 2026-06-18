@@ -168,7 +168,7 @@ function config(apiBase: string, token: string): Config {
     apiBase: (
       apiBase ||
       process.env.ARTIFACT_USE_API_BASE ||
-      "https://art-use.iofold.com"
+      "https://artifacts.iofold.com"
     ).replace(/\/$/, ""),
     token: token || process.env.ARTIFACT_USE_TOKEN || "",
   };
@@ -233,6 +233,7 @@ async function publishFolder(
         headers: {
           Authorization: `Bearer ${conf.token}`,
           "Content-Type": f.content_type,
+          "Content-Length": String(f.size),
           "X-Artifact-Sha256": f.sha256,
         },
         body: bytes,

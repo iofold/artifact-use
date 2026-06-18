@@ -9,7 +9,7 @@ const TOOLS = [
   {
     name: "artifact_publish",
     description:
-      "Publish or update a static artifact. Pass html for a single-file artifact, or files for a small multi-file artifact.",
+      "Publish or update a static artifact. Pass html for a single-file artifact, or files for a small inline multi-file artifact. If you can read files from a local filesystem and make HTTP requests from a shell, prefer artifact_upload_session so file bytes go directly over HTTP instead of through MCP/model context.",
     inputSchema: {
       type: "object",
       required: ["artifact"],
@@ -41,6 +41,34 @@ const TOOLS = [
               content_type: { type: "string" },
             },
           },
+        },
+      },
+    },
+  },
+  {
+    name: "artifact_upload_session",
+    description:
+      "Create a short-lived direct upload session for large files or folders. Use this when the agent has filesystem and shell/curl access: call this tool for a 6-hour bearer upload_token, then PUT file bytes directly to upload_base with Content-Length, Content-Type, and X-Artifact-Sha256, and POST the manifest to complete_url without embedding file contents in MCP arguments.",
+    inputSchema: {
+      type: "object",
+      required: ["artifact"],
+      properties: {
+        tenant: {
+          type: "string",
+          description:
+            "Optional. Omit to use the authenticated account's default tenant.",
+        },
+        artifact: { type: "string" },
+        title: { type: "string" },
+        gate_level: {
+          type: "string",
+          enum: ["public", "email", "verified_email", "allowlist"],
+        },
+        entrypoint: { type: "string", default: "index.html" },
+        ttl_seconds: {
+          type: "number",
+          description: "Token lifetime in seconds. Maximum is 21600 (6 hours).",
+          default: 21600,
         },
       },
     },
@@ -159,6 +187,18 @@ async function callTool(
       }),
       env,
       "/api/v1/publish/html",
+    );
+    return r.json();
+  }
+  if (name === "artifact_upload_session") {
+    const r = await handlePublish(
+      new Request(new URL("/api/v1/publish/upload-session", request.url), {
+        method: "POST",
+        headers,
+        body: JSON.stringify(args),
+      }),
+      env,
+      "/api/v1/publish/upload-session",
     );
     return r.json();
   }
@@ -293,6 +333,7 @@ async function publishInlineFiles(
     const uploadHeaders = {
       Authorization: authHeader,
       "Content-Type": file.contentType,
+      "Content-Length": String(file.bytes.byteLength),
       "X-Artifact-Sha256": file.sha256,
     };
     await readJsonOrThrow(

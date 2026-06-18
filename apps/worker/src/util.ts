@@ -26,6 +26,43 @@ export function error(status: number, code: string, message: string): Response {
   return json({ error: { code, message } }, { status });
 }
 
+export function siteBaseUrl(env: Env): string {
+  return env.SITE_BASE_URL.replace(/\/+$/, "");
+}
+
+export function artifactPathPrefix(env: Env): string {
+  const raw = (env.ARTIFACT_PUBLIC_PATH_PREFIX || "/go").trim();
+  const stripped = raw.replace(/^\/+|\/+$/g, "");
+  return stripped ? `/${stripped}` : "";
+}
+
+export function publicArtifactPath(
+  env: Env,
+  tenant: string,
+  artifact: string,
+): string {
+  return `${artifactPathPrefix(env)}/${tenant}/${artifact}/`;
+}
+
+export function publicArtifactUrl(
+  env: Env,
+  tenant: string,
+  artifact: string,
+): string {
+  return `${siteBaseUrl(env)}${publicArtifactPath(env, tenant, artifact)}`;
+}
+
+export function stripPublicArtifactPrefix(
+  env: Env,
+  path: string,
+): string | null {
+  const prefix = artifactPathPrefix(env);
+  if (!prefix) return path;
+  if (path === prefix) return "/";
+  if (path.startsWith(`${prefix}/`)) return path.slice(prefix.length);
+  return null;
+}
+
 export function readLimit(env: Env, key: "package" | "file" | "count"): number {
   if (key === "package")
     return Number(env.DEFAULT_PACKAGE_LIMIT_BYTES || "99614720");

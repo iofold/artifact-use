@@ -10,7 +10,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 
 const API_BASE = (
-  process.env.ARTIFACT_USE_API_BASE || "https://art-use.iofold.com"
+  process.env.ARTIFACT_USE_API_BASE || "https://artifacts.iofold.com"
 ).replace(/\/$/, "");
 const TOKEN = process.env.ARTIFACT_USE_TOKEN || "";
 
@@ -24,7 +24,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     {
       name: "artifact_publish",
       description:
-        "Publish or update a static artifact. Use dir for local folders without sending file bytes through model context, html for single-file artifacts, or files for small inline multi-file artifacts.",
+        "Publish or update a static artifact. Use dir for local folders without sending file bytes through model context, html for single-file artifacts, or files for small inline multi-file artifacts. If you can read files and run curl from a shell, use artifact_upload_session for direct HTTP upload without embedding file bytes in MCP arguments.",
       inputSchema: {
         type: "object",
         required: ["artifact"],
@@ -57,6 +57,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           },
           entrypoint: { type: "string", default: "index.html" },
           dry_run: { type: "boolean", default: false },
+        },
+      },
+    },
+    {
+      name: "artifact_upload_session",
+      description:
+        "Create a 6-hour direct upload session. Use this when the agent has filesystem and shell/curl access: PUT file bytes directly to upload_base with the returned bearer upload_token, Content-Length, Content-Type, and X-Artifact-Sha256, then POST the manifest to complete_url.",
+      inputSchema: {
+        type: "object",
+        required: ["artifact"],
+        properties: {
+          tenant: {
+            type: "string",
+            description:
+              "Optional. Omit to use the authenticated account's default tenant.",
+          },
+          artifact: { type: "string" },
+          title: { type: "string" },
+          gate_level: {
+            type: "string",
+            enum: ["public", "email", "verified_email", "allowlist"],
+          },
+          entrypoint: { type: "string", default: "index.html" },
+          ttl_seconds: { type: "number", default: 21600 },
         },
       },
     },
@@ -104,6 +128,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     else throw new Error("artifact_publish requires dir, html, or files");
   } else if (name === "artifact_manage") {
     result = await manageArtifact(args);
+  } else if (name === "artifact_upload_session") {
+    result = await api("POST", "/api/v1/publish/upload-session", args);
   } else {
     throw new Error(`unknown tool: ${name}`);
   }
@@ -194,6 +220,7 @@ async function publishFiles(args: Record<string, unknown>): Promise<unknown> {
         headers: {
           Authorization: `Bearer ${TOKEN}`,
           "Content-Type": file.content_type,
+          "Content-Length": String(file.size),
           "X-Artifact-Sha256": file.sha256,
         },
         body: file.bytes,
@@ -256,6 +283,7 @@ async function publishFolder(args: Record<string, unknown>): Promise<unknown> {
         headers: {
           Authorization: `Bearer ${TOKEN}`,
           "Content-Type": f.content_type,
+          "Content-Length": String(f.size),
           "X-Artifact-Sha256": f.sha256,
         },
         body: bytes,

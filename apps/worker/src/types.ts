@@ -4,6 +4,7 @@ export interface Env {
   DB: D1Database;
   BUCKET: R2Bucket;
   SITE_BASE_URL: string;
+  ARTIFACT_PUBLIC_PATH_PREFIX?: string;
   WORKOS_AUTHKIT_URL: string;
   WORKOS_AUDIENCE: string;
   WORKOS_ISSUER: string;
@@ -61,7 +62,7 @@ export interface ArtifactVersion {
   id: string;
   artifact_id: string;
   org_id: string;
-  status: "draft" | "complete" | "aborted";
+  status: "draft" | "finalizing" | "complete" | "aborted";
   entrypoint: string;
   manifest_json: string | null;
   total_size: number;
@@ -102,10 +103,22 @@ export interface ViewerSession {
   exp: number;
 }
 
+export interface UploadSession {
+  typ: "artifact_upload";
+  org_id: string;
+  version_id: string;
+  created_by: string | null;
+  exp: number;
+}
+
 export interface PublisherSession {
   sub: string;
   orgId: string;
   email: string | null;
   name: string | null;
+  role?: string | null;
+  roles?: string[];
+  permissions?: string[];
+  organizationMembershipId?: string | null;
   exp: number;
 }

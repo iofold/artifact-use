@@ -253,6 +253,18 @@ export async function getFile(
     .first<ArtifactFile>();
 }
 
+export async function listFilesForVersion(
+  env: Env,
+  versionId: string,
+): Promise<ArtifactFile[]> {
+  const res = await env.DB.prepare(
+    "SELECT * FROM artifact_files WHERE version_id = ? ORDER BY path",
+  )
+    .bind(versionId)
+    .all<ArtifactFile>();
+  return res.results || [];
+}
+
 export async function upsertFile(
   env: Env,
   versionId: string,
@@ -271,6 +283,68 @@ export async function upsertFile(
        size = excluded.size, sha256 = excluded.sha256, uploaded_at = excluded.uploaded_at`,
   )
     .bind(versionId, path, storageKey, contentType, size, sha256, now)
+    .run();
+}
+
+export async function upsertFileIfDraft(
+  env: Env,
+  orgId: string,
+  versionId: string,
+  path: string,
+  storageKey: string,
+  contentType: string,
+  size: number,
+  sha256: string | null,
+): Promise<boolean> {
+  const now = nowSec();
+  const result = await env.DB.prepare(
+    `INSERT INTO artifact_files (version_id, path, storage_key, content_type, size, sha256, uploaded_at)
+     SELECT ?, ?, ?, ?, ?, ?, ?
+     WHERE EXISTS (SELECT 1 FROM artifact_versions WHERE id = ? AND org_id = ? AND status = 'draft')
+     ON CONFLICT(version_id, path)
+     DO UPDATE SET storage_key = excluded.storage_key, content_type = excluded.content_type,
+       size = excluded.size, sha256 = excluded.sha256, uploaded_at = excluded.uploaded_at
+     WHERE EXISTS (SELECT 1 FROM artifact_versions WHERE id = ? AND org_id = ? AND status = 'draft')`,
+  )
+    .bind(
+      versionId,
+      path,
+      storageKey,
+      contentType,
+      size,
+      sha256,
+      now,
+      versionId,
+      orgId,
+      versionId,
+      orgId,
+    )
+    .run();
+  return result.meta.changes > 0;
+}
+
+export async function claimVersionForCompletion(
+  env: Env,
+  orgId: string,
+  versionId: string,
+): Promise<boolean> {
+  const result = await env.DB.prepare(
+    "UPDATE artifact_versions SET status = 'finalizing' WHERE id = ? AND org_id = ? AND status = 'draft'",
+  )
+    .bind(versionId, orgId)
+    .run();
+  return result.meta.changes > 0;
+}
+
+export async function revertVersionToDraft(
+  env: Env,
+  orgId: string,
+  versionId: string,
+): Promise<void> {
+  await env.DB.prepare(
+    "UPDATE artifact_versions SET status = 'draft' WHERE id = ? AND org_id = ? AND status = 'finalizing'",
+  )
+    .bind(versionId, orgId)
     .run();
 }
 

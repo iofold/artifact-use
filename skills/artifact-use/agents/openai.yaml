@@ -1,0 +1,4 @@
+interface:
+  display_name: "Artifact Use"
+  short_description: "Create, QA, publish, and share artifacts."
+  default_prompt: "Use $artifact-use to create or publish a polished Artifact Use HTML artifact and verify it before sharing."

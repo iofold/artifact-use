@@ -2,6 +2,7 @@ import type { Env } from "./types";
 import { handleAdminApi } from "./admin";
 import { oauthResource, supportedScopes } from "./auth";
 import { handleGateRoute } from "./gate";
+import { llmsFullTxt, llmsTxt } from "./llms";
 import { handleMcp } from "./mcp";
 import { handlePublish } from "./publish";
 import {
@@ -16,7 +17,7 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,OPTIONS",
   "Access-Control-Allow-Headers":
-    "Authorization,Content-Type,X-Artifact-Sha256",
+    "Authorization,Content-Length,Content-Type,X-Artifact-Sha256",
   "Access-Control-Max-Age": "86400",
 };
 
@@ -24,11 +25,15 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
+    const cors = corsHeaders(path);
     if (request.method === "OPTIONS")
-      return new Response(null, { headers: CORS });
+      return new Response(
+        null,
+        cors ? { status: 204, headers: cors } : { status: 204 },
+      );
     const response = await route(request, env, path);
     const headers = new Headers(response.headers);
-    for (const [k, v] of Object.entries(CORS)) headers.set(k, v);
+    if (cors) for (const [k, v] of Object.entries(CORS)) headers.set(k, v);
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
@@ -36,6 +41,17 @@ export default {
     });
   },
 };
+
+function corsHeaders(path: string): typeof CORS | null {
+  if (
+    path === "/mcp" ||
+    path.startsWith("/api/v1/") ||
+    path.startsWith("/.well-known/oauth-")
+  ) {
+    return CORS;
+  }
+  return null;
+}
 
 async function route(
   request: Request,
@@ -55,10 +71,13 @@ async function route(
       return json(await authorizationServerMetadata(env));
     }
     if (path === "/") return renderHome(request, env);
+    if (path === "/llms.txt") return llmsTxt(env);
+    if (path === "/llms-full.txt") return llmsFullTxt(env);
     if (
       path === "/login" ||
       path === "/signin" ||
       path === "/signup" ||
+      path === "/invite" ||
       path === "/callback" ||
       path === "/logout"
     )
@@ -87,7 +106,9 @@ async function route(
 
 async function authorizationServerMetadata(env: Env): Promise<unknown> {
   const authkit = env.WORKOS_AUTHKIT_URL.replace(/\/$/, "");
-  const oauth = await fetch(`${authkit}/.well-known/oauth-authorization-server`);
+  const oauth = await fetch(
+    `${authkit}/.well-known/oauth-authorization-server`,
+  );
   if (oauth.ok) return oauth.json();
   const oidc = await fetch(`${authkit}/.well-known/openid-configuration`);
   if (oidc.ok) return oidc.json();

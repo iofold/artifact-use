@@ -20,11 +20,11 @@ Creators authenticate with WorkOS. The Worker expects a JWT with an organization
 Read/write authorization is configurable, so a hosted deployment can start with WorkOS `openid` scopes and later tighten to dedicated `artifacts:*` scopes.
 The D1 `tenants` table maps `org_id` to a public `tenant_slug`.
 
-Public URLs use tenant prefixes:
+Public artifact URLs use the `/go` prefix followed by tenant and artifact slugs:
 
 ```text
-/{tenant_slug}/{artifact_slug}/
-/{tenant_slug}/{artifact_slug}/assets/app.js
+/go/{tenant_slug}/{artifact_slug}/
+/go/{tenant_slug}/{artifact_slug}/assets/app.js
 ```
 
 R2 object keys use immutable IDs:

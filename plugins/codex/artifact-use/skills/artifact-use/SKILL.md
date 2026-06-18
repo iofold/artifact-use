@@ -1,28 +1,41 @@
 ---
 name: artifact-use
-description: Use when publishing, sharing, gating, or checking stats for Artifact Use artifacts through the hosted API, CLI, or MCP server. Applies to single-file HTML artifacts and folder/static-site artifacts. Use this instead of Wrangler or Cloudflare tokens.
+description: Use when creating, polishing, publishing, sharing, gating, or checking stats for Artifact Use artifacts through the hosted API, CLI, or MCP server. Applies to self-contained interactive HTML artifacts, single-file HTML tools, multi-file static artifacts, folders, images/PDFs, and Artifact Use admin/share workflows. Use this instead of Wrangler, Cloudflare tokens, R2, or direct D1 access.
 ---
 
 # Artifact Use
 
-Use Artifact Use to publish static artifacts through hosted HTTP MCP at `https://art-use.iofold.com/mcp` and the hosted API at `https://art-use.iofold.com`.
+Artifact Use publishes static artifacts to `https://artifacts.iofold.com` without exposing Cloudflare credentials to agents.
 
-Rules:
+## Core Rules
 
-- Do not use Wrangler or Cloudflare tokens.
-- Prefer HTTP MCP OAuth prompts for auth.
+- Never use Wrangler, Cloudflare API tokens, direct R2 credentials, or direct D1 access for publishing artifacts.
+- Prefer hosted HTTP MCP at `https://artifacts.iofold.com/mcp`; OAuth-capable clients should authenticate through the MCP prompt.
 - Use `ARTIFACT_USE_TOKEN` only for CLI, local stdio MCP, or non-OAuth clients.
-- Use `artifact_publish` for publishing.
-- Use `artifact_manage` for list/stats/access/share-link actions.
-- Use local stdio MCP `artifact_publish` with `dir` or the CLI for large local folders.
-- Prefer `email` gate by default, `verified_email` for inbox control, and `allowlist` for customer-only access.
+- Use `artifact_publish` for a single HTML string or small inline multi-file payloads.
+- Use `artifact_upload_session`, local stdio MCP with `dir`, or the CLI for local folders, large files, images, PDFs, or multi-file artifacts.
+- Use `artifact_manage` for list, stats, access changes, and share links. `action: "list"` returns `default_tenant`.
 - Do not guess tenant slugs. Omit `tenant` unless the user explicitly asks for a tenant path.
 - Keep explicit tenant and artifact slugs lower-case hyphen-case.
-- Dry-run folder publishes when possible.
+- Default gate is `email`; use `verified_email` when inbox control matters, `allowlist` for restricted customer material, and `public` only when intentionally low sensitivity.
+- New public Artifact Use URLs are under `/go/{tenant}/{artifact}/`; legacy direct root artifact paths belong to the old legacy artifact host host.
 
-MCP tools:
+## Authoring Workflow
 
-- `artifact_publish` (`tenant` optional)
-- `artifact_manage` (`action: "list"` returns `default_tenant`)
+1. Clarify or infer the artifact mode: focused HTML tool, interactive storyboard, demo/control plane, dashboard/data explorer, narrative one-pager, report surrogate, or static file/folder.
+2. For client-facing or interactive HTML, read `references/html-artifact-quality.md` before building.
+3. For folders, sibling assets, split data files, images, PDFs, local libraries, or large payloads, read `references/multifile-artifacts.md`.
+4. Build the working artifact first, then polish visual hierarchy, copy, responsiveness, and empty/error states.
+5. Before saying it is ready or publishing it, read `references/browser-qa.md` and run the relevant checks.
+6. For MCP, CLI, or upload-session details, read `references/publishing.md`.
 
-Folder limits: 95 MiB package, 75 MiB per file, 200 files, `index.html` entrypoint.
+## Completion Checklist
+
+After publishing or changing an artifact, report:
+
+- Live URL or local path.
+- Gate level.
+- Tenant/artifact slug.
+- Whether a share link was created.
+- Browser/interaction checks run, or why they were not run.
+- Any failure reason from the JSON error body.

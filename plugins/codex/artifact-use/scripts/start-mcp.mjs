@@ -25,7 +25,7 @@ const child = spawn(command, args, {
   env: {
     ...process.env,
     ARTIFACT_USE_API_BASE:
-      process.env.ARTIFACT_USE_API_BASE || "https://art-use.iofold.com",
+      process.env.ARTIFACT_USE_API_BASE || "https://artifacts.iofold.com",
   },
 });
 

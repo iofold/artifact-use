@@ -2,6 +2,14 @@
 
 Artifact Use is designed to deploy to Cloudflare while creator auth is handled by WorkOS.
 
+## Existing artifacts.iofold.com deployment
+
+`artifacts.iofold.com` is already served by the legacy artifact host `legacy-artifacts` Worker.
+Keep that Worker attached as the custom-domain origin so old direct artifact links continue to work.
+Artifact Use uses an exact root route for the homepage plus more specific zone routes for `/go/*`, `/mcp*`, `/api/v1*`, `/_au*`, `/llms.txt`, `/llms-full.txt`, and publisher auth/admin/team-invite paths.
+Do not add an `artifacts.iofold.com/*` catch-all route unless the legacy legacy artifact host artifact paths have been intentionally retired.
+See `docs/LEGACY_ARTIFACTS.md` before changing routing.
+
 ## Existing iofold Defaults
 
 The repo is preconfigured for the iofold Cloudflare account used by the existing artifact host:
@@ -26,6 +34,7 @@ npx wrangler secret put WORKOS_API_KEY
 
 `RESEND_API_KEY` is optional for `email` gates but required for production `verified_email`.
 `WORKOS_CLIENT_ID` and `WORKOS_API_KEY` are required only for the hosted publisher sign-up/sign-in web admin. The HTTP MCP resource only needs the WorkOS issuer/JWKS/audience vars.
+Publisher team invitations and solo-account organization upgrades use WorkOS Organizations, Invitations, and Organization Memberships through `WORKOS_API_KEY`.
 
 ## WorkOS Vars
 
@@ -43,21 +52,25 @@ Use those values to set Worker vars:
 WORKOS_AUTHKIT_URL = "https://<WORKOS_AUTHKIT_DOMAIN>"
 WORKOS_ISSUER = "https://<WORKOS_AUTHKIT_DOMAIN>"
 WORKOS_JWKS_URL = "https://<WORKOS_AUTHKIT_DOMAIN>/oauth2/jwks"
-WORKOS_AUDIENCE = "https://art-use.iofold.com/mcp"
+WORKOS_AUDIENCE = "https://artifacts.iofold.com/mcp"
+SITE_BASE_URL = "https://artifacts.iofold.com"
+ARTIFACT_PUBLIC_PATH_PREFIX = "/go"
 ```
 
 The hosted publisher UI uses:
 
 ```text
-https://art-use.iofold.com/login
-https://art-use.iofold.com/signup
-https://art-use.iofold.com/callback
-https://art-use.iofold.com/admin
+https://artifacts.iofold.com/login
+https://artifacts.iofold.com/signup
+https://artifacts.iofold.com/invite?invitation_token=<token>
+https://artifacts.iofold.com/callback
+https://artifacts.iofold.com/admin
 ```
 
-Configure WorkOS redirects so `https://art-use.iofold.com/callback` is allowed.
+Configure WorkOS redirects so `https://artifacts.iofold.com/callback` is allowed.
+Set WorkOS invitation accept URLs to route through `/invite` with the invitation token preserved.
 
-The Worker validates bearer tokens through JWKS; it does not need `WORKOS_API_KEY` at runtime for the current v1.
+The Worker validates bearer tokens through JWKS for MCP requests. The publisher web admin also calls the WorkOS API at runtime for organization creation, membership checks, and team invitations.
 For the existing iofold/deployment WorkOS setup, the deploy can temporarily map read/write authorization to `openid`:
 
 ```toml
@@ -67,7 +80,7 @@ ARTIFACT_USE_WRITE_SCOPES = "openid"
 ```
 
 For stricter production authorization, switch read/write scopes to `artifacts:*` and configure those scopes in WorkOS.
-The WorkOS/AuthKit client may also need `https://art-use.iofold.com/mcp` configured as an allowed MCP resource indicator/audience.
+The WorkOS/AuthKit client may also need `https://artifacts.iofold.com/mcp` configured as an allowed MCP resource indicator/audience.
 
 ## Cloudflare Vars
 
@@ -99,7 +112,20 @@ npx wrangler deploy
 The deployed Worker exposes:
 
 ```text
-https://art-use.iofold.com/mcp
+https://artifacts.iofold.com/mcp
+```
+
+Agent setup guides are available at:
+
+```text
+https://artifacts.iofold.com/llms.txt
+https://artifacts.iofold.com/llms-full.txt
+```
+
+New public Artifact Use links are under:
+
+```text
+https://artifacts.iofold.com/go/{tenant}/{artifact}/
 ```
 
 The remote MCP endpoint requires authentication from the first request. OAuth-capable clients should be configured with only the URL and will receive a protected-resource challenge that starts WorkOS/AuthKit login. Non-OAuth clients may still pass a WorkOS bearer token in the `Authorization` header.

@@ -3,17 +3,20 @@
 Artifact Use is an open-source, multi-tenant artifact publishing service for AI agents and teams.
 It hosts static HTML/folder artifacts on Cloudflare R2 behind a Cloudflare Worker, tracks viewer access in D1, and uses WorkOS OAuth/AuthKit for artifact creator auth.
 
-The default hosted API is planned at `https://art-use.iofold.com`.
+The default hosted API is planned at `https://artifacts.iofold.com`.
 
 ## What It Does
 
 - Publishes single-file HTML or complete static folders.
-- Serves tenant-prefixed URLs such as `https://art-use.iofold.com/acme/claims-demo/`.
+- Serves tenant-prefixed artifact URLs such as `https://artifacts.iofold.com/go/acme/claims-demo/`.
 - Keeps every publish as an immutable version and atomically flips the current version.
 - Supports DocSend-style gates: `public`, `email`, `verified_email`, and `allowlist`.
 - Tracks views, share links, viewer email attribution, and lightweight comments.
 - Exposes the same backend through REST, a JSON-first CLI, and an MCP server for coding agents.
 - Keeps Cloudflare credentials inside the Worker. Agents never need Wrangler or Cloudflare API tokens.
+
+Existing direct links on `https://artifacts.iofold.com/<slug>/` continue to belong to the legacy legacy artifact host artifact Worker.
+Artifact Use owns the homepage and reserved product routes, with new public artifact links under `/go/`.
 
 ## Repository Layout
 
@@ -53,7 +56,7 @@ Use the hosted HTTP MCP endpoint:
   "mcpServers": {
     "artifact-use": {
       "type": "http",
-      "url": "https://art-use.iofold.com/mcp"
+      "url": "https://artifacts.iofold.com/mcp"
     }
   }
 }
@@ -74,6 +77,8 @@ npx wrangler r2 bucket create artifact-use
 npx wrangler d1 migrations apply artifact-use --remote
 npx wrangler secret put SESSION_SECRET
 npx wrangler secret put RESEND_API_KEY
+npx wrangler secret put WORKOS_CLIENT_ID
+npx wrangler secret put WORKOS_API_KEY
 npx wrangler deploy
 ```
 

@@ -1,5 +1,5 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import type { Creator, Env, ViewerSession } from "./types";
+import type { Creator, Env, UploadSession, ViewerSession } from "./types";
 import { json } from "./util";
 
 let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
@@ -213,6 +213,32 @@ export async function verifyViewerSession(
   const decoded = JSON.parse(
     new TextDecoder().decode(fromBase64Url(payload)),
   ) as ViewerSession;
+  if (!decoded.exp || decoded.exp < Math.floor(Date.now() / 1000)) return null;
+  return decoded;
+}
+
+export async function signUploadToken(
+  session: UploadSession,
+  env: Env,
+): Promise<string> {
+  const payload = base64Url(new TextEncoder().encode(JSON.stringify(session)));
+  const sig = await hmac(env.SESSION_SECRET, payload);
+  return `${payload}.${sig}`;
+}
+
+export async function verifyUploadToken(
+  raw: string,
+  env: Env,
+): Promise<UploadSession | null> {
+  const [payload, sig] = raw.split(".");
+  if (!payload || !sig) return null;
+  const expected = await hmac(env.SESSION_SECRET, payload);
+  if (expected !== sig) return null;
+  const decoded = JSON.parse(
+    new TextDecoder().decode(fromBase64Url(payload)),
+  ) as UploadSession;
+  if (decoded.typ !== "artifact_upload") return null;
+  if (!decoded.version_id || !decoded.org_id) return null;
   if (!decoded.exp || decoded.exp < Math.floor(Date.now() / 1000)) return null;
   return decoded;
 }

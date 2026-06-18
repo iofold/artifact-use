@@ -14,6 +14,7 @@ import {
   htmlPage,
   normalizeEmail,
   nowSec,
+  publicArtifactPath,
   randomCode,
   randomId,
 } from "./util";
@@ -43,7 +44,7 @@ export function renderGate(
   return htmlPage(
     artifact.title,
     `<h1>${escapeHtml(artifact.title)}</h1>
-<p class="muted">Enter your email to continue. The sender can see your email and when you view this.</p>
+<p class="muted">Enter your email to continue.</p>
 <form method="post" action="${action}">
   <input type="hidden" name="tenant" value="${escapeHtml(artifact.tenant_slug)}">
   <input type="hidden" name="artifact" value="${escapeHtml(artifact.slug)}">
@@ -71,6 +72,12 @@ export async function handleGateRoute(
       if (!email.includes("@"))
         return error(400, "invalid_email", "valid email required");
       const shareLinkId = String(form.get("share_link_id") || "") || null;
+      const redirectTo = safeArtifactRedirect(
+        env,
+        artifact,
+        request,
+        form.get("redirect_to"),
+      );
       const viewId = await insertView(
         env,
         artifact,
@@ -91,13 +98,7 @@ export async function handleGateRoute(
         env,
       );
       return redirectWithCookie(
-        new URL(
-          String(
-            form.get("redirect_to") ||
-              `/${artifact.tenant_slug}/${artifact.slug}/`,
-          ),
-          request.url,
-        ).toString(),
+        redirectTo,
         setViewerCookie(viewerCookieName(artifact.id), session),
       );
     }
@@ -115,26 +116,42 @@ export async function handleGateRoute(
           artifact.title,
           `<p class="error">This email is not allowed for this artifact.</p>`,
         );
+      const redirectTo = safeArtifactRedirect(
+        env,
+        artifact,
+        request,
+        form.get("redirect_to"),
+      );
+      const shareLinkId = String(form.get("share_link_id") || "") || null;
       const token = randomId("vt");
       const code = randomCode();
       await env.DB.prepare(
-        "INSERT INTO viewer_tokens (token, artifact_id, email, code, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO viewer_tokens (token, artifact_id, email, code, expires_at, created_at, redirect_to, share_link_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       )
-        .bind(token, artifact.id, email, code, nowSec() + 15 * 60, nowSec())
+        .bind(
+          token,
+          artifact.id,
+          email,
+          code,
+          nowSec() + 15 * 60,
+          nowSec(),
+          redirectTo,
+          shareLinkId,
+        )
         .run();
       const verifyUrl = `${env.SITE_BASE_URL}/_au/gate/verify?t=${encodeURIComponent(token)}`;
       await sendVerificationEmail(env, artifact, email, code, verifyUrl);
       return htmlPage(
         artifact.title,
         `<h1>Check your email</h1>
-<p class="muted">Use the link or enter the code we sent to ${escapeHtml(email)}.</p>
+<p class="muted">Use the link or enter the code we sent.</p>
 ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${code}</strong></p>` : ""}
 <form method="post" action="/_au/gate/verify">
   <input type="hidden" name="tenant" value="${escapeHtml(artifact.tenant_slug)}">
   <input type="hidden" name="artifact" value="${escapeHtml(artifact.slug)}">
   <input type="hidden" name="email" value="${escapeHtml(email)}">
-  <input type="hidden" name="redirect_to" value="${escapeHtml(String(form.get("redirect_to") || `/${artifact.tenant_slug}/${artifact.slug}/`))}">
-  <input type="hidden" name="share_link_id" value="${escapeHtml(String(form.get("share_link_id") || ""))}">
+  <input type="hidden" name="redirect_to" value="${escapeHtml(redirectTo)}">
+  <input type="hidden" name="share_link_id" value="${escapeHtml(shareLinkId || "")}">
   <label>Code</label>
   <input name="code" inputmode="numeric" autocomplete="one-time-code" required>
   <button type="submit">Verify</button>
@@ -164,7 +181,7 @@ ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${cod
         env,
         artifact,
         row.token,
-        String(form.get("redirect_to") || ""),
+        safeArtifactRedirect(env, artifact, request, form.get("redirect_to")),
         String(form.get("share_link_id") || "") || null,
       );
     }
@@ -173,7 +190,7 @@ ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${cod
       const url = new URL(request.url);
       const token = url.searchParams.get("t") || "";
       const row = await env.DB.prepare(
-        `SELECT vt.token, vt.email, a.tenant_slug, a.slug
+        `SELECT vt.token, vt.email, vt.redirect_to, vt.share_link_id, a.tenant_slug, a.slug
          FROM viewer_tokens vt JOIN artifacts a ON a.id = vt.artifact_id
          WHERE vt.token = ? AND vt.used_at IS NULL AND vt.expires_at >= ?`,
       )
@@ -181,6 +198,8 @@ ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${cod
         .first<{
           token: string;
           email: string;
+          redirect_to: string | null;
+          share_link_id: string | null;
           tenant_slug: string;
           slug: string;
         }>();
@@ -197,8 +216,8 @@ ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${cod
         env,
         artifact,
         token,
-        `/${artifact.tenant_slug}/${artifact.slug}/`,
-        null,
+        safeArtifactRedirect(env, artifact, request, row.redirect_to),
+        row.share_link_id || null,
       );
     }
   } catch (e) {
@@ -248,10 +267,7 @@ async function consumeVerified(
     env,
   );
   return redirectWithCookie(
-    new URL(
-      redirectTo || `/${artifact.tenant_slug}/${artifact.slug}/`,
-      request.url,
-    ).toString(),
+    safeArtifactRedirect(env, artifact, request, redirectTo),
     setViewerCookie(viewerCookieName(artifact.id), session),
   );
 }
@@ -264,6 +280,26 @@ function redirectWithCookie(url: string, cookie: string): Response {
       "Set-Cookie": cookie,
     },
   });
+}
+
+function safeArtifactRedirect(
+  env: Env,
+  artifact: Artifact,
+  request: Request,
+  value: FormDataEntryValue | string | null,
+): string {
+  const fallback = publicArtifactPath(env, artifact.tenant_slug, artifact.slug);
+  const raw = String(value || fallback);
+  try {
+    const base = new URL(request.url);
+    const url = new URL(raw, base);
+    const path = url.pathname;
+    if (url.origin !== base.origin) return fallback;
+    if (path !== fallback && !path.startsWith(fallback)) return fallback;
+    return `${path}${url.search}${url.hash}`;
+  } catch {
+    return fallback;
+  }
 }
 
 async function formArtifact(

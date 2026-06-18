@@ -5,9 +5,76 @@ compatibility_date = "2026-06-01"
 # legacy-artifacts bucket/deploy flow; override with CLOUDFLARE_ACCOUNT_ID if needed.
 account_id = "00000000000000000000000000000000"
 
+# Keep the existing legacy artifact host `legacy-artifacts` Worker as the custom-domain
+# origin for legacy direct artifact links. This Worker only handles the new
+# Artifact Use homepage, API/MCP/admin paths, and new public artifact links
+# under /go/. Legacy direct artifact links stay on the legacy artifact host Worker.
 [[routes]]
-pattern = "art-use.iofold.com"
-custom_domain = true
+pattern = "artifacts.iofold.com/"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/go"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/go/*"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/mcp*"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/api/v1*"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/_au*"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/.well-known/oauth-*"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/llms.txt"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/llms-full.txt"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/login*"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/signin*"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/signup*"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/invite*"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/callback*"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/logout*"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/admin*"
+zone_name = "iofold.com"
+
+[[routes]]
+pattern = "artifacts.iofold.com/health*"
 zone_name = "iofold.com"
 
 [[r2_buckets]]
@@ -21,9 +88,10 @@ database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
 [vars]
-SITE_BASE_URL = "https://art-use.iofold.com"
+SITE_BASE_URL = "https://artifacts.iofold.com"
+ARTIFACT_PUBLIC_PATH_PREFIX = "/go"
 WORKOS_AUTHKIT_URL = "https://your-authkit-domain.example"
-WORKOS_AUDIENCE = "https://art-use.iofold.com/mcp"
+WORKOS_AUDIENCE = "https://artifacts.iofold.com/mcp"
 WORKOS_ISSUER = "https://your-authkit-domain.example"
 WORKOS_JWKS_URL = "https://your-authkit-domain.example/oauth2/jwks"
 ARTIFACT_USE_AUTH_SCOPES = "openid profile email offline_access"

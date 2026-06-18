@@ -15,6 +15,7 @@ import {
   json,
   nowSec,
   normalizeEmail,
+  publicArtifactUrl,
 } from "./util";
 
 export async function handleAdminApi(
@@ -129,7 +130,7 @@ export async function handleAdminApi(
       );
       return json({
         id,
-        url: `${env.SITE_BASE_URL}/${artifact.tenant_slug}/${artifact.slug}/?v=${id}`,
+        url: `${publicArtifactUrl(env, artifact.tenant_slug, artifact.slug)}?v=${id}`,
         expires_at: expiresAt,
       });
     }
