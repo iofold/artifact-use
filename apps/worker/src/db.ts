@@ -153,6 +153,32 @@ export async function getArtifactForOrg(
     .first<Artifact>();
 }
 
+export async function getArtifactsForOrgSlug(
+  env: Env,
+  orgId: string,
+  slug: string,
+): Promise<Artifact[]> {
+  const res = await env.DB.prepare(
+    "SELECT * FROM artifacts WHERE org_id = ? AND slug = ? ORDER BY updated_at DESC",
+  )
+    .bind(orgId, slug)
+    .all<Artifact>();
+  return res.results || [];
+}
+
+export async function getArtifactForOrgPath(
+  env: Env,
+  orgId: string,
+  tenantSlug: string,
+  slug: string,
+): Promise<Artifact | null> {
+  return env.DB.prepare(
+    "SELECT * FROM artifacts WHERE org_id = ? AND tenant_slug = ? AND slug = ?",
+  )
+    .bind(orgId, tenantSlug, slug)
+    .first<Artifact>();
+}
+
 export async function upsertArtifact(
   env: Env,
   creator: Creator,
@@ -161,16 +187,20 @@ export async function upsertArtifact(
   title: string,
   gateLevel: GateLevel,
 ): Promise<Artifact> {
-  const existing = await getArtifactForOrg(env, creator.orgId, artifactSlug);
+  const existing = await getArtifactForOrgPath(
+    env,
+    creator.orgId,
+    tenantSlug,
+    artifactSlug,
+  );
   const now = nowSec();
   if (existing) {
     await env.DB.prepare(
-      "UPDATE artifacts SET title = ?, gate_level = ?, tenant_slug = ?, updated_at = ? WHERE id = ?",
+      "UPDATE artifacts SET title = ?, gate_level = ?, updated_at = ? WHERE id = ?",
     )
       .bind(
         title || existing.title,
         gateLevel || existing.gate_level,
-        tenantSlug,
         now,
         existing.id,
       )
@@ -178,6 +208,12 @@ export async function upsertArtifact(
     return (await env.DB.prepare("SELECT * FROM artifacts WHERE id = ?")
       .bind(existing.id)
       .first<Artifact>()) as Artifact;
+  }
+  const sameSlug = await getArtifactForOrg(env, creator.orgId, artifactSlug);
+  if (sameSlug && sameSlug.tenant_slug !== tenantSlug) {
+    throw new Error(
+      `artifact slug is already used under tenant ${sameSlug.tenant_slug}; choose a different artifact slug`,
+    );
   }
   const id = randomId("art");
   await env.DB.prepare(

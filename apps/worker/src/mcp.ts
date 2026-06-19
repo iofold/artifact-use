@@ -1,7 +1,7 @@
 import type { Creator, Env } from "./types";
 import { handleAdminApi } from "./admin";
 import { safeCreator } from "./auth";
-import { getArtifactForOrg } from "./db";
+import { getArtifactsForOrgSlug } from "./db";
 import { handlePublish } from "./publish";
 import { error, json } from "./util";
 
@@ -223,7 +223,20 @@ async function callTool(
           `artifact_manage ${action || "action"} requires artifact`,
         );
       } else {
-        const existing = await getArtifactForOrg(env, creator.orgId, artifact);
+        const matches = await getArtifactsForOrgSlug(
+          env,
+          creator.orgId,
+          artifact,
+        );
+        if (!matches.length)
+          throw new Error(
+            `artifact not found in authenticated account: ${artifact}`,
+          );
+        if (matches.length > 1)
+          throw new Error(
+            `multiple artifacts named ${artifact}; pass tenant explicitly`,
+          );
+        const existing = matches[0];
         if (!existing)
           throw new Error(
             `artifact not found in authenticated account: ${artifact}`,

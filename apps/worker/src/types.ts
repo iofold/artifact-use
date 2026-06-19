@@ -24,6 +24,9 @@ export interface Env {
   SESSION_SECRET: string;
   RESEND_API_KEY?: string;
   DEV_AUTH_TOKEN?: string;
+  DEV_AUTH_USER_ID?: string;
+  DEV_AUTH_ORG_ID?: string;
+  DEV_AUTH_EMAIL?: string;
 }
 
 export interface Creator {
@@ -53,7 +56,7 @@ export interface Artifact {
   gate_level: GateLevel;
   allowlist_json: string | null;
   current_version_id: string | null;
-  created_by: string | null;
+  created_by: string;
   created_at: number;
   updated_at: number;
 }
@@ -67,7 +70,7 @@ export interface ArtifactVersion {
   manifest_json: string | null;
   total_size: number;
   file_count: number;
-  created_by: string | null;
+  created_by: string;
   created_at: number;
   completed_at: number | null;
 }
@@ -107,7 +110,7 @@ export interface UploadSession {
   typ: "artifact_upload";
   org_id: string;
   version_id: string;
-  created_by: string | null;
+  created_by: string;
   exp: number;
 }
 

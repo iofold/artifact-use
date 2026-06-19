@@ -26,10 +26,21 @@ export async function getCreator(
   const token = bearer(request);
   if (!token) return null;
   if (env.DEV_AUTH_TOKEN && token === env.DEV_AUTH_TOKEN) {
+    const sub = env.DEV_AUTH_USER_ID || "";
+    if (!isWorkosUserId(sub)) {
+      throw new Error(
+        "DEV_AUTH_USER_ID must be set to a WorkOS user id when DEV_AUTH_TOKEN is used",
+      );
+    }
+    const email = env.DEV_AUTH_EMAIL || null;
     return {
-      sub: "dev-user",
-      orgId: "org_dev",
-      email: "dev@example.com",
+      sub,
+      orgId:
+        env.DEV_AUTH_ORG_ID ||
+        (await defaultWorkosOrgForUser(env, sub)) ||
+        (await defaultWorkosOrgForEmail(env, email)) ||
+        userScopedOrgId(sub),
+      email,
       permissions: new Set([
         "artifacts:publish",
         "artifacts:read",
@@ -47,12 +58,15 @@ export async function getCreator(
   const claims = verified.payload as Record<string, unknown>;
   const sub = String(claims.sub || "");
   if (!sub) throw new Error("WorkOS token is missing sub");
+  if (!isWorkosUserId(sub))
+    throw new Error("WorkOS token subject must be a WorkOS user id");
   const rawOrgId = String(
     claims.org_id || claims.organization_id || claims.orgId || "",
   );
   const email = typeof claims.email === "string" ? claims.email : null;
   const orgId =
     rawOrgId ||
+    (await defaultWorkosOrgForUser(env, sub)) ||
     (await defaultWorkosOrgForEmail(env, email)) ||
     userScopedOrgId(sub);
   const permissions = new Set<string>();
@@ -172,6 +186,43 @@ async function defaultWorkosOrgForEmail(
     .bind(email)
     .first<{ org_id: string }>();
   return tenant?.org_id || null;
+}
+
+async function defaultWorkosOrgForUser(
+  env: Env,
+  userId: string,
+): Promise<string | null> {
+  if (!env.WORKOS_API_KEY || !isWorkosUserId(userId)) return null;
+  const organization = await workosApiMaybe(
+    env,
+    `/organizations/external_id/${encodeURIComponent(`artifact-use:${userId}`)}`,
+  );
+  return stringClaim(organization?.id);
+}
+
+async function workosApiMaybe(
+  env: Env,
+  path: string,
+): Promise<Record<string, unknown> | null> {
+  const res = await fetch(`https://api.workos.com${path}`, {
+    headers: { Authorization: `Bearer ${env.WORKOS_API_KEY}` },
+  });
+  if (res.status === 404) return null;
+  const text = await res.text();
+  const parsed = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  if (!res.ok)
+    throw new Error(
+      `WorkOS ${res.status}: ${String(parsed.message || parsed.error || parsed.code || text)}`,
+    );
+  return parsed;
+}
+
+function stringClaim(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function isWorkosUserId(value: string): boolean {
+  return /^user_[A-Za-z0-9]+$/.test(value);
 }
 
 function userScopedOrgId(sub: string): string {
