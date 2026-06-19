@@ -22,9 +22,8 @@ interface ManifestFile {
 const SCHEMAS = {
   "publish-folder": {
     type: "object",
-    required: ["tenant", "artifact", "dir"],
+    required: ["artifact", "dir"],
     properties: {
-      tenant: { type: "string" },
       artifact: { type: "string" },
       title: { type: "string" },
       dir: { type: "string" },
@@ -37,9 +36,8 @@ const SCHEMAS = {
   },
   "publish-html": {
     type: "object",
-    required: ["tenant", "artifact", "html"],
+    required: ["artifact", "html"],
     properties: {
-      tenant: { type: "string" },
       artifact: { type: "string" },
       title: { type: "string" },
       html: { type: "string" },
@@ -51,10 +49,12 @@ const SCHEMAS = {
   },
   gate: {
     type: "object",
-    required: ["tenant", "artifact", "gate_level"],
+    required: ["artifact", "gate_level"],
     properties: {
-      tenant: { type: "string" },
-      artifact: { type: "string" },
+      artifact: {
+        type: "string",
+        description: "Artifact url_key from list output, or artifact slug.",
+      },
       gate_level: {
         type: "string",
         enum: ["public", "email", "verified_email", "allowlist"],
@@ -65,10 +65,12 @@ const SCHEMAS = {
   },
   share: {
     type: "object",
-    required: ["tenant", "artifact"],
+    required: ["artifact"],
     properties: {
-      tenant: { type: "string" },
-      artifact: { type: "string" },
+      artifact: {
+        type: "string",
+        description: "Artifact url_key from list output, or artifact slug.",
+      },
       recipient_email: { type: "string" },
       recipient_label: { type: "string" },
       expires_days: { type: "number" },
@@ -76,8 +78,13 @@ const SCHEMAS = {
   },
   stats: {
     type: "object",
-    required: ["tenant", "artifact"],
-    properties: { tenant: { type: "string" }, artifact: { type: "string" } },
+    required: ["artifact"],
+    properties: {
+      artifact: {
+        type: "string",
+        description: "Artifact url_key from list output, or artifact slug.",
+      },
+    },
   },
 };
 
@@ -134,7 +141,7 @@ async function main(): Promise<void> {
       await api(
         conf,
         "PATCH",
-        `/api/v1/artifacts/${input.tenant}/${input.artifact}`,
+        `/api/v1/artifacts/${encodeURIComponent(String(input.artifact || ""))}`,
         {
           gate_level: input.gate_level,
           allowlist: input.allowlist,
@@ -148,7 +155,7 @@ async function main(): Promise<void> {
       await api(
         conf,
         "POST",
-        `/api/v1/artifacts/${input.tenant}/${input.artifact}/share-links`,
+        `/api/v1/artifacts/${encodeURIComponent(String(input.artifact || ""))}/share-links`,
         input,
       ),
     );
@@ -157,7 +164,7 @@ async function main(): Promise<void> {
       await api(
         conf,
         "GET",
-        `/api/v1/artifacts/${input.tenant}/${input.artifact}/stats`,
+        `/api/v1/artifacts/${encodeURIComponent(String(input.artifact || ""))}/stats`,
       ),
     );
   throw new Error(`unknown command: ${command}`);
@@ -193,7 +200,6 @@ async function publishFolder(
   if (dryRun) {
     return {
       dry_run: true,
-      tenant: input.tenant,
       artifact: input.artifact,
       title: input.title,
       gate_level: input.gate_level || "email",
@@ -205,7 +211,6 @@ async function publishFolder(
   }
   requireToken(conf);
   const start = (await api(conf, "POST", "/api/v1/publish/start", {
-    tenant: input.tenant,
     artifact: input.artifact,
     title: input.title,
     gate_level: input.gate_level || "email",

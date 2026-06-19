@@ -1,7 +1,6 @@
-import type { Creator, Env } from "./types";
+import type { Env } from "./types";
 import { handleAdminApi } from "./admin";
 import { safeCreator } from "./auth";
-import { getArtifactsForOrgSlug } from "./db";
 import { handlePublish } from "./publish";
 import { error, json } from "./util";
 
@@ -14,12 +13,7 @@ const TOOLS = [
       type: "object",
       required: ["artifact"],
       properties: {
-        tenant: {
-          type: "string",
-          description:
-            "Optional. Omit to use the authenticated account's default tenant.",
-        },
-        artifact: { type: "string" },
+        artifact: { type: "string", description: "Artifact slug to publish." },
         title: { type: "string" },
         gate_level: {
           type: "string",
@@ -53,12 +47,7 @@ const TOOLS = [
       type: "object",
       required: ["artifact"],
       properties: {
-        tenant: {
-          type: "string",
-          description:
-            "Optional. Omit to use the authenticated account's default tenant.",
-        },
-        artifact: { type: "string" },
+        artifact: { type: "string", description: "Artifact slug to publish." },
         title: { type: "string" },
         gate_level: {
           type: "string",
@@ -85,12 +74,10 @@ const TOOLS = [
           type: "string",
           enum: ["list", "stats", "set_access", "share_link"],
         },
-        tenant: {
+        artifact: {
           type: "string",
-          description:
-            "Optional for stats, set_access, and share_link when artifact is unique in the authenticated account.",
+          description: "Artifact url_key from list output, or artifact slug.",
         },
-        artifact: { type: "string" },
         gate_level: {
           type: "string",
           enum: ["public", "email", "verified_email", "allowlist"],
@@ -105,8 +92,8 @@ const TOOLS = [
 ];
 
 export async function handleMcp(request: Request, env: Env): Promise<Response> {
-  const creator = await safeCreator(request, env);
-  if (creator instanceof Response) return creator;
+  const auth = await safeCreator(request, env);
+  if (auth instanceof Response) return auth;
   if (request.method === "GET")
     return json({ name: "artifact-use", transport: "streamable-http-minimal" });
   if (request.method !== "POST")
@@ -140,7 +127,7 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
     const params = body.params || {};
     const name = String(params.name || "");
     const args = (params.arguments || {}) as Record<string, unknown>;
-    const result = await callTool(request, env, creator, name, args);
+    const result = await callTool(request, env, name, args);
     return json({
       jsonrpc: "2.0",
       id,
@@ -164,7 +151,6 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
 async function callTool(
   request: Request,
   env: Env,
-  creator: Creator,
   name: string,
   args: Record<string, unknown>,
 ): Promise<unknown> {
@@ -215,59 +201,31 @@ async function callTool(
       );
       return r.json();
     }
-    let tenant = String(args.tenant || "");
     const artifact = String(args.artifact || "");
-    if (!tenant || !artifact)
-      if (!artifact) {
-        throw new Error(
-          `artifact_manage ${action || "action"} requires artifact`,
-        );
-      } else {
-        const matches = await getArtifactsForOrgSlug(
-          env,
-          creator.orgId,
-          artifact,
-        );
-        if (!matches.length)
-          throw new Error(
-            `artifact not found in authenticated account: ${artifact}`,
-          );
-        if (matches.length > 1)
-          throw new Error(
-            `multiple artifacts named ${artifact}; pass tenant explicitly`,
-          );
-        const existing = matches[0];
-        if (!existing)
-          throw new Error(
-            `artifact not found in authenticated account: ${artifact}`,
-          );
-        tenant = existing.tenant_slug;
-      }
+    if (!artifact)
+      throw new Error(
+        `artifact_manage ${action || "action"} requires artifact`,
+      );
+    const artifactRef = encodeURIComponent(artifact);
     if (action === "set_access") {
       const r = await handleAdminApi(
-        new Request(
-          new URL(`/api/v1/artifacts/${tenant}/${artifact}`, request.url),
-          {
-            method: "PATCH",
-            headers,
-            body: JSON.stringify({
-              gate_level: args.gate_level,
-              allowlist: args.allowlist,
-            }),
-          },
-        ),
+        new Request(new URL(`/api/v1/artifacts/${artifactRef}`, request.url), {
+          method: "PATCH",
+          headers,
+          body: JSON.stringify({
+            gate_level: args.gate_level,
+            allowlist: args.allowlist,
+          }),
+        }),
         env,
-        `/api/v1/artifacts/${tenant}/${artifact}`,
+        `/api/v1/artifacts/${artifactRef}`,
       );
       return r.json();
     }
     if (action === "share_link") {
       const r = await handleAdminApi(
         new Request(
-          new URL(
-            `/api/v1/artifacts/${tenant}/${artifact}/share-links`,
-            request.url,
-          ),
+          new URL(`/api/v1/artifacts/${artifactRef}/share-links`, request.url),
           {
             method: "POST",
             headers,
@@ -275,18 +233,18 @@ async function callTool(
           },
         ),
         env,
-        `/api/v1/artifacts/${tenant}/${artifact}/share-links`,
+        `/api/v1/artifacts/${artifactRef}/share-links`,
       );
       return r.json();
     }
     if (action === "stats") {
       const r = await handleAdminApi(
         new Request(
-          new URL(`/api/v1/artifacts/${tenant}/${artifact}/stats`, request.url),
+          new URL(`/api/v1/artifacts/${artifactRef}/stats`, request.url),
           { method: "GET", headers },
         ),
         env,
-        `/api/v1/artifacts/${tenant}/${artifact}/stats`,
+        `/api/v1/artifacts/${artifactRef}/stats`,
       );
       return r.json();
     }
@@ -329,7 +287,6 @@ async function publishInlineFiles(
         method: "POST",
         headers,
         body: JSON.stringify({
-          tenant: args.tenant,
           artifact: args.artifact,
           title: args.title,
           gate_level: args.gate_level || "email",

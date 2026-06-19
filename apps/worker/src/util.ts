@@ -36,20 +36,28 @@ export function artifactPathPrefix(env: Env): string {
   return stripped ? `/${stripped}` : "";
 }
 
-export function publicArtifactPath(
-  env: Env,
-  tenant: string,
-  artifact: string,
-): string {
-  return `${artifactPathPrefix(env)}/${tenant}/${artifact}/`;
+export function publicArtifactPath(env: Env, urlKey: string): string {
+  return `${artifactPathPrefix(env)}/${urlKey}/`;
 }
 
-export function publicArtifactUrl(
+export function publicArtifactUrl(env: Env, urlKey: string): string {
+  return `${siteBaseUrl(env)}${publicArtifactPath(env, urlKey)}`;
+}
+
+export function legacyArtifactPath(
   env: Env,
-  tenant: string,
+  legacyPrefix: string,
   artifact: string,
 ): string {
-  return `${siteBaseUrl(env)}${publicArtifactPath(env, tenant, artifact)}`;
+  return `${artifactPathPrefix(env)}/${legacyPrefix}/${artifact}/`;
+}
+
+export function legacyArtifactUrl(
+  env: Env,
+  legacyPrefix: string,
+  artifact: string,
+): string {
+  return `${siteBaseUrl(env)}${legacyArtifactPath(env, legacyPrefix, artifact)}`;
 }
 
 export function stripPublicArtifactPrefix(
@@ -75,6 +83,18 @@ export function randomId(prefix: string): string {
   crypto.getRandomValues(bytes);
   const hex = [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
   return `${prefix}_${hex}`;
+}
+
+export function artifactUrlKey(slug: string, id: string): string {
+  return `${slug}-${artifactUrlCode(id)}`;
+}
+
+export function artifactUrlCode(id: string): string {
+  const compact = id
+    .replace(/^[^_]*_/, "")
+    .replace(/[^a-zA-Z0-9]/g, "")
+    .toLowerCase();
+  return compact.slice(0, 6).padEnd(6, "0");
 }
 
 export function randomCode(): string {

@@ -14,11 +14,11 @@ Artifact Use publishes static artifacts to `https://artifacts.iofold.com` withou
 - Use `ARTIFACT_USE_TOKEN` only for CLI, local stdio MCP, or non-OAuth clients.
 - Use `artifact_publish` for a single HTML string or small inline multi-file payloads.
 - Use `artifact_upload_session`, local stdio MCP with `dir`, or the CLI for local folders, large files, images, PDFs, or multi-file artifacts.
-- Use `artifact_manage` for list, stats, access changes, and share links. `action: "list"` returns `default_tenant`.
-- Do not guess tenant slugs. Omit `tenant` unless the user explicitly asks for a tenant path.
-- Keep explicit tenant and artifact slugs lower-case hyphen-case.
+- Use `artifact_manage` for list, stats, access changes, and share links. `action: "list"` returns `url_key`; use it for exact management calls.
+- Publish with a lower-case artifact slug; use the returned `url_key` when managing an existing artifact.
+- Keep artifact slugs lower-case hyphen-case.
 - Default gate is `email`; use `verified_email` when inbox control matters, `allowlist` for restricted customer material, and `public` only when intentionally low sensitivity.
-- New public Artifact Use URLs are under `/go/{tenant}/{artifact}/`; legacy direct root artifact paths belong to the old legacy artifact host host.
+- New public Artifact Use URLs are under `/go/{artifact-slug}-{six-character-code}/`; legacy direct root artifact paths belong to the old legacy artifact host host.
 
 ## Authoring Workflow
 
@@ -35,7 +35,7 @@ After publishing or changing an artifact, report:
 
 - Live URL or local path.
 - Gate level.
-- Tenant/artifact slug.
+- Artifact slug and `url_key`.
 - Whether a share link was created.
 - Browser/interaction checks run, or why they were not run.
 - Any failure reason from the JSON error body.

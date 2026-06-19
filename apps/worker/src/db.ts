@@ -5,141 +5,51 @@ import type {
   Creator,
   Env,
   GateLevel,
-  Tenant,
 } from "./types";
-import { assertSlug, nowSec, randomId, slugify } from "./util";
-
-export async function getTenantBySlug(
-  env: Env,
-  slug: string,
-): Promise<Tenant | null> {
-  return env.DB.prepare("SELECT * FROM tenants WHERE slug = ?")
-    .bind(slug)
-    .first<Tenant>();
-}
-
-export async function getTenantForOrg(
-  env: Env,
-  orgId: string,
-): Promise<Tenant | null> {
-  return env.DB.prepare("SELECT * FROM tenants WHERE org_id = ?")
-    .bind(orgId)
-    .first<Tenant>();
-}
-
-export async function resolveTenant(
-  env: Env,
-  creator: Creator,
-  requestedSlug?: string | null,
-  name?: string | null,
-): Promise<Tenant> {
-  const explicit = String(requestedSlug || "").trim();
-  if (explicit) return ensureTenant(env, creator, explicit, name);
-
-  const existing = await getTenantForOrg(env, creator.orgId);
-  if (existing) return existing;
-
-  const candidates = defaultTenantCandidates(creator);
-  for (const candidate of candidates) {
-    const taken = await getTenantBySlug(env, candidate);
-    if (!taken || taken.org_id === creator.orgId) {
-      return ensureTenant(env, creator, candidate, name);
-    }
-  }
-
-  return ensureTenant(
-    env,
-    creator,
-    slugify(`${candidates[0] || "publisher"}-${shortHash(creator.orgId)}`),
-    name,
-  );
-}
-
-export async function ensureTenant(
-  env: Env,
-  creator: Creator,
-  slug: string,
-  name?: string | null,
-): Promise<Tenant> {
-  const tenantSlug = assertSlug("tenant", slug);
-  const existing = await env.DB.prepare(
-    "SELECT * FROM tenants WHERE org_id = ?",
-  )
-    .bind(creator.orgId)
-    .first<Tenant>();
-  const now = nowSec();
-  if (existing) {
-    if (existing.slug !== tenantSlug) {
-      const taken = await getTenantBySlug(env, tenantSlug);
-      if (taken && taken.org_id !== creator.orgId)
-        throw new Error("tenant slug is already taken");
-      await env.DB.prepare(
-        "UPDATE tenants SET slug = ?, name = COALESCE(?, name), updated_at = ? WHERE org_id = ?",
-      )
-        .bind(tenantSlug, name || null, now, creator.orgId)
-        .run();
-    }
-    return (await env.DB.prepare("SELECT * FROM tenants WHERE org_id = ?")
-      .bind(creator.orgId)
-      .first<Tenant>()) as Tenant;
-  }
-  const taken = await getTenantBySlug(env, tenantSlug);
-  if (taken) throw new Error("tenant slug is already taken");
-  await env.DB.prepare(
-    "INSERT INTO tenants (org_id, slug, name, owner_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-  )
-    .bind(creator.orgId, tenantSlug, name || null, creator.email, now, now)
-    .run();
-  return (await env.DB.prepare("SELECT * FROM tenants WHERE org_id = ?")
-    .bind(creator.orgId)
-    .first<Tenant>()) as Tenant;
-}
-
-function defaultTenantCandidates(creator: Creator): string[] {
-  const raw = creator.raw || {};
-  const values = [
-    stringClaim(raw.organization_slug),
-    stringClaim(raw.org_slug),
-    stringClaim(raw.organization_name),
-    stringClaim(raw.org_name),
-    emailDomainRoot(creator.email),
-    creator.email ? creator.email.split("@")[0] : null,
-    "publisher",
-  ];
-  return [
-    ...new Set(values.map((value) => slugify(value || "")).filter(Boolean)),
-  ];
-}
-
-function stringClaim(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function emailDomainRoot(email: string | null): string | null {
-  const domain = email?.split("@")[1]?.toLowerCase();
-  if (!domain) return null;
-  const parts = domain.split(".").filter(Boolean);
-  if (parts.length < 2) return parts[0] || null;
-  return parts.at(-2) || null;
-}
-
-function shortHash(value: string): string {
-  let hash = 5381;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = (hash * 33) ^ value.charCodeAt(i);
-  }
-  return (hash >>> 0).toString(36).slice(0, 6);
-}
+import { artifactUrlKey, nowSec, randomId } from "./util";
 
 export async function getArtifactByPath(
   env: Env,
-  tenant: string,
+  legacyPrefix: string,
   slug: string,
 ): Promise<Artifact | null> {
   return env.DB.prepare(
     "SELECT * FROM artifacts WHERE tenant_slug = ? AND slug = ?",
   )
-    .bind(tenant, slug)
+    .bind(legacyPrefix, slug)
+    .first<Artifact>();
+}
+
+export async function getArtifactByLegacyPath(
+  env: Env,
+  legacyPrefix: string,
+  slug: string,
+): Promise<Artifact | null> {
+  return env.DB.prepare(
+    `SELECT a.*
+     FROM legacy_artifact_paths p
+     JOIN artifacts a ON a.id = p.artifact_id
+     WHERE p.legacy_tenant_slug = ? AND p.legacy_slug = ?`,
+  )
+    .bind(legacyPrefix, slug)
+    .first<Artifact>();
+}
+
+export async function getArtifactByUrlKey(
+  env: Env,
+  urlKey: string,
+): Promise<Artifact | null> {
+  return env.DB.prepare("SELECT * FROM artifacts WHERE url_key = ?")
+    .bind(urlKey)
+    .first<Artifact>();
+}
+
+export async function getArtifactById(
+  env: Env,
+  id: string,
+): Promise<Artifact | null> {
+  return env.DB.prepare("SELECT * FROM artifacts WHERE id = ?")
+    .bind(id)
     .first<Artifact>();
 }
 
@@ -153,46 +63,15 @@ export async function getArtifactForOrg(
     .first<Artifact>();
 }
 
-export async function getArtifactsForOrgSlug(
-  env: Env,
-  orgId: string,
-  slug: string,
-): Promise<Artifact[]> {
-  const res = await env.DB.prepare(
-    "SELECT * FROM artifacts WHERE org_id = ? AND slug = ? ORDER BY updated_at DESC",
-  )
-    .bind(orgId, slug)
-    .all<Artifact>();
-  return res.results || [];
-}
-
-export async function getArtifactForOrgPath(
-  env: Env,
-  orgId: string,
-  tenantSlug: string,
-  slug: string,
-): Promise<Artifact | null> {
-  return env.DB.prepare(
-    "SELECT * FROM artifacts WHERE org_id = ? AND tenant_slug = ? AND slug = ?",
-  )
-    .bind(orgId, tenantSlug, slug)
-    .first<Artifact>();
-}
-
 export async function upsertArtifact(
   env: Env,
   creator: Creator,
-  tenantSlug: string,
   artifactSlug: string,
   title: string,
   gateLevel: GateLevel,
 ): Promise<Artifact> {
-  const existing = await getArtifactForOrgPath(
-    env,
-    creator.orgId,
-    tenantSlug,
-    artifactSlug,
-  );
+  await ensureOwnerCompatibilityRow(env, creator.orgId, creator.email);
+  const existing = await getArtifactForOrg(env, creator.orgId, artifactSlug);
   const now = nowSec();
   if (existing) {
     await env.DB.prepare(
@@ -209,23 +88,19 @@ export async function upsertArtifact(
       .bind(existing.id)
       .first<Artifact>()) as Artifact;
   }
-  const sameSlug = await getArtifactForOrg(env, creator.orgId, artifactSlug);
-  if (sameSlug && sameSlug.tenant_slug !== tenantSlug) {
-    throw new Error(
-      `artifact slug is already used under tenant ${sameSlug.tenant_slug}; choose a different artifact slug`,
-    );
-  }
   const id = randomId("art");
+  const urlKey = artifactUrlKey(artifactSlug, id);
   await env.DB.prepare(
     `INSERT INTO artifacts
-      (id, org_id, tenant_slug, slug, title, gate_level, created_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, org_id, tenant_slug, slug, url_key, title, gate_level, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id,
       creator.orgId,
-      tenantSlug,
+      urlKey,
       artifactSlug,
+      urlKey,
       title || artifactSlug,
       gateLevel,
       creator.sub,
@@ -236,6 +111,51 @@ export async function upsertArtifact(
   return (await env.DB.prepare("SELECT * FROM artifacts WHERE id = ?")
     .bind(id)
     .first<Artifact>()) as Artifact;
+}
+
+export async function ensureOwnerCompatibilityRow(
+  env: Env,
+  orgId: string,
+  ownerEmail: string | null,
+): Promise<void> {
+  const existing = await env.DB.prepare(
+    "SELECT org_id FROM tenants WHERE org_id = ?",
+  )
+    .bind(orgId)
+    .first<{ org_id: string }>();
+  if (existing) return;
+  const now = nowSec();
+  const slug = await ownerCompatibilitySlug(env, orgId);
+  await env.DB.prepare(
+    "INSERT INTO tenants (org_id, slug, name, owner_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
+  )
+    .bind(orgId, slug, null, ownerEmail, now, now)
+    .run();
+}
+
+async function ownerCompatibilitySlug(
+  env: Env,
+  orgId: string,
+): Promise<string> {
+  const base = `owner-${shortHash(orgId)}`;
+  for (let i = 0; i < 20; i += 1) {
+    const slug = i ? `${base}-${i}` : base;
+    const existing = await env.DB.prepare(
+      "SELECT org_id FROM tenants WHERE slug = ? LIMIT 1",
+    )
+      .bind(slug)
+      .first<{ org_id: string }>();
+    if (!existing) return slug;
+  }
+  throw new Error("could not allocate owner compatibility row");
+}
+
+function shortHash(value: string): string {
+  let hash = 5381;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 33) ^ value.charCodeAt(i);
+  }
+  return (hash >>> 0).toString(36).slice(0, 8);
 }
 
 export async function createDraftVersion(

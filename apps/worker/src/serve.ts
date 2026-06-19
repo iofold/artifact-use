@@ -1,5 +1,11 @@
 import type { Artifact, ArtifactFile, ArtifactVersion, Env } from "./types";
-import { getArtifactByPath, getFile, getVersion } from "./db";
+import {
+  getArtifactByLegacyPath,
+  getArtifactByPath,
+  getArtifactByUrlKey,
+  getFile,
+  getVersion,
+} from "./db";
 import { getViewerSession, renderGate } from "./gate";
 import {
   error,
@@ -28,17 +34,32 @@ export async function servePublic(
   const publicPath = stripPublicArtifactPrefix(env, path);
   if (publicPath === null) return error(404, "not_found", "not found");
   const parts = publicPath.replace(/^\/+/, "").split("/").filter(Boolean);
-  if (parts.length < 2) return landing(env);
-  const [tenant, slug, ...rest] = parts;
-  if (!tenant || !slug) return error(404, "not_found", "not found");
-  if (!path.endsWith("/") && rest.length === 0) {
-    const url = new URL(request.url);
-    url.pathname = publicArtifactPath(env, tenant, slug);
-    return Response.redirect(url.toString(), 301);
+  if (!parts.length) return landing(env);
+  const [urlKey, legacySlug, ...legacyRest] = parts;
+  let artifact = await getArtifactByUrlKey(env, urlKey || "");
+  let rest = artifact ? parts.slice(1) : legacyRest;
+  if (!artifact && legacySlug) {
+    artifact =
+      (await getArtifactByPath(env, urlKey || "", legacySlug)) ||
+      (await getArtifactByLegacyPath(env, urlKey || "", legacySlug));
+    if (artifact) {
+      const url = new URL(request.url);
+      url.pathname = publicArtifactPath(env, artifact.url_key) + rest.join("/");
+      return Response.redirect(url.toString(), 301);
+    }
   }
-  const artifact = await getArtifactByPath(env, tenant, slug);
   if (!artifact || !artifact.current_version_id)
     return error(404, "artifact_not_found", "artifact not found");
+  if (rest.length === 1 && rest[0] === artifact.slug) {
+    const url = new URL(request.url);
+    url.pathname = publicArtifactPath(env, artifact.url_key);
+    return Response.redirect(url.toString(), 301);
+  }
+  if (!path.endsWith("/") && rest.length === 0) {
+    const url = new URL(request.url);
+    url.pathname = publicArtifactPath(env, artifact.url_key);
+    return Response.redirect(url.toString(), 301);
+  }
   const url = new URL(request.url);
   const share = await sharePrefill(env, artifact, url.searchParams.get("v"));
   if (artifact.gate_level !== "public") {
@@ -213,8 +234,9 @@ export async function handleComments(
 ): Promise<Response> {
   if (path === "/_au/comments" && request.method === "GET") {
     const url = new URL(request.url);
-    const artifact = await getArtifactByPath(
+    const artifact = await commentArtifact(
       env,
+      url.searchParams.get("artifact_key") || "",
       url.searchParams.get("tenant") || "",
       url.searchParams.get("artifact") || "",
     );
@@ -237,14 +259,16 @@ export async function handleComments(
   }
   if (path === "/_au/comments" && request.method === "POST") {
     const body = (await request.json()) as {
+      artifact_key?: string;
       tenant?: string;
       artifact?: string;
       body?: string;
       target?: unknown;
       parent_id?: unknown;
     };
-    const artifact = await getArtifactByPath(
+    const artifact = await commentArtifact(
       env,
+      body.artifact_key || "",
       body.tenant || "",
       body.artifact || "",
     );
@@ -283,13 +307,15 @@ export async function handleComments(
   }
   if (path === "/_au/comments" && request.method === "PATCH") {
     const body = (await request.json()) as {
+      artifact_key?: string;
       tenant?: string;
       artifact?: string;
       id?: unknown;
       resolved?: unknown;
     };
-    const artifact = await getArtifactByPath(
+    const artifact = await commentArtifact(
       env,
+      body.artifact_key || "",
       body.tenant || "",
       body.artifact || "",
     );
@@ -319,6 +345,18 @@ export async function handleComments(
     });
   }
   return error(404, "not_found", "comments route not found");
+}
+
+async function commentArtifact(
+  env: Env,
+  artifactKey: string,
+  legacyTenant: string,
+  legacyArtifact: string,
+): Promise<Artifact | null> {
+  if (artifactKey) return getArtifactByUrlKey(env, artifactKey);
+  if (legacyTenant && legacyArtifact)
+    return getArtifactByPath(env, legacyTenant, legacyArtifact);
+  return null;
 }
 
 async function commentParent(
@@ -385,9 +423,9 @@ function landing(env: Env): Response {
   return htmlPage(
     "Artifact Use",
     `<h1>Artifact Use</h1>
-<p class="muted">Multi-tenant artifact publishing for agents and teams.</p>
+<p class="muted">Artifact publishing for agents and teams.</p>
 <p>Use the API, CLI, or MCP server to publish static artifacts.</p>
-<p><code>${escapeHtml(publicArtifactUrl(env, "tenant", "artifact"))}</code></p>`,
+<p><code>${escapeHtml(publicArtifactUrl(env, "example-abc123"))}</code></p>`,
   );
 }
 
@@ -414,12 +452,11 @@ async function sharePrefill(
 
 function injectWidget(html: string, artifact: Artifact): string {
   if (artifact.gate_level === "public") return html;
-  const tenant = JSON.stringify(artifact.tenant_slug);
-  const slug = JSON.stringify(artifact.slug);
+  const key = JSON.stringify(artifact.url_key);
   const script = `<script>
 (function(){
   if (window.__artifactUseWidget) return; window.__artifactUseWidget = true;
-  var tenant=${tenant}, artifact=${slug}, target=null, active=null, selecting=false;
+  var artifactKey=${key}, target=null, active=null, selecting=false;
   var btn=el('button','au-launch','Feedback'), panel=el('aside','au-panel',''), mark=el('div','au-mark',''), hover=el('div','au-hover','');
   var css=document.createElement('style'); css.textContent='[data-au-widget]{font:13px ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17201d;letter-spacing:0}[data-au-widget] button{font:inherit}.au-launch{position:fixed;right:18px;bottom:18px;z-index:2147483647;border:0;border-radius:6px;background:#12383b;color:#fff;padding:10px 12px;font-weight:750;box-shadow:0 10px 30px rgba(0,0,0,.2);cursor:pointer}.au-panel{display:none;position:fixed;right:18px;top:18px;z-index:2147483647;width:min(420px,calc(100vw - 36px));max-height:calc(100vh - 36px);background:#fff;border:1px solid #cdd7d4;border-radius:8px;box-shadow:0 24px 70px rgba(0,0,0,.28);overflow:hidden}.au-head{height:46px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e2e8e6;padding:0 12px;font-weight:800}.au-tools{display:flex;gap:6px}.au-icon{border:0;background:#eef4f2;color:#24312d;border-radius:5px;min-width:30px;height:30px;cursor:pointer}.au-body{padding:12px;display:grid;gap:10px}.au-list{max-height:38vh;overflow:auto;border:1px solid #edf1f0;border-radius:6px}.au-empty{padding:12px}.au-item{border-bottom:1px solid #edf1f0;background:#fff}.au-item:last-child{border-bottom:0}.au-item.is-resolved{background:#fbfcfb}.au-comment{display:grid;gap:7px;padding:10px}.au-reply{display:grid;gap:4px}.au-comment-main{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:0;cursor:pointer}.au-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;line-height:1.3;color:#687873}.au-email{font-weight:800;color:#24312d}.au-state{font-weight:800;color:#126b6f}.au-target-label{color:#52625d}.au-textline{white-space:pre-wrap;line-height:1.38;color:#17201d}.au-item.is-resolved .au-textline{color:#61716c}.au-comment-actions,.au-reply-actions{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.au-link{border:0;background:transparent;color:#126b6f;font-weight:800;padding:2px 0;cursor:pointer}.au-replies{display:grid;gap:8px;margin:0 10px 10px;padding-left:10px;border-left:2px solid #dfe8e5}.au-replybox{display:none;margin:0 10px 10px;gap:7px}.au-replybox.is-open{display:grid}.au-target{border:1px solid #dbe4e1;background:#f8fbfa;border-radius:6px;padding:9px;color:#31403b}.au-target strong{display:block;font-size:12px;color:#52625d;margin-bottom:3px}.au-actions{display:flex;gap:8px}.au-action{border:1px solid #becbc7;background:#fff;border-radius:5px;padding:8px 10px;cursor:pointer}.au-send{border:0;background:#126b6f;color:#fff;border-radius:5px;padding:9px 11px;font-weight:800;cursor:pointer}.au-text{width:100%;box-sizing:border-box;border:1px solid #c9d5d1;border-radius:6px;padding:9px 10px;resize:vertical;min-height:76px;font:inherit}.au-smalltext{min-height:54px}.au-muted{color:#687873}.au-mark,.au-hover{position:fixed;display:none;pointer-events:none;z-index:2147483646;border:2px solid #f3a712;border-radius:6px;box-shadow:0 0 0 9999px rgba(18,56,59,.04)}.au-hover{border-color:#126b6f;background:rgba(18,107,111,.08)}';
   panel.dataset.auWidget=btn.dataset.auWidget=mark.dataset.auWidget=hover.dataset.auWidget='1';
@@ -435,14 +472,14 @@ function injectWidget(html: string, artifact: Artifact): string {
   function update(){var e=find(active||target);if(e)setBox(mark,e);else mark.style.display='none'}
   function renderTarget(){var box=panel.querySelector('[data-target]');box.innerHTML='';box.appendChild(el('strong','', 'Target'));box.appendChild(el('span',target?'':'au-muted',target?target.label:'No element selected'));update()}
   function showMessage(text){var list=panel.querySelector('[data-list]');list.innerHTML='';list.appendChild(el('div','au-empty au-muted',text))}
-  async function load(){try{var r=await fetch('/_au/comments?tenant='+encodeURIComponent(tenant)+'&artifact='+encodeURIComponent(artifact));if(r.status===401){showMessage('Open through the access prompt to view feedback.');return}if(!r.ok){showMessage('Could not load feedback.');return}var j=await r.json();renderList(j.comments||[])}catch(e){showMessage('Could not load feedback.')}}
+  async function load(){try{var r=await fetch('/_au/comments?artifact_key='+encodeURIComponent(artifactKey));if(r.status===401){showMessage('Open through the access prompt to view feedback.');return}if(!r.ok){showMessage('Could not load feedback.');return}var j=await r.json();renderList(j.comments||[])}catch(e){showMessage('Could not load feedback.')}}
   function renderList(items){var list=panel.querySelector('[data-list]');list.innerHTML='';var roots=[],replies={};items.forEach(function(c){if(c.parent_comment_id){var k=String(c.parent_comment_id);(replies[k]||(replies[k]=[])).push(c)}else roots.push(c)});roots.sort(function(a,b){return Number(b.created_at||b.id)-Number(a.created_at||a.id)});if(!roots.length){showMessage('No feedback yet.');return}roots.forEach(function(c){var item=el('div','au-item'+(c.resolved_at?' is-resolved':''));item.appendChild(commentNode(c,false));item.appendChild(replyBox(c));var rs=replies[String(c.id)]||[];if(rs.length){var wrap=el('div','au-replies');rs.sort(function(a,b){return Number(a.created_at||a.id)-Number(b.created_at||b.id)}).forEach(function(r){wrap.appendChild(commentNode(r,true))});item.appendChild(wrap)}list.appendChild(item)})}
   function commentNode(c,isReply){var wrap=el('div',isReply?'au-reply':'au-comment'),main=el('button','au-comment-main'),meta=el('div','au-meta'),body=el('div','au-textline',c.body||''),t=parse(c.target_json);main.type='button';meta.appendChild(el('span','au-email',c.email||'Unknown viewer'));if(t&&t.label){meta.appendChild(el('span','au-muted','/'));meta.appendChild(el('span','au-target-label',t.label))}if(c.resolved_at&&!isReply)meta.appendChild(el('span','au-state','Resolved'));main.appendChild(meta);main.appendChild(body);main.onclick=function(){focusTarget(c)};wrap.appendChild(main);if(!isReply){var actions=el('div','au-comment-actions'),reply=el('button','au-link','Reply'),resolve=el('button','au-link',c.resolved_at?'Reopen':'Resolve');reply.type=resolve.type='button';reply.onclick=function(){toggleReply(c.id)};resolve.onclick=function(){setResolved(c,!c.resolved_at)};actions.appendChild(reply);actions.appendChild(resolve);wrap.appendChild(actions)}return wrap}
   function replyBox(c){var box=el('div','au-replybox');box.setAttribute('data-reply-box',c.id);var t=parse(c.target_json),area=el('textarea','au-text au-smalltext'),actions=el('div','au-reply-actions'),send=el('button','au-send','Send reply'),cancel=el('button','au-link','Cancel');area.placeholder='Reply';send.type=cancel.type='button';send.onclick=async function(){var body=area.value.trim();if(!body)return;if(await postComment({body:body,parent_id:c.id,target:t}))area.value=''};cancel.onclick=function(){box.classList.remove('is-open')};actions.appendChild(send);actions.appendChild(cancel);box.appendChild(area);box.appendChild(actions);return box}
   function focusTarget(c){var t=parse(c&&c.target_json);if(!t)return;active=t;var e=find(t);if(e)e.scrollIntoView({block:'center',behavior:'smooth'});setTimeout(update,250)}
   function toggleReply(id){Array.prototype.forEach.call(panel.querySelectorAll('.au-replybox'),function(box){var open=box.getAttribute('data-reply-box')===String(id)&&!box.classList.contains('is-open');box.classList.toggle('is-open',open);if(open){var t=box.querySelector('textarea');setTimeout(function(){if(t)t.focus()},0)}})}
-  async function postComment(extra){var payload={tenant:tenant,artifact:artifact};for(var k in extra)payload[k]=extra[k];var r=await fetch('/_au/comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!r.ok){showMessage('Could not send feedback.');return false}await load();return true}
-  async function setResolved(c,resolved){var r=await fetch('/_au/comments',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({tenant:tenant,artifact:artifact,id:c.id,resolved:resolved})});if(!r.ok){showMessage('Could not update feedback.');return}load()}
+  async function postComment(extra){var payload={artifact_key:artifactKey};for(var k in extra)payload[k]=extra[k];var r=await fetch('/_au/comments',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});if(!r.ok){showMessage('Could not send feedback.');return false}await load();return true}
+  async function setResolved(c,resolved){var r=await fetch('/_au/comments',{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({artifact_key:artifactKey,id:c.id,resolved:resolved})});if(!r.ok){showMessage('Could not update feedback.');return}load()}
   function parse(s){try{return s?JSON.parse(s):null}catch(e){return null}}
   function open(){panel.style.display='block';load();update()}
   function close(){panel.style.display='none';mark.style.display='none';hover.style.display='none'}

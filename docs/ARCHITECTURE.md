@@ -8,23 +8,23 @@ agent / CLI / MCP
   -> Artifact Use REST API
   -> Cloudflare Worker
   -> D1 metadata + R2 static files
-  -> tenant-prefixed public artifact URL
+  -> stable public artifact URL
 ```
 
 Cloudflare remains the hosting backend, but Cloudflare API credentials are not distributed to agents.
 The Worker owns R2 writes through its binding.
 
-## Tenancy
+## Ownership
 
 Creators authenticate with WorkOS. The Worker expects a JWT with an organization identifier and permissions or OAuth scopes.
 Read/write authorization is configurable, so a hosted deployment can start with WorkOS `openid` scopes and later tighten to dedicated `artifacts:*` scopes.
-The D1 `tenants` table maps `org_id` to a public `tenant_slug`.
+Artifacts are owned by WorkOS organization IDs. `created_by` must be a WorkOS `user_...` id.
 
-Public artifact URLs use the `/go` prefix followed by tenant and artifact slugs:
+Public artifact URLs use the `/go` prefix followed by an artifact slug and six-character code from the artifact id:
 
 ```text
-/go/{tenant_slug}/{artifact_slug}/
-/go/{tenant_slug}/{artifact_slug}/assets/app.js
+/go/{artifact_slug}-{code}/
+/go/{artifact_slug}-{code}/assets/app.js
 ```
 
 R2 object keys use immutable IDs:

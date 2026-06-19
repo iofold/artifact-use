@@ -2,7 +2,7 @@
   "name": "artifact-use",
   "version": "0.1.0",
   "private": true,
-  "description": "Multi-tenant, agent-friendly artifact publishing on Cloudflare R2/D1 with WorkOS creator auth.",
+  "description": "Agent-friendly artifact publishing on Cloudflare R2/D1 with WorkOS creator auth.",
   "license": "MIT",
   "type": "module",
   "workspaces": [

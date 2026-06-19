@@ -6,20 +6,24 @@ import type {
   PublisherSession,
 } from "./types";
 import { readCookie } from "./auth";
-import { createShareLink, ensureTenant, updateArtifactAccess } from "./db";
 import {
+  createShareLink,
+  ensureOwnerCompatibilityRow,
+  updateArtifactAccess,
+} from "./db";
+import {
+  artifactUrlCode,
   artifactPathPrefix,
-  assertSlug,
   error,
   escapeHtml,
   GATE_LEVELS,
-  isSlug,
   json,
   normalizeEmail,
   nowSec,
   publicArtifactPath,
   publicArtifactUrl,
   randomId,
+  slugify,
 } from "./util";
 
 const SESSION_COOKIE = "au_pub";
@@ -47,8 +51,8 @@ type ArtifactRow = Artifact & {
 
 type AdminRecentView = {
   artifact_id: string;
-  tenant_slug: string;
   slug: string;
+  url_key: string;
   title: string;
   email: string;
   verified: number;
@@ -81,6 +85,15 @@ type AdminDailyView = {
   artifact_id: string;
   day: string;
   n: number;
+};
+
+type SuperArtifactRow = Artifact & {
+  file_count: number | null;
+  total_size: number | null;
+  completed_at: number | null;
+  total_views: number;
+  share_links: number;
+  comment_count: number;
 };
 
 type AdminMaps = {
@@ -156,7 +169,7 @@ export async function renderHome(
         <div>
           <p class="eyebrow">Review-ready artifact links</p>
           <h1>Turn agent output into polished links people can open and review.</h1>
-          <p class="lead">Publish single-file HTML prototypes, PDFs, images, or complete multi-file folders with tenant paths, access controls, and comments for feedback.</p>
+          <p class="lead">Publish single-file HTML prototypes, PDFs, images, or complete multi-file folders with stable artifact links, access controls, and comments for feedback.</p>
           <div class="actions">
             <a class="button" href="/signup">Sign up</a>
             <a class="button ghost" href="/login">Sign in</a>
@@ -166,7 +179,7 @@ export async function renderHome(
           <span></span>
           <strong>Single HTML or full folders</strong>
           <em>WorkOS SSO publisher sign-in, email access, magic-link or email OTP links, whitelist gates, and comments.</em>
-          <small>${escapeHtml(publicArtifactUrl(env, "tenant", "artifact"))}</small>
+          <small>${escapeHtml(publicArtifactUrl(env, "example-abc123"))}</small>
         </div>
       </section>
     </main>`,
@@ -209,8 +222,10 @@ export async function handlePublisherAdmin(
   if (!session) return redirect("/login");
   if (path === "/admin" && request.method === "GET")
     return renderAdmin(request, env, session);
-  if (path === "/admin/tenant" && request.method === "POST")
-    return updateTenant(request, env, session);
+  if (path === "/admin/super" && request.method === "GET")
+    return renderSuperAdmin(request, env, session);
+  if (path === "/admin/super/transfer" && request.method === "POST")
+    return transferArtifactOwner(request, env, session);
   if (path === "/admin/artifact/access" && request.method === "POST")
     return updateAccess(request, env, session);
   if (path === "/admin/artifact/share-link" && request.method === "POST")
@@ -541,9 +556,7 @@ async function renderAdmin(
   session: PublisherSession,
 ): Promise<Response> {
   const openId = new URL(request.url).searchParams.get("open") || "";
-  const tenant = await env.DB.prepare("SELECT * FROM tenants WHERE org_id = ?")
-    .bind(session.orgId)
-    .first<{ slug: string; name: string | null; owner_email: string | null }>();
+  const superAdmin = isSuperAdmin(session, env);
   const rows = await env.DB.prepare(
     `SELECT a.*,
       av.file_count AS file_count,
@@ -599,13 +612,13 @@ async function renderAdmin(
     "Publisher Admin",
     `<header class="top">
       <a class="brand" href="/">Artifact Use</a>
-      <nav><a href="/admin">Admin</a><a href="/logout">Sign out</a></nav>
+      <nav><a href="/admin">Admin</a>${superAdmin ? `<a href="/admin/super">Super Admin</a>` : ""}<a href="/logout">Sign out</a></nav>
     </header>
     <main class="admin">
       <section class="headline">
         <div>
           <p class="eyebrow">Publisher admin</p>
-          <h1>${escapeHtml(tenant?.name || tenant?.slug || session.name || session.email || "Publisher")}</h1>
+          <h1>${escapeHtml(session.name || session.email || "Publisher")}</h1>
           <p class="muted">${escapeHtml(session.email || session.sub)} · ${escapeHtml(session.orgId)}</p>
         </div>
         <div class="metrics">
@@ -620,13 +633,13 @@ async function renderAdmin(
         <div>
           <p class="eyebrow">Prefixes</p>
           <h2>Routes in use</h2>
-          <p class="muted">New Artifact Use links stay under the public prefix so legacy direct artifact paths remain on the old host.</p>
+          <p class="muted">Artifact links stay under the public prefix and use a slug plus a six-character code derived from the artifact id.</p>
         </div>
         <div class="prefix-grid">
           ${prefixItem("Site base", env.SITE_BASE_URL)}
           ${prefixItem("Public artifact prefix", artifactPathPrefix(env) || "/")}
-          ${prefixItem("Artifact path pattern", `${artifactPathPrefix(env)}/{tenant}/{artifact}/`)}
-          ${prefixItem("Current tenant prefix", `${artifactPathPrefix(env)}/${tenant?.slug || suggestedSlug(session.email || session.sub)}/`)}
+          ${prefixItem("Artifact path pattern", `${artifactPathPrefix(env)}/{artifact-slug}-{code}/`)}
+          ${prefixItem("URL code source", "first 6 characters from artifact id")}
           ${prefixItem("Reserved product paths", "/admin, /api/v1, /_au, /login, /signup, /invite, /callback, /logout, /llms.txt")}
         </div>
       </section>
@@ -646,16 +659,6 @@ async function renderAdmin(
         </div>
       </section>
       ${teamSection(session, team)}
-      <section class="toolbar">
-        <form method="post" action="/admin/tenant">
-          <label>Tenant slug</label>
-          <div class="inline">
-            <input name="tenant" pattern="[a-z0-9][a-z0-9-]{0,62}" value="${escapeHtml(tenant?.slug || suggestedSlug(session.email || session.sub))}" required>
-            <input name="name" value="${escapeHtml(tenant?.name || "")}" placeholder="Display name">
-            <button type="submit">Save</button>
-          </div>
-        </form>
-      </section>
       <section class="table">
         <div class="table-head"><span>Artifact</span><span>Public path</span><span>Access</span><span>Stats</span><span></span></div>
         ${
@@ -752,7 +755,7 @@ function teamSection(session: PublisherSession, team: WorkosTeam): string {
     <div>
       <p class="eyebrow">Team</p>
       <h2>Publisher access</h2>
-      <p class="muted">Publisher accounts use WorkOS organization membership. Everyone in this organization works from the same artifact list and tenant prefix.</p>
+      <p class="muted">Publisher accounts use WorkOS organization membership. Everyone in this organization works from the same artifact list.</p>
     </div>
     <div class="team-body">
       ${
@@ -864,7 +867,7 @@ async function adminMaps(env: Env, orgId: string): Promise<AdminMaps> {
       .bind(orgId)
       .all<AdminComment>(),
     env.DB.prepare(
-      `SELECT v.artifact_id, a.tenant_slug, a.slug, a.title, v.email, v.verified, v.ts, v.referrer
+      `SELECT v.artifact_id, a.slug, a.url_key, a.title, v.email, v.verified, v.ts, v.referrer
        FROM views v
        JOIN artifacts a ON a.id = v.artifact_id
        WHERE a.org_id = ?
@@ -909,6 +912,256 @@ async function viewsSince(
   return Number(row?.n || 0);
 }
 
+async function renderSuperAdmin(
+  request: Request,
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  if (!isSuperAdmin(session, env))
+    return error(403, "forbidden", "super admin access is not configured");
+  const url = new URL(request.url);
+  const openId = url.searchParams.get("open") || "";
+  const rows = await env.DB.prepare(
+    `SELECT a.*,
+      av.file_count AS file_count,
+      av.total_size AS total_size,
+      av.completed_at AS completed_at,
+      COUNT(DISTINCT v.id) AS total_views,
+      COUNT(DISTINCT sl.id) AS share_links,
+      COUNT(DISTINCT c.id) AS comment_count
+     FROM artifacts a
+     LEFT JOIN artifact_versions av ON av.id = a.current_version_id
+     LEFT JOIN views v ON v.artifact_id = a.id
+     LEFT JOIN share_links sl ON sl.artifact_id = a.id
+     LEFT JOIN comments c ON c.artifact_id = a.id AND c.deleted_at IS NULL
+     GROUP BY a.id
+     ORDER BY a.updated_at DESC
+     LIMIT 500`,
+  ).all<SuperArtifactRow>();
+  const artifacts = rows.results || [];
+  const orgs = new Set(artifacts.map((artifact) => artifact.org_id));
+  const totalViews = artifacts.reduce(
+    (sum, artifact) => sum + Number(artifact.total_views || 0),
+    0,
+  );
+  return page(
+    "Super Admin",
+    `<header class="top">
+      <a class="brand" href="/">Artifact Use</a>
+      <nav><a href="/admin">Admin</a><a href="/admin/super">Super Admin</a><a href="/logout">Sign out</a></nav>
+    </header>
+    <main class="admin">
+      <section class="headline">
+        <div>
+          <p class="eyebrow">Super admin</p>
+          <h1>All artifacts</h1>
+          <p class="muted">${escapeHtml(session.email || session.sub)} · configured by ARTIFACT_USE_SUPER_ADMIN_USER_IDS</p>
+        </div>
+        <div class="metrics">
+          <div><strong>${artifacts.length}</strong><span>Artifacts</span></div>
+          <div><strong>${orgs.size}</strong><span>Orgs</span></div>
+          <div><strong>${totalViews}</strong><span>Views</span></div>
+          <div><strong>${artifacts.filter((artifact) => artifact.gate_level !== "public").length}</strong><span>Gated</span></div>
+          <div><strong>${artifacts.reduce((sum, artifact) => sum + Number(artifact.comment_count || 0), 0)}</strong><span>Feedback</span></div>
+        </div>
+      </section>
+      <section class="table">
+        <div class="table-head super-head"><span>Artifact</span><span>Owner</span><span>Public URL</span><span>Stats</span><span>Move</span></div>
+        ${
+          artifacts.length
+            ? artifacts
+                .map((artifact) =>
+                  superArtifactRow(env, artifact, openId === artifact.id),
+                )
+                .join("")
+            : `<div class="empty"><strong>No artifacts found.</strong></div>`
+        }
+      </section>
+    </main>`,
+  );
+}
+
+function superArtifactRow(
+  env: Env,
+  artifact: SuperArtifactRow,
+  open: boolean,
+): string {
+  const url = publicArtifactUrl(env, artifact.url_key);
+  return `<article class="artifact-card" id="artifact-${escapeHtml(artifact.id)}">
+    <div class="artifact-row super-row">
+      <div class="artifact-title">
+        <strong>${escapeHtml(artifact.title)}</strong>
+        <span>${escapeHtml(artifact.id)} · ${escapeHtml(artifact.slug)}</span>
+      </div>
+      <div class="path-block">
+        <code>${escapeHtml(artifact.org_id)}</code>
+        <small>created_by ${escapeHtml(artifact.created_by)}</small>
+      </div>
+      <div class="path-block">
+        <code>${escapeHtml(artifact.url_key)}</code>
+        <small>${escapeHtml(url)}</small>
+      </div>
+      <div class="views">
+        <strong>${formatNumber(artifact.total_views)}</strong>
+        <span>${formatNumber(artifact.share_links)} links · ${formatNumber(artifact.comment_count)} feedback</span>
+      </div>
+      <div class="row-actions">
+        <a class="button small ghost" href="${escapeHtml(url)}">Open</a>
+      </div>
+    </div>
+    <details class="artifact-detail"${open ? " open" : ""}>
+      <summary>Move ownership</summary>
+      <form method="post" action="/admin/super/transfer" class="super-transfer">
+        <input type="hidden" name="artifact_id" value="${escapeHtml(artifact.id)}">
+        <label>Target WorkOS org
+          <input name="target_org_id" placeholder="org_..." required>
+        </label>
+        <label>Target WorkOS user
+          <input name="target_user_id" placeholder="user_..." required>
+        </label>
+        <button type="submit">Move artifact</button>
+      </form>
+      <p class="mini">Moving updates artifacts, versions, share links, and created_by to the target user. The public URL key stays ${escapeHtml(artifact.url_key)}.</p>
+    </details>
+  </article>`;
+}
+
+async function transferArtifactOwner(
+  request: Request,
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  if (!isSuperAdmin(session, env))
+    return error(403, "forbidden", "super admin access is not configured");
+  const form = await request.formData();
+  const artifactId = String(form.get("artifact_id") || "").trim();
+  const targetOrgId = String(form.get("target_org_id") || "").trim();
+  const targetUserId = String(form.get("target_user_id") || "").trim();
+  if (!artifactId.startsWith("art_"))
+    return error(400, "invalid_artifact", "artifact id is required");
+  if (!isWorkosOrgId(targetOrgId))
+    return error(400, "invalid_org", "target org must be a WorkOS org id");
+  if (!targetUserId.startsWith("user_"))
+    return error(400, "invalid_user", "target user must be a WorkOS user id");
+  if (!(await workosUserInOrg(env, targetOrgId, targetUserId)))
+    return error(
+      400,
+      "user_not_in_org",
+      "target user is not an active member of the target organization",
+    );
+  const artifact = await env.DB.prepare("SELECT * FROM artifacts WHERE id = ?")
+    .bind(artifactId)
+    .first<Artifact>();
+  if (!artifact) return error(404, "artifact_not_found", "artifact not found");
+  const slug = await transferSlug(env, artifact, targetOrgId);
+  const now = nowSec();
+  await ensureOwnerCompatibilityRow(env, targetOrgId, null);
+  const statements = [
+    env.DB.prepare(
+      "UPDATE artifact_versions SET org_id = ?, created_by = ? WHERE artifact_id = ?",
+    ).bind(targetOrgId, targetUserId, artifact.id),
+    env.DB.prepare(
+      "UPDATE share_links SET created_by = ? WHERE artifact_id = ?",
+    ).bind(targetUserId, artifact.id),
+    env.DB.prepare(
+      "UPDATE artifacts SET org_id = ?, slug = ?, created_by = ?, updated_at = ? WHERE id = ?",
+    ).bind(targetOrgId, slug, targetUserId, now, artifact.id),
+    env.DB.prepare(
+      `INSERT INTO super_admin_events
+       (id, actor_user_id, artifact_id, action, from_org_id, to_org_id, to_user_id, created_at)
+       VALUES (?, ?, ?, 'transfer_artifact', ?, ?, ?, ?)`,
+    ).bind(
+      randomId("evt"),
+      session.sub,
+      artifact.id,
+      artifact.org_id,
+      targetOrgId,
+      targetUserId,
+      now,
+    ),
+  ];
+  if (slug !== artifact.slug) {
+    statements.push(
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO legacy_artifact_paths
+         (legacy_tenant_slug, legacy_slug, artifact_id, created_at)
+         VALUES (?, ?, ?, ?)`,
+      ).bind(artifact.tenant_slug, artifact.slug, artifact.id, now),
+    );
+  }
+  await env.DB.batch(statements);
+  return redirect(`/admin/super?open=${encodeURIComponent(artifact.id)}`);
+}
+
+async function transferSlug(
+  env: Env,
+  artifact: Artifact,
+  targetOrgId: string,
+): Promise<string> {
+  const existing = await env.DB.prepare(
+    "SELECT id FROM artifacts WHERE org_id = ? AND slug = ? AND id <> ? LIMIT 1",
+  )
+    .bind(targetOrgId, artifact.slug, artifact.id)
+    .first<{ id: string }>();
+  if (!existing) return artifact.slug;
+  const code = artifactUrlCode(artifact.id);
+  for (let i = 0; i < 20; i += 1) {
+    const slug = transferCandidateSlug(artifact.slug, code, i);
+    const collision = await env.DB.prepare(
+      "SELECT id FROM artifacts WHERE org_id = ? AND slug = ? AND id <> ? LIMIT 1",
+    )
+      .bind(targetOrgId, slug, artifact.id)
+      .first<{ id: string }>();
+    if (!collision) return slug;
+  }
+  throw new Error("could not find a unique slug for target org");
+}
+
+function transferCandidateSlug(
+  slug: string,
+  code: string,
+  attempt: number,
+): string {
+  const suffix = attempt ? `-${code}-${attempt}` : `-${code}`;
+  const base = slugify(slug || "artifact", "artifact")
+    .slice(0, Math.max(1, 63 - suffix.length))
+    .replace(/-+$/g, "");
+  return `${base || "artifact"}${suffix}`;
+}
+
+async function workosUserInOrg(
+  env: Env,
+  orgId: string,
+  userId: string,
+): Promise<boolean> {
+  const params = new URLSearchParams({
+    organization_id: orgId,
+    user_id: userId,
+    limit: "10",
+  });
+  const memberships = await workosApi(env, {
+    path: `/user_management/organization_memberships?${params}`,
+  });
+  return asArray(memberships.data).some((row) => {
+    const membership = row as Record<string, unknown>;
+    return (
+      stringClaim(membership.organization_id) === orgId &&
+      stringClaim(membership.user_id) === userId &&
+      stringClaim(membership.status) === "active"
+    );
+  });
+}
+
+function isSuperAdmin(session: PublisherSession, env: Env): boolean {
+  const ids = new Set(
+    String(env.ARTIFACT_USE_SUPER_ADMIN_USER_IDS || "")
+      .split(",")
+      .map((id) => id.trim())
+      .filter(Boolean),
+  );
+  return Boolean(session.sub && ids.has(session.sub));
+}
+
 function groupBy<T extends Record<string, unknown>>(
   rows: T[],
   key: keyof T,
@@ -950,8 +1203,8 @@ function artifactRow(
   },
   open: boolean,
 ): string {
-  const url = publicArtifactUrl(env, artifact.tenant_slug, artifact.slug);
-  const path = publicArtifactPath(env, artifact.tenant_slug, artifact.slug);
+  const url = publicArtifactUrl(env, artifact.url_key);
+  const path = publicArtifactPath(env, artifact.url_key);
   const comments = detail.comments.filter(
     (comment) => !comment.parent_comment_id,
   );
@@ -959,15 +1212,14 @@ function artifactRow(
     <div class="artifact-row">
       <div class="artifact-title">
         <strong>${escapeHtml(artifact.title)}</strong>
-        <span>${escapeHtml(artifact.tenant_slug)}/${escapeHtml(artifact.slug)}</span>
+        <span>${escapeHtml(artifact.url_key)}</span>
       </div>
       <div class="path-block">
         <code>${escapeHtml(path)}</code>
         <small>${escapeHtml(url)}</small>
       </div>
       <form method="post" action="/admin/artifact/access" class="access">
-        <input type="hidden" name="tenant" value="${escapeHtml(artifact.tenant_slug)}">
-        <input type="hidden" name="artifact" value="${escapeHtml(artifact.slug)}">
+        <input type="hidden" name="artifact_key" value="${escapeHtml(artifact.url_key)}">
         <select name="gate_level">
           ${["public", "email", "verified_email", "allowlist"].map((level) => `<option value="${level}"${artifact.gate_level === level ? " selected" : ""}>${level}</option>`).join("")}
         </select>
@@ -1035,7 +1287,7 @@ function barsHtml(daily: AdminDailyView[]): string {
 
 function recentViewItem(view: AdminRecentView): string {
   return `<li>
-    <span><strong>${escapeHtml(view.email)}</strong><small>${escapeHtml(view.title || `${view.tenant_slug}/${view.slug}`)}</small></span>
+    <span><strong>${escapeHtml(view.email)}</strong><small>${escapeHtml(view.title || view.url_key || view.slug)}</small></span>
     <time>${ago(view.ts)}</time>
   </li>`;
 }
@@ -1057,7 +1309,7 @@ function shareLinksHtml(
         : link.expires_at && link.expires_at < nowSec()
           ? "expired"
           : "active";
-      const url = `${publicArtifactUrl(env, artifact.tenant_slug, artifact.slug)}?v=${link.id}`;
+      const url = `${publicArtifactUrl(env, artifact.url_key)}?v=${link.id}`;
       return `<li>
         <span><strong>${escapeHtml(label)}</strong><small>${formatNumber(link.view_count)} views · ${escapeHtml(state)} · ${escapeHtml(url)}</small></span>
         ${
@@ -1075,8 +1327,7 @@ function shareLinksHtml(
 
 function shareLinkForm(artifact: ArtifactRow): string {
   return `<form method="post" action="/admin/artifact/share-link" class="share-create">
-    <input type="hidden" name="tenant" value="${escapeHtml(artifact.tenant_slug)}">
-    <input type="hidden" name="artifact" value="${escapeHtml(artifact.slug)}">
+    <input type="hidden" name="artifact_key" value="${escapeHtml(artifact.url_key)}">
     <input name="recipient_email" type="email" placeholder="email">
     <input name="recipient_label" placeholder="label">
     <input name="expires_days" inputmode="numeric" placeholder="days">
@@ -1093,8 +1344,7 @@ function commentItem(comment: AdminComment): string {
 
 function allowlistForm(artifact: ArtifactRow): string {
   return `<form method="post" action="/admin/artifact/access" class="allowlist-form">
-    <input type="hidden" name="tenant" value="${escapeHtml(artifact.tenant_slug)}">
-    <input type="hidden" name="artifact" value="${escapeHtml(artifact.slug)}">
+    <input type="hidden" name="artifact_key" value="${escapeHtml(artifact.url_key)}">
     <input type="hidden" name="gate_level" value="allowlist">
     <textarea name="allowlist_lines" rows="5" placeholder="acme.com&#10;jane@acme.com">${escapeHtml(allowlistLines(artifact.allowlist_json))}</textarea>
     <button type="submit">Save allowlist</button>
@@ -1167,43 +1417,16 @@ function dateLabelFromIso(value: string | null | undefined): string {
   return date.toISOString().slice(0, 10);
 }
 
-async function updateTenant(
-  request: Request,
-  env: Env,
-  session: PublisherSession,
-): Promise<Response> {
-  const form = await request.formData();
-  const slug = assertSlug("tenant", String(form.get("tenant") || ""));
-  const creator = creatorFromSession(session);
-  await ensureTenant(
-    env,
-    creator,
-    slug,
-    String(form.get("name") || "") || null,
-  );
-  return redirect("/admin");
-}
-
 async function updateAccess(
   request: Request,
   env: Env,
   session: PublisherSession,
 ): Promise<Response> {
   const form = await request.formData();
-  const tenantSlug = assertSlug("tenant", String(form.get("tenant") || ""));
-  const artifactSlug = assertSlug(
-    "artifact",
-    String(form.get("artifact") || ""),
-  );
   const gateLevel = String(form.get("gate_level") || "") as GateLevel;
   if (!GATE_LEVELS.has(gateLevel))
     return error(400, "invalid_gate_level", "gate_level is not supported");
-  const artifact = await publisherArtifact(
-    env,
-    session,
-    tenantSlug,
-    artifactSlug,
-  );
+  const artifact = await publisherArtifact(env, session, form);
   if (!artifact) return error(404, "artifact_not_found", "artifact not found");
   await updateArtifactAccess(
     env,
@@ -1221,17 +1444,7 @@ async function createAdminShareLink(
   session: PublisherSession,
 ): Promise<Response> {
   const form = await request.formData();
-  const tenantSlug = assertSlug("tenant", String(form.get("tenant") || ""));
-  const artifactSlug = assertSlug(
-    "artifact",
-    String(form.get("artifact") || ""),
-  );
-  const artifact = await publisherArtifact(
-    env,
-    session,
-    tenantSlug,
-    artifactSlug,
-  );
+  const artifact = await publisherArtifact(env, session, form);
   if (!artifact) return error(404, "artifact_not_found", "artifact not found");
   const rawEmail = String(form.get("recipient_email") || "").trim();
   const days = Number(form.get("expires_days") || 0);
@@ -1497,9 +1710,19 @@ function legacyBearerUserOrgId(userId: string): string {
 async function publisherArtifact(
   env: Env,
   session: PublisherSession,
-  tenantSlug: string,
-  artifactSlug: string,
+  form: FormData,
 ): Promise<Artifact | null> {
+  const artifactKey = String(form.get("artifact_key") || "").trim();
+  if (artifactKey) {
+    return env.DB.prepare(
+      "SELECT * FROM artifacts WHERE url_key = ? AND org_id = ?",
+    )
+      .bind(artifactKey, session.orgId)
+      .first<Artifact>();
+  }
+  const tenantSlug = String(form.get("tenant") || "").trim();
+  const artifactSlug = String(form.get("artifact") || "").trim();
+  if (!tenantSlug || !artifactSlug) return null;
   return env.DB.prepare(
     "SELECT * FROM artifacts WHERE tenant_slug = ? AND slug = ? AND org_id = ?",
   )
@@ -1622,16 +1845,6 @@ function stringClaim(value: unknown): string | null {
   return typeof value === "string" && value ? value : null;
 }
 
-function suggestedSlug(value: string): string {
-  const slug = value
-    .toLowerCase()
-    .split("@")[0]!
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
-  return isSlug(slug) ? slug : "publisher";
-}
-
 function page(title: string, body: string): Response {
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>
@@ -1639,6 +1852,7 @@ function page(title: string, body: string): Response {
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:Aptos,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}a{color:inherit;text-decoration:none}.top{height:66px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 clamp(18px,4vw,48px);background:var(--paper);position:sticky;top:0;z-index:5}.brand{font-weight:800}.top nav{display:flex;gap:10px;align-items:center}.top nav a{padding:9px 10px;border-radius:6px;color:var(--muted)}.top nav a:hover{background:var(--field);color:var(--ink)}.button,button{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border:1px solid var(--accent);border-radius:6px;background:var(--accent);color:#fff;padding:0 14px;font:700 14px inherit;cursor:pointer}.button.ghost{background:transparent;color:var(--accent)}.button.small{min-height:34px;padding:0 11px}.button.danger{border-color:#b84a3a;color:#b84a3a}.home,.admin{max-width:1180px;margin:0 auto;padding:clamp(26px,5vw,56px) clamp(18px,4vw,34px)}.hero{min-height:calc(100vh - 150px);display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:44px;align-items:center}.eyebrow{font-size:12px;font-weight:800;text-transform:uppercase;color:var(--accent);margin:0 0 14px}.hero h1,.headline h1{font-size:clamp(36px,6vw,74px);line-height:.96;margin:0;max-width:780px}.lead{font-size:20px;line-height:1.5;color:var(--muted);max-width:680px}.actions{display:flex;gap:12px;margin-top:26px}.status{border-left:3px solid var(--accent);padding:18px 0 18px 20px}.status span{display:block;width:10px;height:10px;border-radius:50%;background:var(--accent2);box-shadow:0 0 0 5px rgba(214,255,98,.28);margin-bottom:16px}.status strong,.status em,.status small{display:block}.status em{margin-top:8px;color:var(--muted);font-style:normal;line-height:1.5}.status small{margin-top:14px;color:var(--muted);word-break:break-all}.headline{display:flex;align-items:end;justify-content:space-between;gap:24px;border-bottom:1px solid var(--line);padding-bottom:26px}.headline h1{font-size:clamp(32px,4vw,54px)}.muted{color:var(--muted)}.metrics{display:grid;grid-template-columns:repeat(5,minmax(92px,1fr));border:1px solid var(--line);background:var(--panel);min-width:min(620px,100%)}.metrics div{padding:16px;border-right:1px solid var(--line)}.metrics div:last-child{border-right:0}.metrics strong{display:block;font-size:26px}.metrics span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.route-panel{display:grid;grid-template-columns:280px minmax(0,1fr);gap:24px;padding:24px 0;border-bottom:1px solid var(--line)}.route-panel h2{margin:0 0 8px;font-size:24px}.prefix-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.prefix-item{border:1px solid var(--line);background:#fff;padding:11px;border-radius:6px;min-width:0}.prefix-item span{display:block;color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase;margin-bottom:6px}.prefix-item code,.path-block code,.meta-list code{font-family:"SFMono-Regular",Consolas,monospace;font-size:12px;word-break:break-all}.setup{display:grid;grid-template-columns:280px minmax(0,1fr);gap:24px;padding:24px 0;border-bottom:1px solid var(--line)}.setup h2{margin:0 0 8px;font-size:24px}.setup-grid{display:grid;gap:12px}label{display:block;font-size:12px;font-weight:800;text-transform:uppercase;color:var(--muted);margin-bottom:8px}.toolbar{padding:24px 0;border-bottom:1px solid var(--line)}.inline{display:grid;grid-template-columns:minmax(160px,260px) minmax(160px,1fr) auto;gap:10px}input,select,textarea{width:100%;min-height:38px;border:1px solid var(--line);border-radius:6px;background:#fff;padding:8px 10px;font:inherit;text-transform:none;color:var(--ink)}textarea{resize:vertical;font-family:"SFMono-Regular",Consolas,monospace;font-size:13px;line-height:1.45}.table{margin-top:22px}.table-head,.artifact-row{display:grid;grid-template-columns:minmax(220px,1.1fr) minmax(220px,1fr) 210px 155px 96px;gap:14px;align-items:center}.table-head{padding:0 12px 10px;color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase}.artifact-card{background:#fff;border:1px solid var(--line);margin-bottom:10px}.artifact-row{border:0;padding:12px;margin:0}.artifact-title strong,.artifact-title span,.path-block small,.views span{display:block}.artifact-title span,.path-block small,.views span{color:var(--muted);font-size:13px;margin-top:3px;word-break:break-all}.row-actions{display:flex;justify-content:flex-end}.access{display:grid;grid-template-columns:1fr auto;gap:8px}.artifact-detail{border-top:1px solid var(--line);padding:0 12px 14px}.artifact-detail summary{cursor:pointer;color:var(--accent);font-weight:800;padding:12px 0}.detail-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(220px,.75fr);gap:22px}.detail-grid h3,.activity h2{margin:14px 0 10px;font-size:12px;text-transform:uppercase;color:var(--muted)}.bars{height:70px;display:flex;gap:3px;align-items:flex-end;border-bottom:1px solid var(--line)}.bars span{flex:1;min-height:4px;background:var(--accent);border-radius:3px 3px 0 0}.mini{font-size:12px;color:var(--muted);margin:7px 0 0}.detail-list,.activity-feed{list-style:none;margin:0;padding:0}.detail-list li,.activity-feed li{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #edf1f0;padding:8px 0;font-size:13px}.detail-list li small,.activity-feed li small{display:block;color:var(--muted);margin-top:3px;word-break:break-word}.detail-list time,.activity-feed time{color:var(--muted);white-space:nowrap}.links-list form{margin:0}.share-create{display:grid;grid-template-columns:minmax(120px,1fr) minmax(90px,.8fr) 70px auto;gap:8px;margin-top:10px}.meta-list{display:grid;gap:7px;margin:0}.meta-list div{display:grid;grid-template-columns:100px minmax(0,1fr);gap:10px}.meta-list dt{color:var(--muted);font-size:12px}.meta-list dd{margin:0;font-size:13px}.allowlist-form{display:grid;gap:8px}.activity{padding-top:24px}.empty{border:1px solid var(--line);background:#fff;padding:24px}.small-empty{padding:10px;font-size:13px}.empty strong,.empty span{display:block}.empty span{color:var(--muted);margin-top:6px}.pill{display:inline-flex;align-items:center;min-height:28px;border-radius:999px;background:var(--field);color:var(--muted);font-size:12px;padding:0 9px}.panel.narrow{max-width:520px;margin:14vh auto;padding:32px}.error{color:#a33434}@media(max-width:900px){.headline,.route-panel,.setup{align-items:start;grid-template-columns:1fr}.detail-grid,.prefix-grid{grid-template-columns:1fr}.table-head,.artifact-row{grid-template-columns:1fr}.table-head{display:none}.row-actions{justify-content:flex-start}.share-create{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,minmax(0,1fr));width:100%;min-width:0}.metrics div{border-right:0;border-bottom:1px solid var(--line)}.metrics div:last-child{border-bottom:0}}@media(max-width:760px){.hero{grid-template-columns:1fr;min-height:auto}.headline{align-items:start;flex-direction:column}.setup{grid-template-columns:1fr}.inline{grid-template-columns:1fr}.access{grid-template-columns:1fr}.actions{flex-wrap:wrap}}
 @media(min-width:901px){.table-head,.artifact-row{grid-template-columns:minmax(180px,.8fr) minmax(280px,1.35fr) 210px 150px 88px}.share-create{grid-template-columns:minmax(120px,1fr) minmax(90px,1fr) 70px}.share-create button{grid-column:1/-1}}.share-create button{white-space:nowrap}
 .team-panel{display:grid;grid-template-columns:280px minmax(0,1fr);gap:24px;padding:24px 0;border-bottom:1px solid var(--line)}.team-panel h2{margin:0 0 8px;font-size:24px}.team-body{display:grid;gap:14px;align-content:start}.team-invite{display:grid;grid-template-columns:minmax(190px,1fr) 140px 110px auto;gap:10px;align-items:end}.team-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}.team-grid h3{margin:10px 0;font-size:12px;text-transform:uppercase;color:var(--muted)}.error-box{color:#8f2f26;border-color:#e3b7af;background:#fff8f6}.invite-list form{margin:0}@media(max-width:900px){.team-panel,.team-grid,.team-invite{grid-template-columns:1fr}}
+.super-head,.super-row{grid-template-columns:minmax(190px,.9fr) minmax(220px,1fr) minmax(240px,1.1fr) 150px 88px}.super-transfer{display:grid;grid-template-columns:minmax(190px,1fr) minmax(190px,1fr) auto;gap:10px;align-items:end}.super-transfer label{margin:0}@media(max-width:900px){.super-head,.super-row,.super-transfer{grid-template-columns:1fr}}
 </style></head><body>${body}</body></html>`,
     {
       headers: {

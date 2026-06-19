@@ -11,7 +11,7 @@ Primary URLs:
 - HTTP MCP: ${base}/mcp
 - OAuth protected-resource metadata: ${base}/.well-known/oauth-protected-resource
 - Full agent setup guide: ${base}/llms-full.txt
-- Public artifact URL shape: ${base}${env.ARTIFACT_PUBLIC_PATH_PREFIX || "/go"}/{tenant}/{artifact}/
+- Public artifact URL shape: ${base}${env.ARTIFACT_PUBLIC_PATH_PREFIX || "/go"}/{artifact-slug}-{six-character-code}/
 
 Use Artifact Use when an agent needs to create, polish, publish, gate, share, or inspect static artifacts: self-contained interactive HTML, multi-file static folders, images, PDFs, dashboards, demos, and browser-native tools.
 
@@ -91,11 +91,11 @@ Artifact Use publishes static artifacts to ${base} without exposing Cloudflare c
 - Use ARTIFACT_USE_TOKEN only for CLI, local stdio MCP, or non-OAuth clients.
 - Use artifact_publish for a single HTML string or small inline multi-file payloads.
 - Use artifact_upload_session, local stdio MCP with dir, or the CLI for local folders, large files, images, PDFs, or multi-file artifacts.
-- Use artifact_manage for list, stats, access changes, and share links. action: "list" returns default_tenant.
-- Do not guess tenant slugs. Omit tenant unless the user explicitly asks for a tenant path.
-- Keep explicit tenant and artifact slugs lower-case hyphen-case.
+- Use artifact_manage for list, stats, access changes, and share links. action: "list" returns artifact url_key values for exact management calls.
+- Use artifact slugs when publishing; use the returned url_key when managing an existing artifact.
+- Keep artifact slugs lower-case hyphen-case.
 - Default gate is email; use verified_email when inbox control matters, allowlist for restricted customer material, and public only when intentionally low sensitivity.
-- New public Artifact Use URLs are under ${prefix}/{tenant}/{artifact}/; legacy direct root artifact paths belong to the old legacy artifact host host.
+- New public Artifact Use URLs are under ${prefix}/{artifact-slug}-{six-character-code}/; legacy direct root artifact paths belong to the old legacy artifact host host.
 
 ## Authoring Workflow
 
@@ -104,7 +104,7 @@ Artifact Use publishes static artifacts to ${base} without exposing Cloudflare c
 3. For folders, sibling assets, split data files, images, PDFs, local libraries, or large payloads, use multi-file publishing and verify all relative paths.
 4. Build the working artifact first, then polish visual hierarchy, copy, responsiveness, and empty/error states.
 5. Before saying it is ready or publishing it, run browser checks for desktop, mobile, the main interaction path, and any copy/download/file paths.
-6. Report the URL, gate level, tenant/artifact slug, whether a share link was created, checks run, and any JSON error body.
+6. Report the URL, gate level, artifact slug/url_key, whether a share link was created, checks run, and any JSON error body.
 \`\`\`
 
 If this repository is available, use the richer bundled skill at:
@@ -197,8 +197,7 @@ Share link:
 
 \`\`\`bash
 artifact-use share --json '{
-  "tenant": "acme",
-  "artifact": "claims-demo",
+  "artifact": "claims-demo-a1b2c3",
   "recipient_email": "viewer@example.com",
   "recipient_label": "Viewer",
   "expires_days": 14
@@ -234,9 +233,9 @@ Check desktop, mobile, primary interaction, empty/error states, copy/download co
 
 Report:
 
-- Live URL: \`${base}${prefix}/{tenant}/{artifact}/\`
+- Live URL: \`${base}${prefix}/{artifact-slug}-{six-character-code}/\`
 - Gate level.
-- Tenant/artifact slug.
+- Artifact slug and url_key.
 - Share link, if created.
 - Viewports/interactions checked.
 - Any skipped checks or assumptions.

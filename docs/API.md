@@ -40,26 +40,15 @@ Tools:
 - `artifact_upload_session`
 - `artifact_manage`
 
-`artifact_publish` accepts either `html` for a single-file artifact or `files` for small HTTP MCP multi-file artifacts. `tenant` is optional; omit it to use the authenticated account's default tenant. Each inline file can contain `content` or `content_base64`.
+`artifact_publish` accepts either `html` for a single-file artifact or `files` for small HTTP MCP multi-file artifacts. Each inline file can contain `content` or `content_base64`.
 
 `artifact_upload_session` creates a draft version and returns a 6-hour bearer `upload_token`, `upload_base`, and `complete_url`. Use it when an agent has filesystem and shell/curl access so bytes move directly over HTTP instead of through MCP/model context.
-
-## Tenant
-
-```http
-POST /api/v1/tenants
-{
-  "tenant": "acme",
-  "name": "Acme"
-}
-```
 
 ## Publish HTML
 
 ```http
 POST /api/v1/publish/html
 {
-  "tenant": "acme",
   "artifact": "claims-demo",
   "title": "Claims Demo",
   "gate_level": "email",
@@ -67,7 +56,7 @@ POST /api/v1/publish/html
 }
 ```
 
-`tenant` may be omitted; the server will use or create the authenticated account's default tenant.
+The response includes `artifact.url_key` and `url`. Public URLs use `/go/{artifact-slug}-{six-character-code}/`.
 
 ## Publish Folder
 
@@ -76,7 +65,6 @@ Start:
 ```http
 POST /api/v1/publish/start
 {
-  "tenant": "acme",
   "artifact": "claims-demo",
   "title": "Claims Demo",
   "gate_level": "email",
@@ -84,14 +72,11 @@ POST /api/v1/publish/start
 }
 ```
 
-`tenant` may be omitted; the server will use or create the authenticated account's default tenant.
-
 For direct upload without reusing the creator OAuth token for every file, create a short-lived upload session:
 
 ```http
 POST /api/v1/publish/upload-session
 {
-  "tenant": "acme",
   "artifact": "claims-demo",
   "title": "Claims Demo",
   "gate_level": "email",
@@ -136,13 +121,13 @@ The injected feedback popup uses the viewer session cookie from the artifact
 gate.
 
 ```http
-GET /_au/comments?tenant={tenant}&artifact={artifact}
+GET /_au/comments?artifact_key={url_key}
 POST /_au/comments
 PATCH /_au/comments
 ```
 
 `POST /_au/comments` creates either a top-level comment or a reply when
-`parent_id` is supplied. `PATCH /_au/comments` accepts `id` and `resolved` to
+`parent_id` is supplied. Include `artifact_key` in the JSON body. `PATCH /_au/comments` accepts `artifact_key`, `id`, and `resolved` to
 mark feedback resolved or reopen it. Existing comments from earlier schema
 versions remain top-level, unresolved comments after migration.
 
@@ -150,12 +135,14 @@ versions remain top-level, unresolved comments after migration.
 
 ```http
 GET /api/v1/artifacts
-GET /api/v1/artifacts/{tenant}/{artifact}
-PATCH /api/v1/artifacts/{tenant}/{artifact}
-GET /api/v1/artifacts/{tenant}/{artifact}/stats
-POST /api/v1/artifacts/{tenant}/{artifact}/share-links
-GET /api/v1/artifacts/{tenant}/{artifact}/comments
+GET /api/v1/artifacts/{artifact_key}
+PATCH /api/v1/artifacts/{artifact_key}
+GET /api/v1/artifacts/{artifact_key}/stats
+POST /api/v1/artifacts/{artifact_key}/share-links
+GET /api/v1/artifacts/{artifact_key}/comments
 ```
+
+For compatibility during migration, old `/api/v1/artifacts/{legacy_prefix}/{artifact}` paths are still accepted when they map to an artifact owned by the authenticated org.
 
 Gate levels:
 

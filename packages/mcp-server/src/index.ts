@@ -29,12 +29,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: "object",
         required: ["artifact"],
         properties: {
-          tenant: {
+          artifact: {
             type: "string",
-            description:
-              "Optional. Omit to use the authenticated account's default tenant.",
+            description: "Artifact slug to publish.",
           },
-          artifact: { type: "string" },
           title: { type: "string" },
           dir: { type: "string" },
           html: { type: "string" },
@@ -68,12 +66,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
         type: "object",
         required: ["artifact"],
         properties: {
-          tenant: {
+          artifact: {
             type: "string",
-            description:
-              "Optional. Omit to use the authenticated account's default tenant.",
+            description: "Artifact slug to publish.",
           },
-          artifact: { type: "string" },
           title: { type: "string" },
           gate_level: {
             type: "string",
@@ -96,12 +92,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: "string",
             enum: ["list", "stats", "set_access", "share_link"],
           },
-          tenant: {
+          artifact: {
             type: "string",
-            description:
-              "Optional for stats, set_access, and share_link when artifact is unique in the authenticated account.",
+            description: "Artifact url_key from list output, or artifact slug.",
           },
-          artifact: { type: "string" },
           gate_level: {
             type: "string",
             enum: ["public", "email", "verified_email", "allowlist"],
@@ -141,34 +135,19 @@ await server.connect(new StdioServerTransport());
 async function manageArtifact(args: Record<string, unknown>): Promise<unknown> {
   const action = String(args.action || "");
   if (action === "list") return api("GET", "/api/v1/artifacts");
-  let tenant = String(args.tenant || "");
   const artifact = String(args.artifact || "");
   if (!artifact)
     throw new Error(`artifact_manage ${action || "action"} requires artifact`);
-  if (!tenant) {
-    const listed = (await api("GET", "/api/v1/artifacts")) as {
-      artifacts?: Array<{ slug: string; tenant_slug: string }>;
-    };
-    const match = (listed.artifacts || []).find((row) => row.slug === artifact);
-    if (!match)
-      throw new Error(
-        `artifact not found in authenticated account: ${artifact}`,
-      );
-    tenant = match.tenant_slug;
-  }
+  const artifactRef = encodeURIComponent(artifact);
   if (action === "stats")
-    return api("GET", `/api/v1/artifacts/${tenant}/${artifact}/stats`);
+    return api("GET", `/api/v1/artifacts/${artifactRef}/stats`);
   if (action === "set_access")
-    return api("PATCH", `/api/v1/artifacts/${tenant}/${artifact}`, {
+    return api("PATCH", `/api/v1/artifacts/${artifactRef}`, {
       gate_level: args.gate_level,
       allowlist: args.allowlist,
     });
   if (action === "share_link")
-    return api(
-      "POST",
-      `/api/v1/artifacts/${tenant}/${artifact}/share-links`,
-      args,
-    );
+    return api("POST", `/api/v1/artifacts/${artifactRef}/share-links`, args);
   throw new Error(`unknown artifact_manage action: ${action}`);
 }
 
@@ -195,7 +174,6 @@ async function publishFiles(args: Record<string, unknown>): Promise<unknown> {
   if (!normalized.some((file) => file.path === entrypoint))
     throw new Error(`entrypoint not found: ${entrypoint}`);
   const start = (await api("POST", "/api/v1/publish/start", {
-    tenant: args.tenant,
     artifact: args.artifact,
     title: args.title,
     gate_level: args.gate_level || "email",
@@ -258,7 +236,6 @@ async function publishFolder(args: Record<string, unknown>): Promise<unknown> {
     };
   requireToken();
   const start = (await api("POST", "/api/v1/publish/start", {
-    tenant: args.tenant,
     artifact: args.artifact,
     title: args.title,
     gate_level: args.gate_level || "email",

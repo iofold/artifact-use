@@ -22,7 +22,6 @@ import {
   getVersionForOrg,
   listFilesForVersion,
   revertVersionToDraft,
-  resolveTenant,
   upsertArtifact,
   upsertFile,
   upsertFileIfDraft,
@@ -41,7 +40,6 @@ import {
 } from "./util";
 
 interface StartBody {
-  tenant?: string;
   artifact: string;
   title?: string;
   gate_level?: GateLevel;
@@ -246,9 +244,7 @@ export async function handlePublish(
           ok: true,
           artifact,
           version_id: version.id,
-          url: artifact
-            ? publicArtifactUrl(env, artifact.tenant_slug, artifact.slug)
-            : null,
+          url: artifact ? publicArtifactUrl(env, artifact.url_key) : null,
         });
       } catch (e) {
         if (!completed)
@@ -271,11 +267,9 @@ export async function handlePublish(
       const gateLevel = (body.gate_level || "email") as GateLevel;
       if (!GATE_LEVELS.has(gateLevel))
         return error(400, "invalid_gate_level", "gate_level is not supported");
-      const tenant = await resolveTenant(env, creator, body.tenant);
       const artifact = await upsertArtifact(
         env,
         creator,
-        tenant.slug,
         artifactSlug,
         body.title || artifactSlug,
         gateLevel,
@@ -321,7 +315,7 @@ export async function handlePublish(
         ok: true,
         artifact,
         version_id: version.id,
-        url: publicArtifactUrl(env, tenant.slug, artifactSlug),
+        url: publicArtifactUrl(env, artifact.url_key),
       });
     }
   } catch (e) {
@@ -350,11 +344,9 @@ async function createDraft(
   if (!GATE_LEVELS.has(gateLevel))
     throw new Error("gate_level is not supported");
   const entrypoint = validateAssetPath(String(body.entrypoint || "index.html"));
-  const tenant = await resolveTenant(env, creator, body.tenant);
   const artifact = await upsertArtifact(
     env,
     creator,
-    tenant.slug,
     artifactSlug,
     body.title || artifactSlug,
     gateLevel,

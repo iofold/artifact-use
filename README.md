@@ -1,6 +1,6 @@
 # Artifact Use
 
-Artifact Use is an open-source, multi-tenant artifact publishing service for AI agents and teams.
+Artifact Use is an open-source artifact publishing service for AI agents and teams.
 It hosts static HTML/folder artifacts on Cloudflare R2 behind a Cloudflare Worker, tracks viewer access in D1, and uses WorkOS OAuth/AuthKit for artifact creator auth.
 
 The default hosted API is planned at `https://artifacts.iofold.com`.
@@ -8,7 +8,7 @@ The default hosted API is planned at `https://artifacts.iofold.com`.
 ## What It Does
 
 - Publishes single-file HTML or complete static folders.
-- Serves tenant-prefixed artifact URLs such as `https://artifacts.iofold.com/go/acme/claims-demo/`.
+- Serves stable artifact URLs such as `https://artifacts.iofold.com/go/claims-demo-a1b2c3/`.
 - Keeps every publish as an immutable version and atomically flips the current version.
 - Supports DocSend-style gates: `public`, `email`, `verified_email`, and `allowlist`.
 - Tracks views, share links, viewer email attribution, and lightweight comments.
@@ -86,7 +86,6 @@ npx wrangler deploy
 
 ```bash
 npm run cli -- publish-folder --json '{
-  "tenant": "acme",
   "artifact": "claims-demo",
   "title": "Claims Demo",
   "dir": "examples/simple-site",
@@ -103,11 +102,11 @@ The CLI will:
 
 MCP exposes two tools:
 
-- `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP. `tenant` is optional; omit it to use the authenticated account's default tenant.
-- `artifact_manage`: list artifacts, fetch stats, update access, or create share links. `artifact_manage` with `action: "list"` returns `default_tenant`.
+- `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP.
+- `artifact_manage`: list artifacts, fetch stats, update access, or create share links. Use the `url_key` returned by `action: "list"` for exact artifact management.
 
 Remote HTTP MCP cannot read local files by itself. Use inline `files` only for small artifacts. For large folders, use the bundled local stdio MCP or CLI so the tool can walk the filesystem and upload bytes directly to the hosted API without putting file contents in model context.
 
 ## Open-Source Scope
 
-The repository is MIT licensed and intentionally keeps the hosted service configuration outside source control. WorkOS tenant setup, Cloudflare account IDs, and transactional email secrets are deploy-time configuration.
+The repository is MIT licensed and intentionally keeps the hosted service configuration outside source control. WorkOS organization/application setup, Cloudflare account IDs, and transactional email secrets are deploy-time configuration.

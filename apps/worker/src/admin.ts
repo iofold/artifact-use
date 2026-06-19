@@ -1,15 +1,15 @@
-import type { Env, GateLevel } from "./types";
+import type { Artifact, Env, GateLevel } from "./types";
 import { requirePermission, safeCreator } from "./auth";
 import {
   createShareLink,
-  ensureTenant,
+  getArtifactByLegacyPath,
   getArtifactByPath,
-  getTenantForOrg,
+  getArtifactByUrlKey,
+  getArtifactForOrg,
   listArtifactsForOrg,
   updateArtifactAccess,
 } from "./db";
 import {
-  assertSlug,
   error,
   GATE_LEVELS,
   json,
@@ -17,6 +17,8 @@ import {
   normalizeEmail,
   publicArtifactUrl,
 } from "./util";
+
+const ARTIFACT_ACTIONS = new Set(["stats", "share-links", "comments"]);
 
 export async function handleAdminApi(
   request: Request,
@@ -29,7 +31,6 @@ export async function handleAdminApi(
 
   try {
     if (request.method === "GET" && path === "/api/v1/me") {
-      const tenant = await getTenantForOrg(env, creator.orgId);
       return json({
         creator: {
           sub: creator.sub,
@@ -37,55 +38,36 @@ export async function handleAdminApi(
           email: creator.email,
           permissions: [...creator.permissions],
         },
-        tenant,
       });
     }
 
-    if (request.method === "POST" && path === "/api/v1/tenants") {
-      requirePermission(creator, env, "artifacts:publish");
-      const body = (await request.json()) as { tenant?: string; name?: string };
-      const tenant = await ensureTenant(
-        env,
-        creator,
-        assertSlug("tenant", String(body.tenant || "")),
-        body.name || null,
-      );
-      return json({ tenant });
-    }
-
-    if (request.method === "GET" && path === "/api/v1/tenant") {
-      requirePermission(creator, env, "artifacts:read");
-      const tenant = await getTenantForOrg(env, creator.orgId);
-      return json({ tenant });
+    if (
+      path === "/api/v1/tenant" ||
+      path === "/api/v1/tenants" ||
+      path.startsWith("/api/v1/tenants/")
+    ) {
+      return error(410, "tenant_removed", "tenant prefixes have been removed");
     }
 
     if (request.method === "GET" && path === "/api/v1/artifacts") {
       requirePermission(creator, env, "artifacts:read");
-      const tenant = await getTenantForOrg(env, creator.orgId);
       return json({
-        tenant,
-        default_tenant: tenant?.slug || null,
         artifacts: await listArtifactsForOrg(env, creator.orgId),
       });
     }
 
-    const match = path.match(
-      /^\/api\/v1\/artifacts\/([^/]+)\/([^/]+)(?:\/([^/]+))?$/,
-    );
-    if (!match) return error(404, "not_found", "admin route not found");
-    const tenantSlug = assertSlug("tenant", match[1] || "");
-    const artifactSlug = assertSlug("artifact", match[2] || "");
-    const action = match[3] || "";
-    const artifact = await getArtifactByPath(env, tenantSlug, artifactSlug);
+    const parsed = parseArtifactApiPath(path);
+    if (!parsed) return error(404, "not_found", "admin route not found");
+    const artifact = await apiArtifact(env, creator.orgId, parsed);
     if (!artifact || artifact.org_id !== creator.orgId)
       return error(404, "artifact_not_found", "artifact not found");
 
-    if (request.method === "GET" && !action) {
+    if (request.method === "GET" && !parsed.action) {
       requirePermission(creator, env, "artifacts:read");
       return json({ artifact });
     }
 
-    if (request.method === "PATCH" && !action) {
+    if (request.method === "PATCH" && !parsed.action) {
       requirePermission(creator, env, "artifacts:manage_access");
       const body = (await request.json()) as {
         title?: string;
@@ -109,7 +91,7 @@ export async function handleAdminApi(
       return json({ artifact: updated });
     }
 
-    if (request.method === "POST" && action === "share-links") {
+    if (request.method === "POST" && parsed.action === "share-links") {
       requirePermission(creator, env, "artifacts:manage_access");
       const body = (await request.json()) as {
         recipient_email?: string;
@@ -130,12 +112,12 @@ export async function handleAdminApi(
       );
       return json({
         id,
-        url: `${publicArtifactUrl(env, artifact.tenant_slug, artifact.slug)}?v=${id}`,
+        url: `${publicArtifactUrl(env, artifact.url_key)}?v=${id}`,
         expires_at: expiresAt,
       });
     }
 
-    if (request.method === "GET" && action === "stats") {
+    if (request.method === "GET" && parsed.action === "stats") {
       requirePermission(creator, env, "artifacts:view_stats");
       const views = await env.DB.prepare(
         "SELECT COUNT(*) AS total, COUNT(DISTINCT email) AS unique_viewers, MAX(ts) AS last_ts FROM views WHERE artifact_id = ?",
@@ -165,7 +147,7 @@ export async function handleAdminApi(
       });
     }
 
-    if (request.method === "GET" && action === "comments") {
+    if (request.method === "GET" && parsed.action === "comments") {
       requirePermission(creator, env, "artifacts:read");
       const rows = await env.DB.prepare(
         "SELECT * FROM comments WHERE artifact_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 100",
@@ -183,4 +165,72 @@ export async function handleAdminApi(
   }
 
   return error(404, "not_found", "admin route not found");
+}
+
+interface ParsedArtifactPath {
+  ref?: string;
+  legacyTenant?: string;
+  legacyArtifact?: string;
+  action: string;
+}
+
+function parseArtifactApiPath(path: string): ParsedArtifactPath | null {
+  const prefix = "/api/v1/artifacts/";
+  if (!path.startsWith(prefix)) return null;
+  const segments = path
+    .slice(prefix.length)
+    .split("/")
+    .filter(Boolean)
+    .map(decodeURIComponent);
+  if (!segments.length || segments.length > 3) return null;
+  if (segments.length === 1) {
+    return { ref: assertArtifactRef(segments[0] || ""), action: "" };
+  }
+  if (segments.length === 2 && ARTIFACT_ACTIONS.has(segments[1] || "")) {
+    return {
+      ref: assertArtifactRef(segments[0] || ""),
+      action: segments[1] || "",
+    };
+  }
+  if (segments.length === 2) {
+    return {
+      legacyTenant: assertArtifactRef(segments[0] || ""),
+      legacyArtifact: assertArtifactRef(segments[1] || ""),
+      action: "",
+    };
+  }
+  return {
+    legacyTenant: assertArtifactRef(segments[0] || ""),
+    legacyArtifact: assertArtifactRef(segments[1] || ""),
+    action: segments[2] || "",
+  };
+}
+
+async function apiArtifact(
+  env: Env,
+  orgId: string,
+  parsed: ParsedArtifactPath,
+): Promise<Artifact | null> {
+  if (parsed.ref) {
+    const byKey = await getArtifactByUrlKey(env, parsed.ref);
+    if (byKey) return byKey;
+    return getArtifactForOrg(env, orgId, parsed.ref);
+  }
+  if (parsed.legacyTenant && parsed.legacyArtifact) {
+    return (
+      (await getArtifactByPath(
+        env,
+        parsed.legacyTenant,
+        parsed.legacyArtifact,
+      )) ||
+      getArtifactByLegacyPath(env, parsed.legacyTenant, parsed.legacyArtifact)
+    );
+  }
+  return null;
+}
+
+function assertArtifactRef(value: string): string {
+  if (!/^[a-z0-9][a-z0-9-]{0,95}$/.test(value))
+    throw new Error("artifact reference must be lower-case hyphen-case");
+  return value;
 }

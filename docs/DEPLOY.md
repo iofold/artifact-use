@@ -79,6 +79,11 @@ ARTIFACT_USE_READ_SCOPES = "openid"
 ARTIFACT_USE_WRITE_SCOPES = "openid"
 ```
 
+Set `ARTIFACT_USE_SUPER_ADMIN_USER_IDS` to a comma-separated list of WorkOS
+`user_...` IDs that may access `/admin/super` and move artifacts between
+WorkOS organizations. Ownership moves always set `created_by` to the target
+WorkOS user.
+
 For stricter production authorization, switch read/write scopes to `artifacts:*` and configure those scopes in WorkOS.
 The WorkOS/AuthKit client may also need `https://artifacts.iofold.com/mcp` configured as an allowed MCP resource indicator/audience.
 
@@ -125,7 +130,7 @@ https://artifacts.iofold.com/llms-full.txt
 New public Artifact Use links are under:
 
 ```text
-https://artifacts.iofold.com/go/{tenant}/{artifact}/
+https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/
 ```
 
 The remote MCP endpoint requires authentication from the first request. OAuth-capable clients should be configured with only the URL and will receive a protected-resource challenge that starts WorkOS/AuthKit login. Non-OAuth clients may still pass a WorkOS bearer token in the `Authorization` header.

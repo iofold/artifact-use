@@ -6,7 +6,12 @@ import {
   verifyViewerSession,
   viewerCookieName,
 } from "./auth";
-import { getArtifactByPath, insertView } from "./db";
+import {
+  getArtifactById,
+  getArtifactByPath,
+  getArtifactByUrlKey,
+  insertView,
+} from "./db";
 import { sendVerificationEmail } from "./mailer";
 import {
   error,
@@ -46,8 +51,7 @@ export function renderGate(
     `<h1>${escapeHtml(artifact.title)}</h1>
 <p class="muted">Enter your email to continue.</p>
 <form method="post" action="${action}">
-  <input type="hidden" name="tenant" value="${escapeHtml(artifact.tenant_slug)}">
-  <input type="hidden" name="artifact" value="${escapeHtml(artifact.slug)}">
+  <input type="hidden" name="artifact_key" value="${escapeHtml(artifact.url_key)}">
   <input type="hidden" name="redirect_to" value="${escapeHtml(redirectTo)}">
   <input type="hidden" name="share_link_id" value="${escapeHtml(shareLinkId)}">
   <label>Email</label>
@@ -147,8 +151,7 @@ export async function handleGateRoute(
 <p class="muted">Use the link or enter the code we sent.</p>
 ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${code}</strong></p>` : ""}
 <form method="post" action="/_au/gate/verify">
-  <input type="hidden" name="tenant" value="${escapeHtml(artifact.tenant_slug)}">
-  <input type="hidden" name="artifact" value="${escapeHtml(artifact.slug)}">
+  <input type="hidden" name="artifact_key" value="${escapeHtml(artifact.url_key)}">
   <input type="hidden" name="email" value="${escapeHtml(email)}">
   <input type="hidden" name="redirect_to" value="${escapeHtml(redirectTo)}">
   <input type="hidden" name="share_link_id" value="${escapeHtml(shareLinkId || "")}">
@@ -190,7 +193,7 @@ ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${cod
       const url = new URL(request.url);
       const token = url.searchParams.get("t") || "";
       const row = await env.DB.prepare(
-        `SELECT vt.token, vt.email, vt.redirect_to, vt.share_link_id, a.tenant_slug, a.slug
+        `SELECT vt.token, vt.email, vt.redirect_to, vt.share_link_id, a.id AS artifact_id
          FROM viewer_tokens vt JOIN artifacts a ON a.id = vt.artifact_id
          WHERE vt.token = ? AND vt.used_at IS NULL AND vt.expires_at >= ?`,
       )
@@ -200,15 +203,14 @@ ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${cod
           email: string;
           redirect_to: string | null;
           share_link_id: string | null;
-          tenant_slug: string;
-          slug: string;
+          artifact_id: string;
         }>();
       if (!row)
         return htmlPage(
           "Expired link",
           `<p class="error">This verification link is invalid or expired.</p>`,
         );
-      const artifact = await getArtifactByPath(env, row.tenant_slug, row.slug);
+      const artifact = await getArtifactById(env, row.artifact_id);
       if (!artifact)
         return error(404, "artifact_not_found", "artifact not found");
       return await consumeVerified(
@@ -288,7 +290,7 @@ function safeArtifactRedirect(
   request: Request,
   value: FormDataEntryValue | string | null,
 ): string {
-  const fallback = publicArtifactPath(env, artifact.tenant_slug, artifact.slug);
+  const fallback = publicArtifactPath(env, artifact.url_key);
   const raw = String(value || fallback);
   try {
     const base = new URL(request.url);
@@ -306,6 +308,8 @@ async function formArtifact(
   env: Env,
   form: FormData,
 ): Promise<Artifact | null> {
+  const artifactKey = String(form.get("artifact_key") || "");
+  if (artifactKey) return getArtifactByUrlKey(env, artifactKey);
   return getArtifactByPath(
     env,
     String(form.get("tenant") || ""),

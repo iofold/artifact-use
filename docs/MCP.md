@@ -35,9 +35,9 @@ Merge `integrations/claude-code/settings.example.json` into your Claude Code set
 
 ## Tools
 
-- `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP. `tenant` is optional; omit it to use the authenticated account's default tenant.
+- `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP.
 - `artifact_upload_session`: create a draft and receive a 6-hour upload token for direct HTTP file upload from a shell/curl-capable agent.
-- `artifact_manage`: list artifacts, fetch stats, update access, or create share links. `artifact_manage` with `action: "list"` returns `default_tenant`.
+- `artifact_manage`: list artifacts, fetch stats, update access, or create share links. Use the returned `url_key` from `action: "list"` for exact management calls.
 
 ## File Publishing Over MCP
 
@@ -48,7 +48,7 @@ HTTP MCP cannot read local files by itself. Use one of these paths:
 - Remote `artifact_upload_session` for large files or folders when the agent can read local files and make HTTP requests. The tool returns `upload_token`, `upload_base`, and `complete_url`; upload files with `PUT` and complete with a manifest `POST`.
 - Local stdio MCP `artifact_publish` with `dir`, or the CLI `publish-folder`, for large folders. In this mode the tool reads files from disk and streams bytes to the hosted API; the model only sees the path, manifest, and final URL.
 
-Do not guess tenant slugs. Omit `tenant` unless the user explicitly asks for a tenant path. The server resolves an existing tenant for the authenticated account or creates a safe default.
+Do not guess public URL keys. Publish with a lower-case artifact slug, then use the returned `url_key` for stats, access changes, and share links.
 
 Direct upload session sketch:
 

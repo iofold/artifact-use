@@ -23,15 +23,15 @@ Tools:
 - `artifact_upload_session`: create a 6-hour direct upload token for shell/curl uploads.
 - `artifact_manage`: list artifacts, get stats, change access, or create share links.
 
-## Tenant And Slug Rules
+## Artifact Slug And URL Key Rules
 
-- Omit `tenant` unless the user explicitly asks for a tenant path. The server resolves or creates the authenticated account's default tenant.
-- Use explicit `tenant` and `artifact` only when the user provided them or a previous `artifact_manage action:"list"` result identifies them.
-- Keep slugs lower-case hyphen-case.
+- Publish with a lower-case `artifact` slug.
+- Use the returned `url_key` from publish or `artifact_manage action:"list"` for stats, access changes, and share links.
+- Do not guess a `url_key`; it includes a six-character code from the artifact id.
 - Public artifact URLs are under:
 
 ```text
-https://artifacts.iofold.com/go/{tenant}/{artifact}/
+https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/
 ```
 
 ## MCP Selection
@@ -76,8 +76,7 @@ Share link:
 
 ```bash
 artifact-use share --json '{
-  "tenant": "acme",
-  "artifact": "claims-demo",
+  "artifact": "claims-demo-a1b2c3",
   "recipient_email": "viewer@example.com",
   "recipient_label": "Viewer",
   "expires_days": 14

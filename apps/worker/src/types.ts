@@ -11,6 +11,7 @@ export interface Env {
   WORKOS_JWKS_URL: string;
   WORKOS_CLIENT_ID?: string;
   WORKOS_API_KEY?: string;
+  ARTIFACT_USE_SUPER_ADMIN_USER_IDS?: string;
   ARTIFACT_USE_AUTH_SCOPES?: string;
   ARTIFACT_USE_READ_SCOPES?: string;
   ARTIFACT_USE_WRITE_SCOPES?: string;
@@ -37,20 +38,12 @@ export interface Creator {
   raw: Record<string, unknown>;
 }
 
-export interface Tenant {
-  org_id: string;
-  slug: string;
-  name: string | null;
-  owner_email: string | null;
-  created_at: number;
-  updated_at: number;
-}
-
 export interface Artifact {
   id: string;
   org_id: string;
   tenant_slug: string;
   slug: string;
+  url_key: string;
   title: string;
   description: string | null;
   gate_level: GateLevel;
