@@ -41,7 +41,6 @@ export interface Creator {
 export interface Artifact {
   id: string;
   org_id: string;
-  tenant_slug: string;
   slug: string;
   url_key: string;
   title: string;

@@ -1,7 +1,6 @@
 import type { Artifact, ArtifactFile, ArtifactVersion, Env } from "./types";
 import {
   getArtifactByLegacyPath,
-  getArtifactByPath,
   getArtifactByUrlKey,
   getFile,
   getVersion,
@@ -39,9 +38,7 @@ export async function servePublic(
   let artifact = await getArtifactByUrlKey(env, urlKey || "");
   let rest = artifact ? parts.slice(1) : legacyRest;
   if (!artifact && legacySlug) {
-    artifact =
-      (await getArtifactByPath(env, urlKey || "", legacySlug)) ||
-      (await getArtifactByLegacyPath(env, urlKey || "", legacySlug));
+    artifact = await getArtifactByLegacyPath(env, urlKey || "", legacySlug);
     if (artifact) {
       const url = new URL(request.url);
       url.pathname = publicArtifactPath(env, artifact.url_key) + rest.join("/");
@@ -237,8 +234,6 @@ export async function handleComments(
     const artifact = await commentArtifact(
       env,
       url.searchParams.get("artifact_key") || "",
-      url.searchParams.get("tenant") || "",
-      url.searchParams.get("artifact") || "",
     );
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
@@ -260,18 +255,11 @@ export async function handleComments(
   if (path === "/_au/comments" && request.method === "POST") {
     const body = (await request.json()) as {
       artifact_key?: string;
-      tenant?: string;
-      artifact?: string;
       body?: string;
       target?: unknown;
       parent_id?: unknown;
     };
-    const artifact = await commentArtifact(
-      env,
-      body.artifact_key || "",
-      body.tenant || "",
-      body.artifact || "",
-    );
+    const artifact = await commentArtifact(env, body.artifact_key || "");
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
     const session = await getViewerSession(request, env, artifact);
@@ -308,17 +296,10 @@ export async function handleComments(
   if (path === "/_au/comments" && request.method === "PATCH") {
     const body = (await request.json()) as {
       artifact_key?: string;
-      tenant?: string;
-      artifact?: string;
       id?: unknown;
       resolved?: unknown;
     };
-    const artifact = await commentArtifact(
-      env,
-      body.artifact_key || "",
-      body.tenant || "",
-      body.artifact || "",
-    );
+    const artifact = await commentArtifact(env, body.artifact_key || "");
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
     const session = await getViewerSession(request, env, artifact);
@@ -350,12 +331,8 @@ export async function handleComments(
 async function commentArtifact(
   env: Env,
   artifactKey: string,
-  legacyTenant: string,
-  legacyArtifact: string,
 ): Promise<Artifact | null> {
   if (artifactKey) return getArtifactByUrlKey(env, artifactKey);
-  if (legacyTenant && legacyArtifact)
-    return getArtifactByPath(env, legacyTenant, legacyArtifact);
   return null;
 }
 

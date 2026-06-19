@@ -117,7 +117,7 @@ Prefer the CLI or local MCP for full folders because they build the manifest and
 
 - URL.
 - Gate level.
-- Tenant/artifact slug.
+- Artifact slug and URL key.
 - Whether a tracked share link was created.
 - Any verification skipped.
 - Any error body if publishing failed.

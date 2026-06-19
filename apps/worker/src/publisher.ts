@@ -6,11 +6,7 @@ import type {
   PublisherSession,
 } from "./types";
 import { readCookie } from "./auth";
-import {
-  createShareLink,
-  ensureOwnerCompatibilityRow,
-  updateArtifactAccess,
-} from "./db";
+import { createShareLink, updateArtifactAccess } from "./db";
 import {
   artifactUrlCode,
   artifactPathPrefix,
@@ -329,11 +325,11 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
     );
     if (workosOrg) {
       orgId = workosOrg;
-      await migratePublisherDataToOrg(env, fallbackOrgIds, workosOrg);
+      await migratePublisherDataToOrg(env, fallbackOrgIds, workosOrg, userId);
       if (!roles.length) roles.push("admin");
     }
   } else if (await isOwnedPublisherOrganization(env, authOrgId, userId)) {
-    await migratePublisherDataToOrg(env, fallbackOrgIds, authOrgId);
+    await migratePublisherDataToOrg(env, fallbackOrgIds, authOrgId, userId);
   }
   const session: PublisherSession = {
     sub: userId,
@@ -484,68 +480,23 @@ async function migratePublisherDataToOrg(
   env: Env,
   fromOrgIds: string[],
   toOrgId: string,
+  userId: string,
 ): Promise<void> {
   const unique = [...new Set(fromOrgIds.filter((id) => id && id !== toOrgId))];
   const now = nowSec();
   for (const fromOrgId of unique) {
-    const sourceTenant = await env.DB.prepare(
-      "SELECT org_id, slug, name, owner_email, created_at FROM tenants WHERE org_id = ?",
-    )
-      .bind(fromOrgId)
-      .first<{
-        org_id: string;
-        slug: string;
-        name: string | null;
-        owner_email: string | null;
-        created_at: number;
-      }>();
-    const targetTenant = await env.DB.prepare(
-      "SELECT org_id, slug FROM tenants WHERE org_id = ?",
-    )
-      .bind(toOrgId)
-      .first<{ org_id: string; slug: string }>();
-    if (!sourceTenant && !targetTenant) continue;
-    if (targetTenant || !sourceTenant) {
-      await env.DB.batch([
-        env.DB.prepare(
-          "UPDATE artifact_versions SET org_id = ? WHERE org_id = ?",
-        ).bind(toOrgId, fromOrgId),
-        env.DB.prepare("UPDATE artifacts SET org_id = ? WHERE org_id = ?").bind(
-          toOrgId,
-          fromOrgId,
-        ),
-        env.DB.prepare("DELETE FROM tenants WHERE org_id = ?").bind(fromOrgId),
-      ]);
-      continue;
-    }
     await env.DB.batch([
       env.DB.prepare(
-        "INSERT INTO tenants (org_id, slug, name, owner_email, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-      ).bind(
-        toOrgId,
-        `__migrating_${randomId("tenant")}`,
-        sourceTenant.name,
-        sourceTenant.owner_email,
-        sourceTenant.created_at || now,
-        now,
-      ),
+        "UPDATE artifact_versions SET org_id = ?, created_by = ? WHERE org_id = ?",
+      ).bind(toOrgId, userId, fromOrgId),
       env.DB.prepare(
-        "UPDATE artifact_versions SET org_id = ? WHERE org_id = ?",
-      ).bind(toOrgId, fromOrgId),
-      env.DB.prepare("UPDATE artifacts SET org_id = ? WHERE org_id = ?").bind(
-        toOrgId,
-        fromOrgId,
-      ),
-      env.DB.prepare("DELETE FROM tenants WHERE org_id = ?").bind(fromOrgId),
+        `UPDATE share_links
+         SET created_by = ?
+         WHERE artifact_id IN (SELECT id FROM artifacts WHERE org_id = ?)`,
+      ).bind(userId, fromOrgId),
       env.DB.prepare(
-        "UPDATE tenants SET slug = ?, name = ?, owner_email = ?, updated_at = ? WHERE org_id = ?",
-      ).bind(
-        sourceTenant.slug,
-        sourceTenant.name,
-        sourceTenant.owner_email,
-        now,
-        toOrgId,
-      ),
+        "UPDATE artifacts SET org_id = ?, created_by = ?, updated_at = ? WHERE org_id = ?",
+      ).bind(toOrgId, userId, now, fromOrgId),
     ]);
   }
 }
@@ -1055,8 +1006,7 @@ async function transferArtifactOwner(
   if (!artifact) return error(404, "artifact_not_found", "artifact not found");
   const slug = await transferSlug(env, artifact, targetOrgId);
   const now = nowSec();
-  await ensureOwnerCompatibilityRow(env, targetOrgId, null);
-  const statements = [
+  await env.DB.batch([
     env.DB.prepare(
       "UPDATE artifact_versions SET org_id = ?, created_by = ? WHERE artifact_id = ?",
     ).bind(targetOrgId, targetUserId, artifact.id),
@@ -1079,17 +1029,7 @@ async function transferArtifactOwner(
       targetUserId,
       now,
     ),
-  ];
-  if (slug !== artifact.slug) {
-    statements.push(
-      env.DB.prepare(
-        `INSERT OR IGNORE INTO legacy_artifact_paths
-         (legacy_tenant_slug, legacy_slug, artifact_id, created_at)
-         VALUES (?, ?, ?, ?)`,
-      ).bind(artifact.tenant_slug, artifact.slug, artifact.id, now),
-    );
-  }
-  await env.DB.batch(statements);
+  ]);
   return redirect(`/admin/super?open=${encodeURIComponent(artifact.id)}`);
 }
 
@@ -1720,14 +1660,7 @@ async function publisherArtifact(
       .bind(artifactKey, session.orgId)
       .first<Artifact>();
   }
-  const tenantSlug = String(form.get("tenant") || "").trim();
-  const artifactSlug = String(form.get("artifact") || "").trim();
-  if (!tenantSlug || !artifactSlug) return null;
-  return env.DB.prepare(
-    "SELECT * FROM artifacts WHERE tenant_slug = ? AND slug = ? AND org_id = ?",
-  )
-    .bind(tenantSlug, artifactSlug, session.orgId)
-    .first<Artifact>();
+  return null;
 }
 
 function creatorFromSession(session: PublisherSession): Creator {

@@ -3,7 +3,6 @@ import { requirePermission, safeCreator } from "./auth";
 import {
   createShareLink,
   getArtifactByLegacyPath,
-  getArtifactByPath,
   getArtifactByUrlKey,
   getArtifactForOrg,
   listArtifactsForOrg,
@@ -39,14 +38,6 @@ export async function handleAdminApi(
           permissions: [...creator.permissions],
         },
       });
-    }
-
-    if (
-      path === "/api/v1/tenant" ||
-      path === "/api/v1/tenants" ||
-      path.startsWith("/api/v1/tenants/")
-    ) {
-      return error(410, "tenant_removed", "tenant prefixes have been removed");
     }
 
     if (request.method === "GET" && path === "/api/v1/artifacts") {
@@ -169,7 +160,7 @@ export async function handleAdminApi(
 
 interface ParsedArtifactPath {
   ref?: string;
-  legacyTenant?: string;
+  legacyPrefix?: string;
   legacyArtifact?: string;
   action: string;
 }
@@ -194,13 +185,13 @@ function parseArtifactApiPath(path: string): ParsedArtifactPath | null {
   }
   if (segments.length === 2) {
     return {
-      legacyTenant: assertArtifactRef(segments[0] || ""),
+      legacyPrefix: assertArtifactRef(segments[0] || ""),
       legacyArtifact: assertArtifactRef(segments[1] || ""),
       action: "",
     };
   }
   return {
-    legacyTenant: assertArtifactRef(segments[0] || ""),
+    legacyPrefix: assertArtifactRef(segments[0] || ""),
     legacyArtifact: assertArtifactRef(segments[1] || ""),
     action: segments[2] || "",
   };
@@ -216,14 +207,11 @@ async function apiArtifact(
     if (byKey) return byKey;
     return getArtifactForOrg(env, orgId, parsed.ref);
   }
-  if (parsed.legacyTenant && parsed.legacyArtifact) {
-    return (
-      (await getArtifactByPath(
-        env,
-        parsed.legacyTenant,
-        parsed.legacyArtifact,
-      )) ||
-      getArtifactByLegacyPath(env, parsed.legacyTenant, parsed.legacyArtifact)
+  if (parsed.legacyPrefix && parsed.legacyArtifact) {
+    return getArtifactByLegacyPath(
+      env,
+      parsed.legacyPrefix,
+      parsed.legacyArtifact,
     );
   }
   return null;

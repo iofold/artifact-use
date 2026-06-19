@@ -6,12 +6,7 @@ import {
   verifyViewerSession,
   viewerCookieName,
 } from "./auth";
-import {
-  getArtifactById,
-  getArtifactByPath,
-  getArtifactByUrlKey,
-  insertView,
-} from "./db";
+import { getArtifactById, getArtifactByUrlKey, insertView } from "./db";
 import { sendVerificationEmail } from "./mailer";
 import {
   error,
@@ -310,11 +305,7 @@ async function formArtifact(
 ): Promise<Artifact | null> {
   const artifactKey = String(form.get("artifact_key") || "");
   if (artifactKey) return getArtifactByUrlKey(env, artifactKey);
-  return getArtifactByPath(
-    env,
-    String(form.get("tenant") || ""),
-    String(form.get("artifact") || ""),
-  );
+  return null;
 }
 
 function isAllowed(artifact: Artifact, email: string): boolean {
