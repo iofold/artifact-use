@@ -50,14 +50,17 @@ export async function getCreator(
   const rawOrgId = String(
     claims.org_id || claims.organization_id || claims.orgId || "",
   );
-  const orgId = rawOrgId || userScopedOrgId(sub);
+  const email = typeof claims.email === "string" ? claims.email : null;
+  const orgId =
+    rawOrgId ||
+    (await defaultWorkosOrgForEmail(env, email)) ||
+    userScopedOrgId(sub);
   const permissions = new Set<string>();
   for (const claimName of ["permissions", "scope", "scp", "roles", "role"]) {
     for (const value of extractStringArray(claims[claimName])) {
       permissions.add(value);
     }
   }
-  const email = typeof claims.email === "string" ? claims.email : null;
   return { sub, orgId, email, permissions, raw: claims };
 }
 
@@ -156,6 +159,19 @@ function extractStringArray(value: unknown): string[] {
   if (Array.isArray(value))
     return value.flatMap((item) => extractStringArray(item));
   return [];
+}
+
+async function defaultWorkosOrgForEmail(
+  env: Env,
+  email: string | null,
+): Promise<string | null> {
+  if (!email) return null;
+  const tenant = await env.DB.prepare(
+    "SELECT org_id FROM tenants WHERE owner_email = ? AND org_id LIKE 'org_%' ORDER BY updated_at DESC LIMIT 1",
+  )
+    .bind(email)
+    .first<{ org_id: string }>();
+  return tenant?.org_id || null;
 }
 
 function userScopedOrgId(sub: string): string {

@@ -284,7 +284,8 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
   const email = stringClaim(user.email) || stringClaim(auth.email);
   const accessClaims = decodeJwtClaims(stringClaim(auth.access_token)) || {};
   const fallbackOrgIds = [
-    userId ? userScopedOrgId(userId) : "",
+    userId ? legacyPublisherUserOrgId(userId) : "",
+    userId ? legacyBearerUserOrgId(userId) : "",
     email ? `email:${email}` : "",
   ].filter(Boolean);
   const authOrgId =
@@ -316,6 +317,8 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
       await migratePublisherDataToOrg(env, fallbackOrgIds, workosOrg);
       if (!roles.length) roles.push("admin");
     }
+  } else if (await isOwnedPublisherOrganization(env, authOrgId, userId)) {
+    await migratePublisherDataToOrg(env, fallbackOrgIds, authOrgId);
   }
   const session: PublisherSession = {
     sub: userId,
@@ -439,6 +442,27 @@ async function ensureWorkosMembership(
       role_slug: roleSlug,
     },
   });
+}
+
+async function isOwnedPublisherOrganization(
+  env: Env,
+  orgId: string,
+  userId: string,
+): Promise<boolean> {
+  if (!isWorkosOrgId(orgId) || !env.WORKOS_API_KEY) return false;
+  const organization = await workosApiMaybe(
+    env,
+    `/organizations/${encodeURIComponent(orgId)}`,
+  );
+  if (!organization) return false;
+  const metadata =
+    organization.metadata && typeof organization.metadata === "object"
+      ? (organization.metadata as Record<string, unknown>)
+      : {};
+  return (
+    stringClaim(organization.external_id) === `artifact-use:${userId}` ||
+    stringClaim(metadata.artifact_use_owner_user_id) === userId
+  );
 }
 
 async function migratePublisherDataToOrg(
@@ -1462,8 +1486,12 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function userScopedOrgId(userId: string): string {
+function legacyPublisherUserOrgId(userId: string): string {
   return `user:${userId}`;
+}
+
+function legacyBearerUserOrgId(userId: string): string {
+  return `user_${userId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 }
 
 async function publisherArtifact(
