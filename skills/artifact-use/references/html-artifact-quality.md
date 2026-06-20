@@ -2,7 +2,9 @@
 
 Use this when creating or improving self-contained HTML artifacts, browser-native tools, client demos, dashboards, or interactive explainers. The default is a durable, no-build `index.html` that can be opened, reviewed, and revised by a future agent.
 
-This guidance follows the same pattern used in `durable HTML artifact guidance` and is informed by Simon Willison's HTML tools/artifacts writing: prefer small vanilla HTML/CSS/JS, no React or build step by default, and publish somewhere stable instead of leaving work inside an LLM sandbox.
+This guidance is informed by durable HTML tool and artifact writing practices:
+prefer small vanilla HTML/CSS/JS, no React or build step by default, and publish
+somewhere stable instead of leaving work inside an LLM sandbox.
 
 ## Default Shape
 
@@ -40,7 +42,8 @@ This guidance follows the same pattern used in `durable HTML artifact guidance` 
 - Use `textContent` for untrusted text. Use `innerHTML` only for controlled templates you own.
 - Include loading, empty, invalid-input, and error states. Client-facing artifacts should not fail into a blank page.
 - Do not invent customer facts, metrics, logos, screenshots, or compliance claims. Label assumptions unless sourced.
-- If useful examples exist in `examples/content`, inspect one or two nearby artifacts before designing from scratch.
+- If useful examples exist in the current repo or artifact library, inspect one
+  or two nearby artifacts before designing from scratch.
 
 ## Base Skeleton
 

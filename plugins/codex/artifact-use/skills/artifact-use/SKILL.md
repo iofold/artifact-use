@@ -18,7 +18,7 @@ Artifact Use publishes static artifacts to `https://artifacts.iofold.com` withou
 - Publish with a lower-case artifact slug; use the returned `url_key` when managing an existing artifact.
 - Keep artifact slugs lower-case hyphen-case.
 - Default gate is `email`; use `verified_email` when inbox control matters, `allowlist` for restricted customer material, and `public` only when intentionally low sensitivity.
-- New public Artifact Use URLs are under `/go/{artifact-slug}-{six-character-code}/`; legacy direct root artifact paths belong to the old legacy artifact host host.
+- New public Artifact Use URLs are under `/go/{artifact-slug}-{six-character-code}/`.
 
 ## Authoring Workflow
 

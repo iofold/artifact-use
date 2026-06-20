@@ -1,81 +1,75 @@
 name = "artifact-use"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
-# iofold Cloudflare account. This matches the account used for the existing
-# legacy-artifacts bucket/deploy flow; override with CLOUDFLARE_ACCOUNT_ID if needed.
+
+# Replace with your Cloudflare account id or set CLOUDFLARE_ACCOUNT_ID in the
+# shell that runs Wrangler.
 account_id = "00000000000000000000000000000000"
 
-# Keep the existing legacy artifact host `legacy-artifacts` Worker as the custom-domain
-# origin for legacy direct artifact links. This Worker only handles the new
-# Artifact Use homepage, API/MCP/admin paths, and new public artifact links
-# under /go/. Legacy direct artifact links stay on the legacy artifact host Worker.
+# Replace these routes with your own zone/domain before deploying.
 [[routes]]
-pattern = "artifacts.iofold.com/"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/go"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/go*"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/go/*"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/mcp*"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/mcp*"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/api/v1*"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/api/v1*"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/_au*"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/_au*"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/.well-known/oauth-*"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/.well-known/oauth-*"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/llms.txt"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/llms.txt"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/llms-full.txt"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/llms-full.txt"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/login*"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/login*"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/signin*"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/signin*"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/signup*"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/signup*"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/invite*"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/invite*"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/callback*"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/callback*"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/logout*"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/logout*"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/admin*"
+zone_name = "example.com"
 
 [[routes]]
-pattern = "artifacts.iofold.com/admin*"
-zone_name = "iofold.com"
-
-[[routes]]
-pattern = "artifacts.iofold.com/health*"
-zone_name = "iofold.com"
+pattern = "artifacts.example.com/health*"
+zone_name = "example.com"
 
 [[r2_buckets]]
 binding = "BUCKET"
@@ -88,10 +82,10 @@ database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
 [vars]
-SITE_BASE_URL = "https://artifacts.iofold.com"
+SITE_BASE_URL = "https://artifacts.example.com"
 ARTIFACT_PUBLIC_PATH_PREFIX = "/go"
 WORKOS_AUTHKIT_URL = "https://your-authkit-domain.example"
-WORKOS_AUDIENCE = "https://artifacts.iofold.com/mcp"
+WORKOS_AUDIENCE = "https://artifacts.example.com/mcp"
 WORKOS_ISSUER = "https://your-authkit-domain.example"
 WORKOS_JWKS_URL = "https://your-authkit-domain.example/oauth2/jwks"
 ARTIFACT_USE_AUTH_SCOPES = "openid profile email offline_access"
@@ -104,9 +98,11 @@ DEFAULT_FILE_LIMIT_BYTES = "78643200"
 DEFAULT_FILE_COUNT_LIMIT = "200"
 HTTP_MCP_INLINE_FILE_LIMIT_BYTES = "2097152"
 ALLOW_DEBUG_CODES = "false"
-ARTIFACT_USE_SUPER_ADMIN_USER_IDS = "user_example"
+ARTIFACT_USE_SUPER_ADMIN_USER_IDS = ""
 
 # Secrets:
 #   SESSION_SECRET
-#   RESEND_API_KEY
-#   DEV_AUTH_TOKEN        optional local development escape hatch
+#   RESEND_API_KEY       optional unless using verified_email gates
+#   WORKOS_CLIENT_ID     required for publisher web auth
+#   WORKOS_API_KEY       required for publisher web auth and team invites
+#   DEV_AUTH_TOKEN       optional local development escape hatch

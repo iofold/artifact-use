@@ -1,55 +1,82 @@
 # Artifact Use
 
-Artifact Use is an open-source artifact publishing service for AI agents and teams.
-It hosts static HTML/folder artifacts on Cloudflare R2 behind a Cloudflare Worker, tracks viewer access in D1, and uses WorkOS OAuth/AuthKit for artifact creator auth.
+**Turn agent output into durable, reviewable web artifacts.**
 
-The default hosted API is planned at `https://artifacts.iofold.com`.
+Artifact Use is an open-source artifact store for coding agents and small teams.
+Agents publish HTML tools, product prototypes, PDFs, images, videos, and complete
+static folders through an MCP server or CLI. Artifact Use stores the files on
+Cloudflare R2, tracks versions and viewer activity in D1, serves stable links,
+and adds access gates plus feedback on top.
 
-## What It Does
-
-- Publishes single-file HTML or complete static folders.
-- Serves stable artifact URLs such as `https://artifacts.iofold.com/go/claims-demo-a1b2c3/`.
-- Keeps every publish as an immutable version and atomically flips the current version.
-- Supports DocSend-style gates: `public`, `email`, `verified_email`, and `allowlist`.
-- Tracks views, share links, viewer email attribution, and lightweight comments.
-- Exposes the same backend through REST, a JSON-first CLI, and an MCP server for coding agents.
-- Keeps Cloudflare credentials inside the Worker. Agents never need Wrangler or Cloudflare API tokens.
-
-Existing direct links on `https://artifacts.iofold.com/<slug>/` continue to belong to the legacy legacy artifact host artifact Worker.
-Artifact Use owns the homepage and reserved product routes, with new public artifact links under `/go/`.
-
-## Repository Layout
+The hosted dogfood deployment runs at:
 
 ```text
-apps/worker/          Cloudflare Worker, D1 migrations, R2 object serving
-packages/cli/         Agent-friendly CLI for publishing and admin operations
-packages/mcp-server/  Local MCP server that calls the hosted API
-skills/               Portable Claude Code/Codex skill
-plugins/              Codex plugin bundle
-integrations/         MCP config examples for Claude Code and other clients
-examples/             Small static folder used for smoke tests
+https://artifacts.iofold.com
 ```
 
-## Local Setup
+## What You Can Make
 
-```bash
-npm install
-npm run typecheck
-```
+Artifacts can be tiny single-file HTML tools or full folders with images,
+scripts, PDFs, video, data files, and local libraries. The best artifacts tend
+to follow the same pattern as durable HTML tools: no build step by default,
+plain HTML/CSS/JS, URL-addressable state, localStorage for drafts and settings,
+client-side parsing, canvas/SVG where useful, and assets kept beside the page
+when the artifact needs more than one file.
 
-Run the Worker locally:
+### A Full Interactive Application
 
-```bash
-npm run worker:dev
-```
+This artifact is a multi-screen claims operations console. It is still just a
+static artifact: HTML, local JS modules, and bundled evidence assets served from
+R2 behind one stable URL.
 
-Run the CLI in JSON mode:
+![Claims operations console screenshot](docs/assets/readme/claims-audit-console.png)
 
-```bash
-ARTIFACT_USE_TOKEN=... npm run cli -- schema --all
-```
+### Multi-File Workflows With Evidence
 
-Use the hosted HTTP MCP endpoint:
+Folder artifacts can reference supporting PDFs, generated data modules, images,
+videos, and other files without stuffing every byte into model context. Agents
+can create an upload session, stream files directly to the Worker, then publish
+the version atomically.
+
+![Claim workflow screenshot](docs/assets/readme/claims-document-workflow.png)
+
+### Review And Feedback On The Artifact Itself
+
+Artifact Use adds a lightweight feedback layer on top of hosted artifacts.
+Reviewers can leave targeted comments, reply, and mark threads resolved without
+the artifact needing to implement its own collaboration backend.
+
+![Feedback widget screenshot](docs/assets/readme/feedback-widget.png)
+
+### Research Briefs, Tools, And Interactive Documents
+
+Single-file artifacts are useful for research briefs, calculators, inspectors,
+comparison tables, and other small tools that should survive beyond the chat
+where they were generated.
+
+![Claims data atlas screenshot](docs/assets/readme/claims-data-atlas.png)
+
+## What Artifact Use Provides
+
+- **Stable artifact URLs** under `/go/{artifact-slug}-{six-character-code}/`.
+- **Immutable versions** with atomic current-version promotion.
+- **Cloudflare-native storage** using Workers, R2, and D1.
+- **Access gates**: `public`, `email`, `verified_email`, and `allowlist`.
+- **Viewer attribution** through email gates and share links.
+- **Feedback collection** with comments, replies, resolve/reopen, and targeted
+  element selection.
+- **Publisher dashboard** with artifact lists, stats, recent views, share links,
+  access controls, and team invitations.
+- **HTTP MCP endpoint** for OAuth-capable agents.
+- **Local stdio MCP server** for agents that need to walk and publish folders
+  from disk.
+- **JSON-first CLI** for shell workflows and direct uploads.
+- **No agent-side Cloudflare credentials**. Agents publish through Artifact Use;
+  the Worker owns R2/D1 access.
+
+## Agent Publishing Paths
+
+Use the hosted HTTP MCP endpoint when the agent can authenticate through OAuth:
 
 ```json
 {
@@ -62,27 +89,14 @@ Use the hosted HTTP MCP endpoint:
 }
 ```
 
-The MCP endpoint requires auth from the first request. OAuth-capable clients should prompt for WorkOS/AuthKit sign-in after receiving the protected-resource challenge.
-
-The local stdio MCP server remains available for environments that need a local tool to walk a folder from disk.
-
-## Cloudflare Setup
-
-Create the D1 database and R2 bucket, then fill the IDs in `apps/worker/wrangler.toml`.
+For non-OAuth clients, local CLI usage, or the bundled stdio MCP server:
 
 ```bash
-cd apps/worker
-npx wrangler d1 create artifact-use
-npx wrangler r2 bucket create artifact-use
-npx wrangler d1 migrations apply artifact-use --remote
-npx wrangler secret put SESSION_SECRET
-npx wrangler secret put RESEND_API_KEY
-npx wrangler secret put WORKOS_CLIENT_ID
-npx wrangler secret put WORKOS_API_KEY
-npx wrangler deploy
+export ARTIFACT_USE_API_BASE=https://artifacts.iofold.com
+export ARTIFACT_USE_TOKEN=<workos-oauth-token>
 ```
 
-## Publish a Folder
+Publish a folder with the CLI:
 
 ```bash
 npm run cli -- publish-folder --json '{
@@ -93,20 +107,80 @@ npm run cli -- publish-folder --json '{
 }'
 ```
 
-The CLI will:
+The CLI walks the folder, creates a draft version, uploads every file through
+service-owned HTTP endpoints, completes the version, and returns a live URL.
 
-1. Walk the folder and build a manifest.
-2. Create a draft version.
-3. Upload every file through the service-owned Worker API.
-4. Complete the version and receive a live URL.
+MCP exposes two main tools:
 
-MCP exposes two tools:
+- `artifact_publish`: publish single HTML, small inline multi-file payloads, or
+  a local `dir` when using the bundled stdio MCP.
+- `artifact_manage`: list artifacts, fetch stats, update access, and create
+  share links. Use the returned `url_key` for exact management calls.
 
-- `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP.
-- `artifact_manage`: list artifacts, fetch stats, update access, or create share links. Use the `url_key` returned by `action: "list"` for exact artifact management.
+For large artifacts, use the direct upload flow. The server creates a short-lived
+upload session, the agent uploads bytes with `PUT`, and the final manifest flips
+the version live only after every referenced file exists.
 
-Remote HTTP MCP cannot read local files by itself. Use inline `files` only for small artifacts. For large folders, use the bundled local stdio MCP or CLI so the tool can walk the filesystem and upload bytes directly to the hosted API without putting file contents in model context.
+## Repository Layout
+
+```text
+apps/worker/          Cloudflare Worker, D1 schema, R2 object serving
+packages/cli/         Agent-friendly CLI for publishing and admin operations
+packages/mcp-server/  Local stdio MCP server for folder publishing
+skills/               Portable Artifact Use skill
+plugins/              Codex plugin bundle
+integrations/         MCP config examples
+examples/             Small static folder used for smoke tests
+docs/                 API, deployment, architecture, and migration notes
+```
+
+## Local Development
+
+```bash
+npm install
+npm run check
+npm run worker:dev
+```
+
+Run the CLI in JSON mode:
+
+```bash
+ARTIFACT_USE_TOKEN=... npm run cli -- schema --all
+```
+
+## Self-Hosting
+
+Artifact Use is designed to run on Cloudflare with your own resources:
+
+1. Create a Cloudflare D1 database and R2 bucket.
+2. Configure `apps/worker/wrangler.toml` for your account, domain, routes,
+   D1 database, and R2 bucket.
+3. Apply the D1 baseline migration.
+4. Set Worker secrets for sessions, WorkOS, and optional Resend email.
+5. Deploy the Worker.
+
+```bash
+cd apps/worker
+npx wrangler d1 create artifact-use
+npx wrangler r2 bucket create artifact-use
+npx wrangler d1 migrations apply artifact-use --remote
+npx wrangler secret put SESSION_SECRET
+npx wrangler secret put WORKOS_CLIENT_ID
+npx wrangler secret put WORKOS_API_KEY
+npx wrangler secret put RESEND_API_KEY
+npx wrangler deploy
+```
+
+See [docs/DEPLOY.md](docs/DEPLOY.md) for the full hosted setup, WorkOS redirect
+configuration, MCP auth settings, and Cloudflare route notes.
 
 ## Open-Source Scope
 
-The repository is MIT licensed and intentionally keeps the hosted service configuration outside source control. WorkOS organization/application setup, Cloudflare account IDs, and transactional email secrets are deploy-time configuration.
+The code is MIT licensed. The public repository contains the Worker, schema,
+CLI, MCP server, skill, plugin bundle, and docs. Hosted-service configuration
+such as WorkOS applications, Cloudflare account IDs, R2/D1 resources, Resend
+keys, and production secrets remain deploy-time configuration.
+
+Before publishing your own fork or hosted instance, replace the example routes
+and WorkOS/AuthKit values in `apps/worker/wrangler.toml` and `.env` files with
+your own environment values.

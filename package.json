@@ -19,8 +19,7 @@
     "worker:dev": "npm --workspace apps/worker run dev",
     "worker:deploy": "npm --workspace apps/worker run deploy",
     "cli": "npm --workspace packages/cli run dev --",
-    "mcp": "npm --workspace packages/mcp-server run dev",
-    "migration:plan": "node scripts/plan-legacy artifact host-migration.mjs"
+    "mcp": "npm --workspace packages/mcp-server run dev"
   },
   "devDependencies": {
     "@types/node": "^22.15.30",
