@@ -12,6 +12,26 @@ The repository also ships a local stdio MCP server for environments that need th
 
 Remote HTTP MCP requires auth from the first request. OAuth-capable clients receive a `401` with MCP protected-resource metadata and should prompt for WorkOS/AuthKit sign-in automatically.
 
+For OAuth-capable clients such as Codex, configure only the MCP URL. Do not add
+an `Authorization` header unless you are deliberately bypassing OAuth with a
+fresh bearer token; a stale or placeholder bearer value can force an
+`invalid_token` path instead of the normal OAuth login flow.
+
+Codex currently loads HTTP MCP auth state into the running process. After
+running `codex mcp login artifact-use` from another shell, restart the active
+Codex session before expecting `mcp__artifact_use` calls to see the new token.
+If the deployment host changes, remove credentials for the old MCP resource
+before logging in again so the OAuth `resource` / token `aud` value matches:
+
+```bash
+codex mcp get artifact-use
+codex mcp logout artifact-use
+codex mcp login artifact-use --scopes openid,profile,email,offline_access
+```
+
+If logout cannot delete keyring-backed tokens, remove only the `artifact-use`
+records from `~/.codex/.credentials.json`, then log in and restart Codex.
+
 For CLI usage, local stdio MCP, or non-OAuth clients, pass a WorkOS bearer token explicitly:
 
 ```bash

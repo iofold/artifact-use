@@ -2,7 +2,7 @@
   "mcpServers": {
     "artifact-use": {
       "type": "http",
-      "url": "https://art-use.iofold.com/mcp"
+      "url": "https://artifacts.iofold.com/mcp"
     }
   }
 }

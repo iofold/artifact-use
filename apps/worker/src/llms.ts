@@ -63,6 +63,26 @@ The MCP endpoint requires auth from the first request and advertises protected-r
 ${base}/.well-known/oauth-protected-resource
 \`\`\`
 
+For OAuth-capable clients such as Codex, configure only the MCP URL. Do not add
+an \`Authorization\` header unless you are deliberately bypassing OAuth with a
+fresh bearer token; a stale or placeholder bearer value can force an
+\`invalid_token\` path instead of the normal OAuth login flow.
+
+Codex currently loads HTTP MCP auth state into the running process. After
+running \`codex mcp login artifact-use\` from another shell, restart the active
+Codex session before expecting \`mcp__artifact_use\` calls to see the new token.
+If the deployment host changes, remove credentials for the old MCP resource
+before logging in again so the OAuth \`resource\` / token \`aud\` value matches:
+
+\`\`\`bash
+codex mcp get artifact-use
+codex mcp logout artifact-use
+codex mcp login artifact-use --scopes openid,profile,email,offline_access
+\`\`\`
+
+If logout cannot delete keyring-backed tokens, remove only the \`artifact-use\`
+records from \`~/.codex/.credentials.json\`, then log in and restart Codex.
+
 For non-OAuth clients, CLI, or local stdio MCP:
 
 \`\`\`bash
@@ -88,6 +108,8 @@ Artifact Use publishes static artifacts to ${base} without exposing Cloudflare c
 
 - Never use Wrangler, Cloudflare API tokens, direct R2 credentials, or direct D1 access for publishing artifacts.
 - Prefer hosted HTTP MCP at ${base}/mcp; OAuth-capable clients should authenticate through the MCP prompt.
+- For OAuth-capable clients, configure only the MCP URL. Do not add an Authorization header unless you are intentionally passing a fresh bearer token.
+- After codex mcp login artifact-use, restart the active Codex session before using mcp__artifact_use; Codex may keep the old HTTP MCP auth state in memory.
 - Use ARTIFACT_USE_TOKEN only for CLI, local stdio MCP, or non-OAuth clients.
 - Use artifact_publish for a single HTML string or small inline multi-file payloads.
 - Use artifact_upload_session, local stdio MCP with dir, or the CLI for local folders, large files, images, PDFs, or multi-file artifacts.

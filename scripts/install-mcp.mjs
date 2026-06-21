@@ -11,9 +11,6 @@ const config = {
     "artifact-use": {
       type: "http",
       url: `${process.env.ARTIFACT_USE_API_BASE || "https://artifacts.iofold.com"}/mcp`,
-      headers: {
-        Authorization: "Bearer ${ARTIFACT_USE_TOKEN}",
-      },
     },
   },
 };
