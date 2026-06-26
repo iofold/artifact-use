@@ -2,14 +2,15 @@ name = "artifact-use"
 main = "src/index.ts"
 compatibility_date = "2026-06-01"
 
+# Replace with your Cloudflare account id or set CLOUDFLARE_ACCOUNT_ID in the
+# shell that runs Wrangler. (Must stay above the [build] table — bare top-level
+# keys cannot follow a TOML table header.)
+account_id = "00000000000000000000000000000000"
+
 # Regenerate the injected feedback widget (src/widget/feedback.js ->
 # feedback.generated.ts) before bundling, on both `wrangler dev` and deploy.
 [build]
 command = "node scripts/build-feedback-widget.mjs"
-
-# Replace with your Cloudflare account id or set CLOUDFLARE_ACCOUNT_ID in the
-# shell that runs Wrangler.
-account_id = "00000000000000000000000000000000"
 
 # Replace these routes with your own zone/domain before deploying.
 [[routes]]

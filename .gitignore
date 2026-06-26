@@ -13,3 +13,6 @@ tmp/
 
 # Generated from apps/worker/src/widget/feedback.js by the wrangler [build] hook.
 apps/worker/src/widget/feedback.generated.ts
+
+# Local staging deploy config (real account/db ids)
+apps/worker/wrangler.staging.toml

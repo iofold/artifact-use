@@ -55,8 +55,28 @@ node apps/worker/test/feedback-harness/seed-staging.mjs
 #    and exercise the widget against the real backend.
 ```
 
-## Remote Cloudflare deploy
+## Remote Cloudflare deploy (isolated staging)
 
-A real remote staging deploy additionally needs **R2 write** on the Cloudflare
-token (to create/bind the `BUCKET` bucket) plus a real `account_id` and route in
-`wrangler.toml`. With those: `npm --workspace apps/worker run deploy`.
+Deployed and verified live at
+`https://artifact-use-staging.<your-subdomain>.workers.dev`. Uses isolated resources
+(`artifact-use-staging` worker / D1 / R2) so production (`artifact-use`,
+artifacts.iofold.com) is never touched. The config lives in a gitignored
+`apps/worker/wrangler.staging.toml` (real account/db ids) — the committed
+`wrangler.toml` keeps placeholders.
+
+```bash
+cd apps/worker
+npx wrangler r2 bucket create artifact-use-staging
+npx wrangler d1 create artifact-use-staging          # -> database_id for wrangler.staging.toml
+npx wrangler d1 migrations apply artifact-use-staging --remote --config wrangler.staging.toml
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))" \
+  | npx wrangler secret put SESSION_SECRET --config wrangler.staging.toml
+grep ^DEV_AUTH_TOKEN= .dev.vars | cut -d= -f2- \
+  | npx wrangler secret put DEV_AUTH_TOKEN --config wrangler.staging.toml
+npx wrangler deploy --config wrangler.staging.toml
+AU_BASE=https://artifact-use-staging.<your-subdomain>.workers.dev node test/feedback-harness/seed-staging.mjs
+```
+
+`wrangler.staging.toml` sets `workers_dev = true` (no production routes),
+`DEV_AUTH_USER_ID`/`ORG_ID`/`EMAIL` vars, and `SITE_BASE_URL` to the workers.dev
+URL.
