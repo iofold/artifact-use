@@ -26,7 +26,9 @@
  * 0002) so untargeted comments scope by page and drift is detectable; Re-anchor
  * action (PATCH target) for stale anchors.
  *
- * Deferred to Phase 4: mobile bottom sheet, a11y, persistent pins.
+ * Phase 4 (landed): mobile bottom-sheet layout (dvh, drag handle); a11y
+ * (role=dialog/list, Esc-to-close, focus on open / return on close, Tab trap,
+ * prefers-reduced-motion); persistent numbered pins for all on-page comments.
  */
 (function () {
   if (window.__artifactUseWidget) return;
@@ -44,6 +46,8 @@
   var reanchorFor = null; // comment being re-anchored, if any
   var scope = "page"; // "page" | "all"
   var hideResolved = true;
+  var pinsOn = false; // show numbered pins for all on-page comments
+  var pinEls = [];
   var allComments = [];
 
   function strip(p) {
@@ -101,6 +105,7 @@
     '<button class="au-seg" data-scope="all">All pages</button>' +
     "</div>" +
     '<label class="au-check"><input type="checkbox" data-hide-resolved checked> Hide resolved</label>' +
+    '<label class="au-check"><input type="checkbox" data-pins> Pins</label>' +
     "</div>" +
     '<div class="au-loadbar" data-loadbar></div>' +
     '<div class="au-list" data-list></div>' +
@@ -117,6 +122,23 @@
   banner.innerHTML =
     '<span class="au-banner-text">Click an element to attach feedback</span>' +
     '<button class="au-banner-cancel" data-cancel-select>Esc to cancel</button>';
+
+  // ---- accessibility roles ----
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-label", "Feedback");
+  panel.setAttribute("aria-modal", "false");
+  panel.setAttribute("tabindex", "-1");
+  btn.setAttribute("aria-label", "Feedback");
+  btn.setAttribute("aria-expanded", "false");
+  panel.querySelector("[data-list]").setAttribute("role", "list");
+  function reduceMotion() {
+    return (
+      window.matchMedia && matchMedia("(prefers-reduced-motion:reduce)").matches
+    );
+  }
+  function smoothScroll() {
+    return reduceMotion() ? "auto" : "smooth";
+  }
 
   // ---- target anchoring ----
   function insideWidget(n) {
@@ -376,6 +398,7 @@
       allComments = j.comments || [];
       refreshBadge();
       renderList(allComments);
+      renderPins();
     } catch (e) {
       showMessage("Could not load feedback.");
     } finally {
@@ -409,6 +432,7 @@
     roots.forEach(function (c) {
       var item = el("div", "au-item" + (c.resolved_at ? " is-resolved" : ""));
       item.dataset.auId = c.id;
+      item.setAttribute("role", "listitem");
       item.appendChild(commentNode(c, false));
       item.appendChild(replyBox(c));
       var rs = replies[String(c.id)] || [];
@@ -550,7 +574,7 @@
       return;
     }
     var targetY = Math.max(0, rect.y - innerHeight / 2 + rect.h / 2);
-    scrollTo({ top: targetY, behavior: "smooth" });
+    scrollTo({ top: targetY, behavior: smoothScroll() });
     setTimeout(function () {
       ghostLabel.textContent = note || "Approximate location";
       ghost.style.display = "block";
@@ -578,7 +602,7 @@
     if (e && isShown(e)) {
       // 2/3. Found and visible / off-screen -> scroll into view + pulse.
       active = t;
-      e.scrollIntoView({ block: "center", behavior: "smooth" });
+      e.scrollIntoView({ block: "center", behavior: smoothScroll() });
       setTimeout(function () {
         update();
         pulse();
@@ -664,6 +688,61 @@
         it.classList.toggle("is-active", it.dataset.auId === String(id));
       },
     );
+  }
+
+  // ---- persistent pins (all on-page targeted comments at once) ----
+  function clearPins() {
+    pinEls.forEach(function (p) {
+      p.remove();
+    });
+    pinEls = [];
+  }
+  function renderPins() {
+    clearPins();
+    if (!pinsOn) return;
+    var n = 0;
+    allComments.forEach(function (c) {
+      if (c.parent_comment_id) return;
+      if (hideResolved && c.resolved_at) return;
+      var t = parse(c.target_json);
+      if (!t) return;
+      if (t.path && !samePath(t.path, currentPath())) return;
+      n++;
+      var pin = el("button", "au-pin", String(n));
+      pin.dataset.auWidget = "1";
+      pin.title = c.body ? c.body.slice(0, 80) : "";
+      pin._t = t;
+      (function (cc) {
+        pin.onclick = function () {
+          focusComment(cc);
+        };
+      })(c);
+      root.appendChild(pin);
+      pinEls.push(pin);
+    });
+    positionPins();
+  }
+  function positionPins() {
+    pinEls.forEach(function (pin) {
+      var t = pin._t,
+        e = find(t),
+        r;
+      if (e && isShown(e)) r = e.getBoundingClientRect();
+      else if (t.rect)
+        r = {
+          left: t.rect.x - scrollX,
+          top: t.rect.y - scrollY,
+          width: t.rect.w,
+          height: t.rect.h,
+        };
+      else {
+        pin.style.display = "none";
+        return;
+      }
+      pin.style.display = "flex";
+      pin.style.left = Math.max(2, r.left - 9) + "px";
+      pin.style.top = Math.max(2, r.top - 9) + "px";
+    });
   }
 
   // ---- toast ----
@@ -779,17 +858,55 @@
   // ---- open / close (close == minimize; launcher is never removed) ----
   function open() {
     panel.classList.add("is-open");
+    btn.setAttribute("aria-expanded", "true");
     showTop(panel);
     if (!allComments.length) showSkeleton();
     load();
     update();
+    setTimeout(function () {
+      try {
+        panel.focus();
+      } catch (e) {}
+    }, 0);
   }
   function close() {
     panel.classList.remove("is-open");
+    btn.setAttribute("aria-expanded", "false");
     hideTop(panel);
     endSelect();
     mark.style.display = "none";
     hideGhost();
+    try {
+      btn.focus();
+    } catch (e) {}
+  }
+  // Escape closes the panel; Tab is trapped within it for keyboard users.
+  panel.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && !selecting) {
+      e.stopPropagation();
+      close();
+    } else if (e.key === "Tab") {
+      trapTab(e);
+    }
+  });
+  function trapTab(e) {
+    var nodes = panel.querySelectorAll(
+      'button,[href],input,textarea,[tabindex]:not([tabindex="-1"])',
+    );
+    var list = [];
+    for (var i = 0; i < nodes.length; i++)
+      if (nodes[i].offsetParent !== null) list.push(nodes[i]);
+    if (!list.length) return;
+    var first = list[0],
+      last = list[list.length - 1],
+      act = root.activeElement;
+    if (e.shiftKey && act === first) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && act === last) {
+      e.preventDefault();
+      first.focus();
+    }
   }
 
   // ---- wire up ----
@@ -817,6 +934,11 @@
   panel.querySelector("[data-hide-resolved]").onchange = function (e) {
     hideResolved = !!e.target.checked;
     renderList(allComments);
+    renderPins();
+  };
+  panel.querySelector("[data-pins]").onchange = function (e) {
+    pinsOn = !!e.target.checked;
+    renderPins();
   };
   Array.prototype.forEach.call(
     panel.querySelectorAll("[data-scope]"),
@@ -830,6 +952,7 @@
           },
         );
         renderList(allComments);
+        renderPins();
       };
     },
   );
@@ -849,8 +972,12 @@
     });
   };
 
-  addEventListener("scroll", update, true);
-  addEventListener("resize", update);
+  function onViewport() {
+    update();
+    positionPins();
+  }
+  addEventListener("scroll", onViewport, true);
+  addEventListener("resize", onViewport);
 
   // deep link: #au=<id> opens the panel and focuses that comment after load.
   async function handleDeepLink() {
@@ -1027,6 +1154,8 @@
       ".au-chip{font-weight:800;border-radius:4px;padding:1px 6px}",
       ".au-anchor-missing{background:#fdeaea;color:#a3271f}",
       ".au-anchor-hidden{background:#eef1f0;color:#5a6c66}",
+      ".au-pin{position:fixed;display:none;align-items:center;justify-content:center;z-index:2147483646;min-width:22px;height:22px;padding:0 5px;border:2px solid #fff;border-radius:11px;background:#12686d;color:#fff;font-size:12px;font-weight:800;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.3);pointer-events:auto}",
+      ".au-pin:hover{background:#0c585b;transform:scale(1.08)}",
       "button:focus-visible,input:focus-visible{outline:2px solid #2a7d82;outline-offset:1px}",
       ".au-launch:hover{background:#0e2d30}",
       ".au-launch:active{transform:translateY(1px)}",
@@ -1058,6 +1187,10 @@
       ".au-banner-cancel{border:0;background:rgba(255,255,255,.16);color:#fff;border-radius:999px;padding:6px 12px;font-weight:800;cursor:pointer}",
       ".au-toast{position:fixed;left:50%;bottom:74px;transform:translateX(-50%) translateY(8px);z-index:2147483647;background:#1b2420;color:#fff;border-radius:8px;padding:10px 14px;font-weight:700;box-shadow:0 12px 30px rgba(0,0,0,.3);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s}",
       ".au-toast.is-on{opacity:1;transform:translateX(-50%) translateY(0)}",
+      // Mobile: the panel becomes a bottom sheet (dvh keeps it above the keyboard).
+      "@media (max-width:640px){.au-panel{left:0;right:0;bottom:0;top:auto;width:100%;height:82dvh;max-height:82dvh;border-radius:16px 16px 0 0;border-bottom:0}.au-panel::before{content:'';position:absolute;left:50%;top:7px;transform:translateX(-50%);width:38px;height:4px;border-radius:2px;background:#cdd9d5}.au-head{padding-top:8px}.au-launch{right:12px;bottom:12px}.au-banner{left:8px;right:8px;max-width:none}.au-toolbar{flex-wrap:wrap}}",
+      // Respect reduced-motion preferences.
+      "@media (prefers-reduced-motion:reduce){.au-mark.au-pulse,.au-skel-line,.au-panel.is-busy .au-loadbar,.au-pin:hover{animation:none;transition:none}}",
     ].join("");
   }
 })();
