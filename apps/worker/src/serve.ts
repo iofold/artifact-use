@@ -120,7 +120,7 @@ export async function servePublic(
     headers.delete("Last-Modified");
     if (request.method === "HEAD") return new Response(null, { headers });
     const html = await bodyObj.text();
-    return new Response(injectWidget(html, artifact), { headers });
+    return new Response(injectWidget(html, artifact, version.id), { headers });
   }
   const range = rangeHeaders ? rangeBounds(bodyObj.range, obj.size) : null;
   if (range) {
@@ -241,7 +241,7 @@ export async function handleComments(
     const session = await getViewerSession(request, env, artifact);
     if (!session) return error(401, "unauthorized", "viewer session required");
     const rows = await env.DB.prepare(
-      `SELECT id, parent_comment_id, email, body, target_json, created_at, resolved_at, resolved_by
+      `SELECT id, parent_comment_id, email, body, target_json, page_path, version_id, created_at, resolved_at, resolved_by
        FROM comments
        WHERE artifact_id = ? AND deleted_at IS NULL
        ORDER BY COALESCE(parent_comment_id, id) DESC,
@@ -259,6 +259,8 @@ export async function handleComments(
       body?: string;
       target?: unknown;
       parent_id?: unknown;
+      page_path?: unknown;
+      version_id?: unknown;
     };
     const artifact = await commentArtifact(env, body.artifact_key || "");
     if (!artifact)
@@ -277,10 +279,13 @@ export async function handleComments(
       return error(404, "comment_not_found", "parent comment not found");
     const targetJson =
       commentTargetJson(body.target) || parent?.target_json || null;
+    const pagePath =
+      cleanStr(body.page_path, 300) || targetPath(targetJson) || null;
+    const versionId = cleanStr(body.version_id, 64);
     await env.DB.prepare(
       `INSERT INTO comments
-       (artifact_id, view_id, email, body, target_json, parent_comment_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (artifact_id, view_id, email, body, target_json, page_path, version_id, parent_comment_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         artifact.id,
@@ -288,6 +293,8 @@ export async function handleComments(
         session.email,
         text,
         targetJson,
+        pagePath,
+        versionId,
         parent?.id || null,
         nowSec(),
       )
@@ -299,6 +306,7 @@ export async function handleComments(
       artifact_key?: string;
       id?: unknown;
       resolved?: unknown;
+      target?: unknown;
     };
     const artifact = await commentArtifact(env, body.artifact_key || "");
     if (!artifact)
@@ -313,6 +321,18 @@ export async function handleComments(
       .bind(id, artifact.id)
       .first<{ id: number }>();
     if (!existing) return error(404, "comment_not_found", "comment not found");
+    // Re-anchor: replace the comment's target with a freshly picked element.
+    if (body.target !== undefined) {
+      const targetJson = commentTargetJson(body.target);
+      if (!targetJson) return error(400, "invalid_target", "target is invalid");
+      const pagePath = targetPath(targetJson);
+      await env.DB.prepare(
+        "UPDATE comments SET target_json = ?, page_path = ? WHERE id = ? AND artifact_id = ?",
+      )
+        .bind(targetJson, pagePath, id, artifact.id)
+        .run();
+      return json({ ok: true, comment: { id, target_json: targetJson } });
+    }
     const resolved = body.resolved !== false;
     const resolvedAt = resolved ? nowSec() : null;
     const resolvedBy = resolved ? session.email : null;
@@ -372,11 +392,36 @@ function positiveInteger(value: unknown): number | null {
   return Number.isSafeInteger(n) && n > 0 ? n : null;
 }
 
+interface CleanTarget {
+  v: number;
+  selector: string;
+  label: string;
+  path: string;
+  version_id?: string;
+  text?: string;
+  anchors?: { type: string; value: string; name?: string }[];
+  rect: { x: number; y: number; w: number; h: number } | null;
+}
+
 function commentTargetJson(target: unknown): string | null {
   if (!target || typeof target !== "object") return null;
   const input = target as Record<string, unknown>;
   const rect = input.rect as Record<string, unknown> | undefined;
-  const clean = {
+  const anchorsIn = Array.isArray(input.anchors) ? input.anchors : [];
+  const anchors = anchorsIn
+    .slice(0, 6)
+    .map((a) => {
+      const o = (a || {}) as Record<string, unknown>;
+      const out: { type: string; value: string; name?: string } = {
+        type: String(o.type || "").slice(0, 16),
+        value: String(o.value || "").slice(0, 300),
+      };
+      if (o.name) out.name = String(o.name).slice(0, 160);
+      return out;
+    })
+    .filter((a) => a.type && a.value);
+  const clean: CleanTarget = {
+    v: 2,
     selector: String(input.selector || "").slice(0, 300),
     label: String(input.label || "").slice(0, 160),
     path: String(input.path || "").slice(0, 300),
@@ -389,7 +434,27 @@ function commentTargetJson(target: unknown): string | null {
         }
       : null,
   };
-  return JSON.stringify(clean).slice(0, 1200);
+  if (input.version_id)
+    clean.version_id = String(input.version_id).slice(0, 64);
+  if (input.text) clean.text = String(input.text).slice(0, 200);
+  if (anchors.length) clean.anchors = anchors;
+  return JSON.stringify(clean).slice(0, 2000);
+}
+
+function targetPath(targetJson: string | null): string | null {
+  if (!targetJson) return null;
+  try {
+    const p = (JSON.parse(targetJson) as { path?: unknown }).path;
+    return p ? String(p).slice(0, 300) : null;
+  } catch {
+    return null;
+  }
+}
+
+function cleanStr(value: unknown, max: number): string | null {
+  if (value === undefined || value === null) return null;
+  const s = String(value).slice(0, max);
+  return s || null;
 }
 
 function finiteNumber(value: unknown): number {
@@ -428,9 +493,16 @@ async function sharePrefill(
   return { id: row.id, email: row.recipient_email };
 }
 
-function injectWidget(html: string, artifact: Artifact): string {
+function injectWidget(
+  html: string,
+  artifact: Artifact,
+  versionId: string,
+): string {
   if (artifact.gate_level === "public") return html;
-  const config = JSON.stringify({ artifactKey: artifact.url_key });
+  const config = JSON.stringify({
+    artifactKey: artifact.url_key,
+    versionId,
+  });
   const widget = FEEDBACK_WIDGET_JS.replace(/<\/(script)/gi, "<\\/$1");
   const script = `<script>window.__AU_FEEDBACK__=${config};</script><script>${widget}</script>`;
   if (html.includes("</body>"))

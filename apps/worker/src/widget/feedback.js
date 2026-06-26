@@ -21,8 +21,12 @@
  * navigate, found+visible scroll+pulse, off-screen scroll, hidden reveal/ghost,
  * missing ghost-at-rect — never a silent no-op.
  *
- * Deferred to Phase 3/4: richer anchors + version-drift + re-anchor (needs
- * migration 0002), mobile bottom sheet, a11y, persistent pins.
+ * Phase 3 (landed): richer multi-anchor capture (id/selector/text/role) with
+ * id->selector->text resolution; page_path + version_id persisted (migration
+ * 0002) so untargeted comments scope by page and drift is detectable; Re-anchor
+ * action (PATCH target) for stale anchors.
+ *
+ * Deferred to Phase 4: mobile bottom sheet, a11y, persistent pins.
  */
 (function () {
   if (window.__artifactUseWidget) return;
@@ -31,11 +35,13 @@
   var CFG = window.__AU_FEEDBACK__ || {};
   var artifactKey = CFG.artifactKey || "";
   if (!artifactKey) return;
+  var versionId = CFG.versionId || "";
 
   // ---- state ----
   var target = null; // element chosen for a NEW comment
   var active = null; // anchor currently highlighted by the marker
   var selecting = false;
+  var reanchorFor = null; // comment being re-anchored, if any
   var scope = "page"; // "page" | "all"
   var hideResolved = true;
   var allComments = [];
@@ -160,12 +166,34 @@
       (e.getAttribute && e.getAttribute("name")) || e.localName || "element",
     );
   }
+  function immediateText(e) {
+    var s = "";
+    for (var i = 0; i < e.childNodes.length; i++)
+      if (e.childNodes[i].nodeType === 3) s += e.childNodes[i].textContent;
+    return clean(s);
+  }
+  // Capture several anchors, most stable first, so the target survives edits.
+  function anchorsFor(e) {
+    var a = [];
+    if (e.id) a.push({ type: "id", value: e.id });
+    a.push({ type: "selector", value: selectorFor(e) });
+    var txt = immediateText(e);
+    if (txt) a.push({ type: "text", value: txt });
+    var aria = e.getAttribute && e.getAttribute("aria-label");
+    var role = e.getAttribute && e.getAttribute("role");
+    if (aria || role)
+      a.push({ type: "role", value: role || e.localName, name: aria || txt });
+    return a;
+  }
   function targetFrom(e) {
     var r = e.getBoundingClientRect();
     return {
       selector: selectorFor(e),
       label: labelFor(e),
+      text: immediateText(e),
       path: currentPath(),
+      version_id: versionId,
+      anchors: anchorsFor(e),
       rect: {
         x: Math.round(r.left + scrollX),
         y: Math.round(r.top + scrollY),
@@ -174,12 +202,38 @@
       },
     };
   }
-  function find(t) {
+  function findByText(txt) {
+    if (!txt) return null;
+    var want = clean(txt);
+    var nodes = document.body.querySelectorAll(
+      "button,a,summary,label,h1,h2,h3,h4,h5,th,td,p,li,span,div,[role]",
+    );
+    for (var i = 0; i < nodes.length && i < 4000; i++)
+      if (immediateText(nodes[i]) === want) return nodes[i];
+    return null;
+  }
+  function resolveAnchor(a) {
     try {
-      return t && t.selector ? document.querySelector(t.selector) : null;
-    } catch (e) {
-      return null;
+      if (a.type === "id") return document.getElementById(a.value);
+      if (a.type === "selector") return document.querySelector(a.value);
+      if (a.type === "text") return findByText(a.value);
+    } catch (e) {}
+    return null;
+  }
+  // Resolve a stored target through its anchors (id -> selector -> text).
+  function find(t) {
+    if (!t) return null;
+    var anchors =
+      t.anchors && t.anchors.length
+        ? t.anchors
+        : t.selector
+          ? [{ type: "selector", value: t.selector }]
+          : [];
+    for (var i = 0; i < anchors.length; i++) {
+      var el2 = resolveAnchor(anchors[i]);
+      if (el2) return el2;
     }
+    return null;
   }
 
   // ---- marker ----
@@ -295,11 +349,11 @@
     }
   }
   function visibleForScope(c) {
-    var t = parse(c.target_json);
     if (scope === "all") return true;
-    // "This page": targeted comments on this page, plus untargeted (no page yet).
-    if (!t || !t.path) return true;
-    return samePath(t.path, currentPath());
+    var t = parse(c.target_json);
+    var p = (t && t.path) || c.page_path;
+    if (!p) return true; // legacy comment with no page recorded
+    return samePath(p, currentPath());
   }
   async function load() {
     var open = panel.classList.contains("is-open");
@@ -379,18 +433,20 @@
     main.type = "button";
     // location first, then who.
     var onThisPage = t && (!t.path || samePath(t.path, currentPath()));
+    var missingHere = false;
     if (!isReply && t && t.path && !samePath(t.path, currentPath())) {
       var pg = el("span", "au-page", pageLabel(t.path));
       pg.title = "On another page";
       meta.appendChild(pg);
-    } else if (!isReply && t && t.selector && onThisPage) {
+    } else if (!isReply && t && (t.selector || t.anchors) && onThisPage) {
       // Surface anchor health at render time so a stale target is not a surprise.
       var anchorEl = find(t);
-      if (!anchorEl)
+      if (!anchorEl) {
         meta.appendChild(
           el("span", "au-chip au-anchor-missing", "⚠ not found"),
         );
-      else if (!isShown(anchorEl))
+        missingHere = true;
+      } else if (!isShown(anchorEl))
         meta.appendChild(el("span", "au-chip au-anchor-hidden", "hidden"));
     }
     if (t && t.label) meta.appendChild(el("span", "au-target-label", t.label));
@@ -414,6 +470,15 @@
           focusComment(c);
         };
         actions.appendChild(locate);
+      }
+      if (missingHere) {
+        var rea = el("button", "au-link au-reanchor", "Re-anchor");
+        rea.type = "button";
+        rea.title = "Pick the element this comment should point to now";
+        rea.onclick = function () {
+          startReanchor(c);
+        };
+        actions.appendChild(rea);
       }
       var reply = el("button", "au-link", "Reply"),
         resolve = el("button", "au-link", c.resolved_at ? "Reopen" : "Resolve");
@@ -497,12 +562,13 @@
   }
   function focusComment(c) {
     var t = parse(c && c.target_json);
-    if (!t) return;
+    var pagePath = (t && t.path) || (c && c.page_path);
     // 1. Different page -> navigate there with a focus hint.
-    if (t.path && !samePath(t.path, currentPath())) {
-      location.href = t.path + "#au=" + c.id;
+    if (pagePath && !samePath(pagePath, currentPath())) {
+      location.href = pagePath + "#au=" + c.id;
       return;
     }
+    if (!t) return; // untargeted comment on this page: nothing to locate
     setActiveItem(c.id);
     hideGhost();
     mark.style.display = "none";
@@ -533,7 +599,11 @@
 
   // ---- mutations ----
   async function postComment(extra) {
-    var payload = { artifact_key: artifactKey };
+    var payload = {
+      artifact_key: artifactKey,
+      page_path: currentPath(),
+      version_id: versionId,
+    };
     for (var k in extra) payload[k] = extra[k];
     var r = await fetch("/_au/comments", {
       method: "POST",
@@ -640,10 +710,39 @@
     if (!selecting || insideWidget(e.target)) return;
     e.preventDefault();
     e.stopPropagation();
-    target = targetFrom(e.target);
+    var picked = targetFrom(e.target);
+    if (reanchorFor) {
+      var c = reanchorFor;
+      reanchorFor = null;
+      endSelect();
+      reanchorComment(c, picked);
+      return;
+    }
+    target = picked;
     active = target;
     endSelect();
     renderTarget();
+  }
+  function startReanchor(c) {
+    reanchorFor = c;
+    startSelect();
+  }
+  async function reanchorComment(c, tgt) {
+    var ok = false;
+    try {
+      var r = await fetch("/_au/comments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          artifact_key: artifactKey,
+          id: c.id,
+          target: tgt,
+        }),
+      });
+      ok = r.ok;
+    } catch (e) {}
+    showToast(ok ? "Re-anchored to the new element." : "Could not re-anchor.");
+    if (ok) load();
   }
   function onKey(e) {
     if (e.key === "Escape" && selecting) {
@@ -653,17 +752,23 @@
   function startSelect() {
     if (selecting) return;
     selecting = true;
-    openComposer(true);
+    if (!reanchorFor) openComposer(true);
+    banner.querySelector(".au-banner-text").textContent = reanchorFor
+      ? "Click the new location for this comment"
+      : "Click an element to attach feedback";
     document.documentElement.classList.add("au-selecting");
     banner.classList.add("is-on");
+    showTop(banner);
     document.addEventListener("mouseover", over, true);
     document.addEventListener("click", pick, true);
     document.addEventListener("keydown", onKey, true);
   }
   function endSelect() {
     selecting = false;
+    reanchorFor = null;
     document.documentElement.classList.remove("au-selecting");
     banner.classList.remove("is-on");
+    hideTop(banner);
     hover.style.display = "none";
     hoverTip.style.display = "none";
     document.removeEventListener("mouseover", over, true);
@@ -898,6 +1003,7 @@
       ".au-link:hover{background:#e6f1f0;text-decoration:underline}",
       ".au-link:active{background:#d6e8e6}",
       ".au-locate{color:#0c585b}",
+      ".au-reanchor{color:#a3271f}",
       ".au-replies{display:grid;gap:8px;margin:0 14px 12px;padding-left:10px;border-left:2px solid #dfe8e5}",
       ".au-replybox{display:none;margin:0 14px 12px;gap:7px}",
       ".au-replybox.is-open{display:grid}",
