@@ -16,3 +16,4 @@ apps/worker/src/widget/feedback.generated.ts
 
 # Local staging deploy config (real account/db ids)
 apps/worker/wrangler.staging.toml
+apps/worker/wrangler.prod.toml
