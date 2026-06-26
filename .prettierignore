@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.wrangler/
+.tmp/
+coverage/
+package-lock.json
+# Build artifact: regenerated from src/widget/feedback.js by the wrangler [build] hook.
+apps/worker/src/widget/feedback.generated.ts

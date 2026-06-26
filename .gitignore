@@ -10,3 +10,6 @@ coverage/
 *.log
 tmp/
 .tmp/
+
+# Generated from apps/worker/src/widget/feedback.js by the wrangler [build] hook.
+apps/worker/src/widget/feedback.generated.ts
