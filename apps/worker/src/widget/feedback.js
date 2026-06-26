@@ -15,8 +15,14 @@
  *   - Page breadcrumb per comment + cross-page navigation (no silent no-op).
  *   - Select-element mode affordance (banner, crosshair, Esc) + safe labelFor.
  *
- * Deferred to Phase 2/3: Shadow DOM + Popover top-layer, richer anchors +
- * version-drift, re-anchor, mobile bottom sheet, a11y.
+ * Phase 2 (landed): mounts in an open Shadow DOM host promoted to the top layer
+ * via the Popover API (beats artifact z-index / overlays / fullscreen; a foreign
+ * modal <dialog> intentionally still wins). Target-resolution ladder: other-page
+ * navigate, found+visible scroll+pulse, off-screen scroll, hidden reveal/ghost,
+ * missing ghost-at-rect — never a silent no-op.
+ *
+ * Deferred to Phase 3/4: richer anchors + version-drift + re-anchor (needs
+ * migration 0002), mobile bottom sheet, a11y, persistent pins.
  */
 (function () {
   if (window.__artifactUseWidget) return;
@@ -69,11 +75,14 @@
   var hover = el("div", "au-hover", "");
   var hoverTip = el("div", "au-hover-tip", "");
   var banner = el("div", "au-banner", "");
+  var ghost = el("div", "au-ghost", "");
+  var ghostLabel = el("span", "au-ghost-label", "");
+  ghost.appendChild(ghostLabel);
 
   var css = document.createElement("style");
   css.textContent = STYLES();
 
-  [panel, btn, mark, hover, hoverTip, banner].forEach(function (n) {
+  [panel, btn, mark, hover, hoverTip, banner, ghost].forEach(function (n) {
     n.dataset.auWidget = "1";
   });
 
@@ -369,10 +378,20 @@
       t = parse(c.target_json);
     main.type = "button";
     // location first, then who.
+    var onThisPage = t && (!t.path || samePath(t.path, currentPath()));
     if (!isReply && t && t.path && !samePath(t.path, currentPath())) {
       var pg = el("span", "au-page", pageLabel(t.path));
       pg.title = "On another page";
       meta.appendChild(pg);
+    } else if (!isReply && t && t.selector && onThisPage) {
+      // Surface anchor health at render time so a stale target is not a surprise.
+      var anchorEl = find(t);
+      if (!anchorEl)
+        meta.appendChild(
+          el("span", "au-chip au-anchor-missing", "⚠ not found"),
+        );
+      else if (!isShown(anchorEl))
+        meta.appendChild(el("span", "au-chip au-anchor-hidden", "hidden"));
     }
     if (t && t.label) meta.appendChild(el("span", "au-target-label", t.label));
     if (meta.childNodes.length) meta.appendChild(el("span", "au-dot", "·"));
@@ -441,27 +460,73 @@
     return box;
   }
 
-  // ---- focus / navigation (no silent no-op) ----
+  // ---- target resolution ladder (never a silent no-op) ----
+  function isShown(e) {
+    var r = e.getBoundingClientRect();
+    if (r.width <= 0 || r.height <= 0) return false;
+    if (e.offsetParent === null && getComputedStyle(e).position !== "fixed")
+      return false;
+    return true;
+  }
+  // Open collapsed <details> ancestors so a hidden target can be revealed.
+  function revealAncestors(e) {
+    for (var p = e; p && p !== document.body; p = p.parentElement) {
+      if (p.tagName === "DETAILS" && !p.open) p.open = true;
+    }
+  }
+  function hideGhost() {
+    ghost.style.display = "none";
+  }
+  // Draw a dashed "ghost" box at the element's last-known document-coordinate
+  // rect, for hidden/missing targets we cannot outline directly.
+  function showGhost(rect, note) {
+    if (!rect || !rect.w || !rect.h) {
+      showToast(note || "Target location is unknown.");
+      return;
+    }
+    var targetY = Math.max(0, rect.y - innerHeight / 2 + rect.h / 2);
+    scrollTo({ top: targetY, behavior: "smooth" });
+    setTimeout(function () {
+      ghostLabel.textContent = note || "Approximate location";
+      ghost.style.display = "block";
+      ghost.style.left = Math.max(0, rect.x - scrollX) + "px";
+      ghost.style.top = Math.max(0, rect.y - scrollY) + "px";
+      ghost.style.width = rect.w + "px";
+      ghost.style.height = rect.h + "px";
+    }, 300);
+  }
   function focusComment(c) {
     var t = parse(c && c.target_json);
     if (!t) return;
-    // Cross-page: navigate to the page this comment belongs to.
+    // 1. Different page -> navigate there with a focus hint.
     if (t.path && !samePath(t.path, currentPath())) {
       location.href = t.path + "#au=" + c.id;
       return;
     }
     setActiveItem(c.id);
-    active = t;
+    hideGhost();
+    mark.style.display = "none";
+    active = null;
     var e = find(t);
-    if (e) {
+    if (e) revealAncestors(e);
+    if (e && isShown(e)) {
+      // 2/3. Found and visible / off-screen -> scroll into view + pulse.
+      active = t;
       e.scrollIntoView({ block: "center", behavior: "smooth" });
       setTimeout(function () {
         update();
         pulse();
-      }, 260);
+      }, 280);
+    } else if (e) {
+      // 4. Found but hidden (display:none / 0-size / collapsed) -> ghost at rect.
+      showGhost(t.rect, "Target is hidden on this page");
+    } else if (t.rect) {
+      // 5. Not found (element changed/removed) -> ghost at last-known location.
+      showGhost(
+        t.rect,
+        t.version_id ? "Target missing — page changed" : "Target not found",
+      );
     } else {
-      // Same page but the element is gone/renamed (full resolver is Phase 2).
-      mark.style.display = "none";
       showToast("Couldn't locate this element on the current page.");
     }
   }
@@ -538,13 +603,16 @@
     if (!toastEl) {
       toastEl = el("div", "au-toast", "");
       toastEl.dataset.auWidget = "1";
-      document.documentElement.appendChild(toastEl);
+      popover(toastEl);
+      root.appendChild(toastEl);
     }
     toastEl.textContent = msg;
+    showTop(toastEl);
     toastEl.classList.add("is-on");
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () {
       toastEl.classList.remove("is-on");
+      hideTop(toastEl);
     }, 3200);
   }
 
@@ -606,14 +674,17 @@
   // ---- open / close (close == minimize; launcher is never removed) ----
   function open() {
     panel.classList.add("is-open");
+    showTop(panel);
     if (!allComments.length) showSkeleton();
     load();
     update();
   }
   function close() {
     panel.classList.remove("is-open");
+    hideTop(panel);
     endSelect();
     mark.style.display = "none";
+    hideGhost();
   }
 
   // ---- wire up ----
@@ -692,13 +763,93 @@
     if (c) focusComment(c);
   }
 
-  document.documentElement.appendChild(css);
-  document.documentElement.appendChild(mark);
-  document.documentElement.appendChild(hover);
-  document.documentElement.appendChild(hoverTip);
-  document.documentElement.appendChild(banner);
-  document.documentElement.appendChild(panel);
-  document.documentElement.appendChild(btn);
+  // ---- mount in an isolated Shadow DOM host, promoted to the top layer ----
+  // Shadow DOM stops artifact CSS from hiding/restyling the widget and stops
+  // our CSS from leaking. The Popover API puts the launcher/panel/banner above
+  // the artifact's own z-index, dialogs, popovers and fullscreen content.
+  var host = document.createElement("div");
+  host.id = "au-host";
+  host.dataset.auWidget = "1";
+  var root = host.attachShadow ? host.attachShadow({ mode: "open" }) : host;
+  root.appendChild(css);
+  root.appendChild(mark);
+  root.appendChild(hover);
+  root.appendChild(hoverTip);
+  root.appendChild(banner);
+  root.appendChild(ghost);
+  root.appendChild(panel);
+  root.appendChild(btn);
+  document.documentElement.appendChild(host);
+
+  // Crosshair during select mode must style the page (light DOM), so this one
+  // rule lives outside the shadow tree.
+  var lightCss = document.createElement("style");
+  lightCss.dataset.auWidget = "1";
+  lightCss.textContent =
+    "html.au-selecting,html.au-selecting *{cursor:crosshair!important}";
+  document.documentElement.appendChild(lightCss);
+
+  function popover(node) {
+    try {
+      node.setAttribute("popover", "manual");
+    } catch (e) {}
+  }
+  function showTop(node) {
+    try {
+      if (
+        node.showPopover &&
+        node.isConnected &&
+        !node.matches(":popover-open")
+      )
+        node.showPopover();
+    } catch (e) {}
+  }
+  function hideTop(node) {
+    try {
+      if (node.hidePopover && node.matches(":popover-open")) node.hidePopover();
+    } catch (e) {}
+  }
+  // Re-assert a popover to the TOP of the top-layer stack (last promoted wins).
+  function reTop(node) {
+    try {
+      if (node.matches && node.matches(":popover-open")) {
+        node.hidePopover();
+        node.showPopover();
+      } else showTop(node);
+    } catch (e) {}
+  }
+  // After something else enters the top layer (a dialog/fullscreen), float our
+  // visible surfaces back above it.
+  function promoteAll() {
+    reTop(btn);
+    if (panel.classList.contains("is-open")) reTop(panel);
+    if (banner.classList.contains("is-on")) reTop(banner);
+    if (toastEl && toastEl.classList.contains("is-on")) reTop(toastEl);
+  }
+  [btn, panel, banner].forEach(popover);
+  showTop(btn);
+
+  // Keep the host last in document order and the launcher promoted, even if the
+  // artifact appends its own nodes or swaps the top layer.
+  if (window.MutationObserver) {
+    var mo = new MutationObserver(function () {
+      if (
+        !document.fullscreenElement &&
+        document.documentElement.lastElementChild !== host
+      ) {
+        document.documentElement.appendChild(host);
+        showTop(btn);
+      }
+    });
+    mo.observe(document.documentElement, { childList: true });
+  }
+  // Ride into the fullscreen element so we stay visible there too.
+  document.addEventListener("fullscreenchange", function () {
+    (document.fullscreenElement || document.documentElement).appendChild(host);
+    showTop(btn);
+    promoteAll();
+  });
+
   renderTarget();
   // prime the badge even while the panel is closed.
   load();
@@ -706,9 +857,10 @@
 
   function STYLES() {
     return [
-      '[data-au-widget]{font:13px ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17201d;letter-spacing:0;box-sizing:border-box}',
-      "[data-au-widget] *{box-sizing:border-box}",
-      "[data-au-widget] button{font:inherit}",
+      ':host{font:13px ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17201d;letter-spacing:0;line-height:1.4}',
+      "*{box-sizing:border-box}",
+      "button{font:inherit;color:inherit}",
+      "[popover]{position:fixed;inset:auto;margin:0;padding:0;border:0;overflow:visible;background:transparent;width:auto;height:auto;max-width:none;max-height:none}",
       ".au-launch{position:fixed;right:18px;bottom:18px;z-index:2147483647;display:flex;align-items:center;gap:8px;border:0;border-radius:8px;background:#12383b;color:#fff;padding:10px 14px;font-weight:750;box-shadow:0 10px 30px rgba(0,0,0,.2);cursor:pointer}",
       ".au-badge{min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:#f3a712;color:#1b1206;font-size:12px;font-weight:800;display:inline-flex;align-items:center;justify-content:center}",
       ".au-panel{display:none;position:fixed;right:18px;top:18px;z-index:2147483647;width:min(420px,calc(100vw - 36px));height:min(680px,calc(100vh - 36px));background:#fff;border:1px solid #cdd7d4;border-radius:10px;box-shadow:0 24px 70px rgba(0,0,0,.28);overflow:hidden;flex-direction:column}",
@@ -764,7 +916,12 @@
       ".au-mark,.au-hover{position:fixed;display:none;pointer-events:none;z-index:2147483646;border:2px solid #f3a712;border-radius:6px;box-shadow:0 0 0 9999px rgba(18,56,59,.04)}",
       ".au-hover{border:2px solid #0f6b6f;background:rgba(15,107,111,.12);box-shadow:0 0 0 9999px rgba(18,56,59,.16);transition:top .04s linear,left .04s linear,width .04s linear,height .04s linear}",
       ".au-hover-tip{position:fixed;display:none;z-index:2147483647;pointer-events:none;background:#0f6b6f;color:#fff;font-weight:800;font-size:11px;line-height:1;padding:5px 7px;border-radius:5px;box-shadow:0 6px 16px rgba(0,0,0,.25);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
-      "[data-au-widget] button:focus-visible,[data-au-widget] input:focus-visible{outline:2px solid #2a7d82;outline-offset:1px}",
+      ".au-ghost{position:fixed;display:none;pointer-events:none;z-index:2147483646;border:2px dashed #f3a712;border-radius:6px;background:rgba(243,167,18,.08);box-shadow:0 0 0 9999px rgba(18,56,59,.12)}",
+      ".au-ghost-label{position:absolute;left:0;top:-22px;background:#b26b00;color:#fff;font-size:11px;font-weight:800;padding:3px 7px;border-radius:5px;white-space:nowrap}",
+      ".au-chip{font-weight:800;border-radius:4px;padding:1px 6px}",
+      ".au-anchor-missing{background:#fdeaea;color:#a3271f}",
+      ".au-anchor-hidden{background:#eef1f0;color:#5a6c66}",
+      "button:focus-visible,input:focus-visible{outline:2px solid #2a7d82;outline-offset:1px}",
       ".au-launch:hover{background:#0e2d30}",
       ".au-launch:active{transform:translateY(1px)}",
       ".au-icon:active{background:#cfdedb}",
@@ -789,7 +946,6 @@
       "@keyframes au-shimmer{0%{background-position:100% 0}100%{background-position:0 0}}",
       "@keyframes au-pulse{0%{box-shadow:0 0 0 0 rgba(243,167,18,.55),0 0 0 9999px rgba(18,56,59,.04)}100%{box-shadow:0 0 0 12px rgba(243,167,18,0),0 0 0 9999px rgba(18,56,59,.04)}}",
       ".au-mark.au-pulse{animation:au-pulse .7s ease-out 1}",
-      "html.au-selecting,html.au-selecting *{cursor:crosshair !important}",
       ".au-banner{position:fixed;left:24px;top:16px;z-index:2147483647;display:none;align-items:center;gap:12px;background:#12383b;color:#fff;border-radius:999px;padding:9px 9px 9px 16px;box-shadow:0 12px 30px rgba(0,0,0,.28);max-width:min(420px,calc(100vw - 48px))}",
       ".au-banner.is-on{display:flex}",
       ".au-banner-text{font-weight:700}",
