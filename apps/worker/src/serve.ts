@@ -541,6 +541,9 @@ function gateJson(env: Env, artifact: Artifact): Response {
   const base = publicArtifactUrl(env, artifact.url_key);
   const site = siteBaseUrl(env);
   const isEmail = artifact.gate_level === "email";
+  const needsOtp =
+    artifact.gate_level === "verified_email" ||
+    artifact.gate_level === "allowlist";
   return json(
     {
       error: {
@@ -555,9 +558,12 @@ function gateJson(env: Env, artifact: Artifact): Response {
         email_self_serve: isEmail
           ? `POST form {artifact_key:"${artifact.url_key}", email} to ${site}/_au/gate/email with header 'Accept: application/json' to receive a token`
           : null,
-        delegated: isEmail
-          ? null
-          : "ask the human who shared this to use 'Hand to your agent' in the feedback widget for a scoped token",
+        otp_self_serve: needsOtp
+          ? `if you can read the inbox: POST form {artifact_key:"${artifact.url_key}", email} to ${site}/_au/gate/start (the email must be allowlisted for allowlist gates), read the one-time code from that email, then POST form {artifact_key, email, code} to ${site}/_au/gate/verify with header 'Accept: application/json' to receive a token`
+          : null,
+        delegated: needsOtp
+          ? "or ask the human who shared this to use 'Hand to your agent' in the feedback widget for a scoped token"
+          : null,
         mcp: `${site}/mcp`,
       },
       upgrade: `${site}/mcp`,

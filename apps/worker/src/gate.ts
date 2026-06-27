@@ -137,10 +137,16 @@ export async function handleGateRoute(
       if (!email.includes("@"))
         return error(400, "invalid_email", "valid email required");
       if (!isAllowed(artifact, email))
-        return htmlPage(
-          artifact.title,
-          `<p class="error">This email is not allowed for this artifact.</p>`,
-        );
+        return wantsHtml(request)
+          ? htmlPage(
+              artifact.title,
+              `<p class="error">This email is not allowed for this artifact.</p>`,
+            )
+          : error(
+              403,
+              "email_not_allowed",
+              "this email is not allowed for this artifact",
+            );
       const redirectTo = safeArtifactRedirect(
         env,
         artifact,
@@ -166,6 +172,17 @@ export async function handleGateRoute(
         .run();
       const verifyUrl = `${env.SITE_BASE_URL}/_au/gate/verify?t=${encodeURIComponent(token)}`;
       await sendVerificationEmail(env, artifact, email, code, verifyUrl);
+      // Agent OTP self-serve: tell a non-browser caller how to verify the code.
+      if (!wantsHtml(request))
+        return json({
+          status: "otp_sent",
+          verify: `${env.SITE_BASE_URL}/_au/gate/verify`,
+          artifact_key: artifact.url_key,
+          email,
+          instructions:
+            "Read the one-time code from the email just sent to this address, then POST form {artifact_key, email, code} to `verify` with header 'Accept: application/json' to receive a bearer token.",
+          ...(env.ALLOW_DEBUG_CODES === "true" ? { debug_code: code } : {}),
+        });
       return htmlPage(
         artifact.title,
         `<h1>Check your email</h1>
@@ -196,10 +213,12 @@ ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${cod
         .bind(artifact.id, email, code, nowSec())
         .first<{ token: string }>();
       if (!row)
-        return htmlPage(
-          artifact.title,
-          `<p class="error">Invalid or expired code.</p>`,
-        );
+        return wantsHtml(request)
+          ? htmlPage(
+              artifact.title,
+              `<p class="error">Invalid or expired code.</p>`,
+            )
+          : error(401, "invalid_code", "invalid or expired code");
       return await consumeVerified(
         request,
         env,
@@ -278,6 +297,7 @@ async function consumeVerified(
     true,
     request,
   );
+  const exp = nowSec() + 30 * 86400;
   const session = await signViewerSession(
     {
       artifact_id: artifact.id,
@@ -285,13 +305,21 @@ async function consumeVerified(
       email: row.email,
       verified: true,
       view_id: viewId,
-      exp: nowSec() + 30 * 86400,
+      exp,
     },
     env,
   );
+  const cookie = setViewerCookie(viewerCookieName(artifact.id), session);
+  // Agent OTP self-serve: a non-browser verify returns the verified session as a
+  // bearer token (and sets the cookie) instead of redirecting.
+  if (!wantsHtml(request))
+    return json(
+      { token: session, token_type: "Bearer", expires_at: exp },
+      { headers: { "Set-Cookie": cookie } },
+    );
   return redirectWithCookie(
     safeArtifactRedirect(env, artifact, request, redirectTo),
-    setViewerCookie(viewerCookieName(artifact.id), session),
+    cookie,
   );
 }
 

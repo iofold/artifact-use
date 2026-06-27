@@ -19,7 +19,7 @@ Consuming an artifact (no browser needed):
 - A gated artifact returns 401 JSON to non-browser requests (Accept without text/html) describing how to authenticate.
 - Machine descriptor (structure/files): GET {artifact-url}_au/index.json
 - Read any page/file directly with GET; HTML is fine to read as-is (the feedback widget is not injected for agent requests).
-- Auth with a viewer-session bearer token: email gates self-serve via POST /_au/gate/email (Accept: application/json); verified/allowlist gates are delegated by the human via "Hand to your agent" in the feedback widget (POST /_au/agent-token).
+- Auth with a viewer-session bearer token: email gates self-serve via POST /_au/gate/email (Accept: application/json); verified_email/allowlist gates self-serve if you can read the inbox (POST /_au/gate/start, read the one-time code, POST /_au/gate/verify), or are delegated by the human via "Hand to your agent" in the feedback widget (POST /_au/agent-token). The 401 JSON on any gated artifact spells out the exact path.
 - Leave feedback: POST {artifact-url-or-site}/_au/comments {artifact_key, body, page_path, target?} with the same bearer.
 
 Agent setup summary:
