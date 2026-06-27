@@ -661,7 +661,10 @@ function injectWidget(
   });
   const widget = FEEDBACK_WIDGET_JS.replace(/<\/(script)/gi, "<\\/$1");
   const script = `<script>window.__AU_FEEDBACK__=${config};</script><script>${widget}</script>`;
+  // Use a function replacement so `$` sequences in the minified widget (e.g. a
+  // variable minified to `$`, giving `$&`) are NOT interpreted as String.replace
+  // special patterns — which would otherwise corrupt the script.
   if (html.includes("</body>"))
-    return html.replace("</body>", `${script}</body>`);
+    return html.replace("</body>", () => `${script}</body>`);
   return `${html}${script}`;
 }
