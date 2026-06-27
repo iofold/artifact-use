@@ -38,7 +38,6 @@
   var artifactKey = CFG.artifactKey || "";
   if (!artifactKey) return;
   var versionId = CFG.versionId || "";
-  var isPublic = (CFG.gateLevel || "") === "public";
 
   // ---- state ----
   var target = null; // element chosen for a NEW comment
@@ -89,11 +88,15 @@
   var ghost = el("div", "au-ghost", "");
   var ghostLabel = el("span", "au-ghost-label", "");
   ghost.appendChild(ghostLabel);
+  var cta = el("div", "au-cta", "");
+  cta.innerHTML =
+    '<button class="au-cta-main" data-cta-open>🤖 Get your agent to read this</button>' +
+    '<button class="au-cta-x" data-cta-dismiss aria-label="Dismiss" title="Dismiss">✕</button>';
 
   var css = document.createElement("style");
   css.textContent = STYLES();
 
-  [panel, btn, mark, hover, hoverTip, banner, ghost].forEach(function (n) {
+  [panel, btn, mark, hover, hoverTip, banner, ghost, cta].forEach(function (n) {
     n.dataset.auWidget = "1";
   });
 
@@ -881,6 +884,27 @@
       area.value = "Could not create an agent token.";
     }
   }
+  // ---- agent CTA (dismissible promo above the launcher) ----
+  var ctaDismissed = false;
+  try {
+    ctaDismissed = localStorage.getItem("au_cta_dismissed") === "1";
+  } catch (e) {}
+  function showCta() {
+    if (ctaDismissed || panel.classList.contains("is-open")) return;
+    cta.classList.add("is-on");
+    showTop(cta);
+  }
+  function hideCta() {
+    cta.classList.remove("is-on");
+    hideTop(cta);
+  }
+  function dismissCta() {
+    ctaDismissed = true;
+    try {
+      localStorage.setItem("au_cta_dismissed", "1");
+    } catch (e) {}
+    hideCta();
+  }
   function copyText(t) {
     if (!t) return;
     try {
@@ -989,6 +1013,7 @@
 
   // ---- open / close (close == minimize; launcher is never removed) ----
   function open() {
+    hideCta();
     panel.classList.add("is-open");
     btn.setAttribute("aria-expanded", "true");
     showTop(panel);
@@ -1009,6 +1034,7 @@
     mark.style.display = "none";
     hideGhost();
     setAgentOpen(false);
+    showCta();
     try {
       btn.focus();
     } catch (e) {}
@@ -1048,10 +1074,12 @@
     else open();
   };
   panel.querySelector("[data-min]").onclick = close;
-  // Public artifacts are readable by agents without a token, so the delegated
-  // handoff button is hidden there.
-  if (isPublic) panel.querySelector("[data-agent]").style.display = "none";
   panel.querySelector("[data-agent]").onclick = openAgent;
+  cta.querySelector("[data-cta-open]").onclick = function () {
+    open();
+    openAgent();
+  };
+  cta.querySelector("[data-cta-dismiss]").onclick = dismissCta;
   panel.querySelector("[data-agent-close]").onclick = function () {
     setAgentOpen(false);
   };
@@ -1155,6 +1183,7 @@
   root.appendChild(hoverTip);
   root.appendChild(banner);
   root.appendChild(ghost);
+  root.appendChild(cta);
   root.appendChild(panel);
   root.appendChild(btn);
   document.documentElement.appendChild(host);
@@ -1204,7 +1233,7 @@
     if (banner.classList.contains("is-on")) reTop(banner);
     if (toastEl && toastEl.classList.contains("is-on")) reTop(toastEl);
   }
-  [btn, panel, banner].forEach(popover);
+  [btn, panel, banner, cta].forEach(popover);
   showTop(btn);
 
   // Keep the host last in document order and the launcher promoted, even if the
@@ -1232,6 +1261,8 @@
   // prime the badge even while the panel is closed.
   load();
   handleDeepLink();
+  // surface the agent CTA shortly after load (unless dismissed / panel open).
+  setTimeout(showCta, 1500);
 
   function STYLES() {
     return [
@@ -1340,10 +1371,18 @@
       ".au-banner-cancel{border:0;background:rgba(255,255,255,.16);color:#fff;border-radius:999px;padding:6px 12px;font-weight:800;cursor:pointer}",
       ".au-toast{position:fixed;left:50%;bottom:74px;transform:translateX(-50%) translateY(8px);z-index:2147483647;background:#1b2420;color:#fff;border-radius:8px;padding:10px 14px;font-weight:700;box-shadow:0 12px 30px rgba(0,0,0,.3);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s}",
       ".au-toast.is-on{opacity:1;transform:translateX(-50%) translateY(0)}",
+      ".au-cta{position:fixed;right:18px;bottom:70px;z-index:2147483647;display:none;align-items:stretch;max-width:300px;background:#12383b;color:#fff;border-radius:12px;box-shadow:0 12px 34px rgba(0,0,0,.28);overflow:hidden}",
+      ".au-cta.is-on{display:flex;animation:au-cta-in .35s ease-out,au-cta-bob 3.4s ease-in-out .7s infinite}",
+      ".au-cta-main{border:0;background:transparent;color:#fff;font:inherit;font-weight:750;font-size:13px;line-height:1.25;text-align:left;padding:11px 4px 11px 14px;cursor:pointer}",
+      ".au-cta-main:hover{background:rgba(255,255,255,.07)}",
+      ".au-cta-x{border:0;background:transparent;color:#9fc9c4;font-size:12px;padding:0 11px;cursor:pointer}",
+      ".au-cta-x:hover{color:#fff}",
+      "@keyframes au-cta-in{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}",
+      "@keyframes au-cta-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}",
       // Mobile: the panel becomes a bottom sheet (dvh keeps it above the keyboard).
-      "@media (max-width:640px){.au-panel{left:0;right:0;bottom:0;top:auto;width:100%;height:82dvh;max-height:82dvh;border-radius:16px 16px 0 0;border-bottom:0}.au-panel::before{content:'';position:absolute;left:50%;top:7px;transform:translateX(-50%);width:38px;height:4px;border-radius:2px;background:#cdd9d5}.au-head{padding-top:8px}.au-launch{right:12px;bottom:12px}.au-banner{left:8px;right:8px;max-width:none}.au-toolbar{flex-wrap:wrap}}",
+      "@media (max-width:640px){.au-panel{left:0;right:0;bottom:0;top:auto;width:100%;height:82dvh;max-height:82dvh;border-radius:16px 16px 0 0;border-bottom:0}.au-panel::before{content:'';position:absolute;left:50%;top:7px;transform:translateX(-50%);width:38px;height:4px;border-radius:2px;background:#cdd9d5}.au-head{padding-top:8px}.au-launch{right:12px;bottom:12px}.au-cta{right:12px;bottom:64px;max-width:calc(100vw - 24px)}.au-banner{left:8px;right:8px;max-width:none}.au-toolbar{flex-wrap:wrap}}",
       // Respect reduced-motion preferences.
-      "@media (prefers-reduced-motion:reduce){.au-mark.au-pulse,.au-skel-line,.au-panel.is-busy .au-loadbar,.au-pin:hover{animation:none;transition:none}}",
+      "@media (prefers-reduced-motion:reduce){.au-mark.au-pulse,.au-skel-line,.au-panel.is-busy .au-loadbar,.au-pin:hover,.au-cta.is-on{animation:none;transition:none}}",
     ].join("");
   }
 })();

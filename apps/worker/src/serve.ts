@@ -607,6 +607,28 @@ export async function handleAgentToken(
   };
   const artifact = await getArtifactByUrlKey(env, body.artifact_key || "");
   if (!artifact) return error(404, "artifact_not_found", "artifact not found");
+  const base = publicArtifactUrl(env, artifact.url_key);
+  const site = siteBaseUrl(env);
+  if (artifact.gate_level === "public") {
+    // Public: agents read freely, no token. Hand over a no-auth prompt.
+    return json({
+      token: null,
+      token_type: null,
+      expires_at: null,
+      share_url: base,
+      prompt: [
+        `This published artifact is public — your agent can read it directly over HTTP (no browser, no auth).`,
+        ``,
+        `Artifact: "${artifact.title}" — ${base}`,
+        ``,
+        `1. GET  ${base}_au/index.json   -> title, pages, files, entrypoint, content-types`,
+        `2. GET  ${base}<file>           -> any page/asset (HTML is fine to read directly)`,
+        `3. POST ${site}/_au/comments  {artifact_key:"${artifact.url_key}", body, page_path, target?}   -> leave feedback (you'll be asked for an email once)`,
+        ``,
+        `Publish your own at ${site}/mcp (sign in once).`,
+      ].join("\n"),
+    });
+  }
   const session = await getViewerSession(request, env, artifact);
   if (!session) return error(401, "unauthorized", "viewer session required");
   const verifiedRequired =
@@ -626,8 +648,6 @@ export async function handleAgentToken(
     },
     env,
   );
-  const base = publicArtifactUrl(env, artifact.url_key);
-  const site = siteBaseUrl(env);
   const prompt = [
     `You have temporary read access to a published artifact. Explore it via its API (no browser needed), summarize it, and leave any issues as feedback.`,
     ``,
