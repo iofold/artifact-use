@@ -1,4 +1,5 @@
-import type { Artifact, Env } from "./types";
+import type { Artifact, ArtifactVersion, Env, PublishManifest } from "./types";
+import { signViewerSession } from "./auth";
 import {
   getArtifactByLegacyPath,
   getArtifactByUrlKey,
@@ -16,8 +17,10 @@ import {
   nowSec,
   publicArtifactPath,
   publicArtifactUrl,
+  siteBaseUrl,
   stripPublicArtifactPrefix,
   validateAssetPath,
+  wantsHtml,
 } from "./util";
 
 const COMMON_HEADERS = {
@@ -66,6 +69,9 @@ export async function servePublic(
       artifact.gate_level === "verified_email" ||
       artifact.gate_level === "allowlist";
     if (!session || (verifiedRequired && !session.verified)) {
+      // Machine-readable gate: a non-browser fetch gets a 401 + JSON describing
+      // how to get in, instead of a 200 HTML email form.
+      if (!wantsHtml(request)) return gateJson(env, artifact);
       const gate = renderGate(
         artifact,
         path,
@@ -85,6 +91,10 @@ export async function servePublic(
   const version = await getVersion(env, artifact.current_version_id);
   if (!version || version.status !== "complete")
     return error(404, "version_not_found", "artifact version not found");
+  // Machine descriptor at the reserved `_au/index.json` path (gate already
+  // enforced above) — structure for agents without scraping HTML.
+  if (rest.length === 2 && rest[0] === "_au" && rest[1] === "index.json")
+    return artifactDescriptor(env, artifact, version);
   let assetPath = rest.join("/") || version.entrypoint || "index.html";
   if (assetPath.endsWith("/")) assetPath += "index.html";
   assetPath = validateAssetPath(assetPath);
@@ -118,9 +128,18 @@ export async function servePublic(
   if (isHtml) {
     headers.delete("ETag");
     headers.delete("Last-Modified");
+    // Point agents at the machine descriptor.
+    headers.set(
+      "Link",
+      `<${publicArtifactUrl(env, artifact.url_key)}_au/index.json>; rel="describedby"; type="application/json"`,
+    );
     if (request.method === "HEAD") return new Response(null, { headers });
     const html = await bodyObj.text();
-    return new Response(injectWidget(html, artifact, version.id), { headers });
+    // Only inject the feedback widget for real browsers; agents get clean HTML.
+    const body = wantsHtml(request)
+      ? injectWidget(html, artifact, version.id)
+      : html;
+    return new Response(body, { headers });
   }
   const range = rangeHeaders ? rangeBounds(bodyObj.range, obj.size) : null;
   if (range) {
@@ -491,6 +510,141 @@ async function sharePrefill(
   if (!row || row.revoked_at || (row.expires_at && row.expires_at < nowSec()))
     return { id: null, email: null };
   return { id: row.id, email: row.recipient_email };
+}
+
+// M2 — machine-readable gate for non-browser fetches.
+function gateJson(env: Env, artifact: Artifact): Response {
+  const base = publicArtifactUrl(env, artifact.url_key);
+  const site = siteBaseUrl(env);
+  const isEmail = artifact.gate_level === "email";
+  return json(
+    {
+      error: {
+        code: "gate_required",
+        message: "viewer authentication required",
+      },
+      gate_level: artifact.gate_level,
+      access: {
+        descriptor: `${base}_au/index.json`,
+        bearer:
+          "send Authorization: Bearer <viewer-session token> once obtained",
+        email_self_serve: isEmail
+          ? `POST form {artifact_key:"${artifact.url_key}", email} to ${site}/_au/gate/email with header 'Accept: application/json' to receive a token`
+          : null,
+        delegated: isEmail
+          ? null
+          : "ask the human who shared this to use 'Hand to your agent' in the feedback widget for a scoped token",
+        mcp: `${site}/mcp`,
+      },
+      upgrade: `${site}/mcp`,
+    },
+    {
+      status: 401,
+      headers: { "WWW-Authenticate": 'Bearer realm="artifact-use"' },
+    },
+  );
+}
+
+// M5 — per-artifact machine descriptor (gate already enforced by the caller).
+function artifactDescriptor(
+  env: Env,
+  artifact: Artifact,
+  version: ArtifactVersion,
+): Response {
+  let manifest: PublishManifest | null = null;
+  try {
+    manifest = version.manifest_json
+      ? (JSON.parse(version.manifest_json) as PublishManifest)
+      : null;
+  } catch {
+    manifest = null;
+  }
+  const base = publicArtifactUrl(env, artifact.url_key);
+  const site = siteBaseUrl(env);
+  return json({
+    url_key: artifact.url_key,
+    title: artifact.title,
+    description: artifact.description,
+    gate_level: artifact.gate_level,
+    version_id: version.id,
+    entrypoint: version.entrypoint,
+    updated_at: artifact.updated_at,
+    base,
+    files: (manifest?.files || []).map((f) => ({
+      path: f.path,
+      content_type: f.content_type,
+      size: f.size,
+      url: base + f.path,
+    })),
+    read: "GET each file's `url` with header 'Authorization: Bearer <token>'. HTML is fine to read directly; no browser needed.",
+    feedback: {
+      endpoint: `${site}/_au/comments`,
+      method: "POST",
+      body: {
+        artifact_key: artifact.url_key,
+        body: "<your comment>",
+        page_path: "<location.pathname of the page>",
+        target: "<optional>",
+      },
+    },
+    mcp: `${site}/mcp`,
+    upgrade: `${site}/mcp`,
+  });
+}
+
+// M4 — mint a scoped, short-TTL agent token from an authenticated viewer
+// session, plus a ready-to-paste handoff prompt.
+export async function handleAgentToken(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  if (request.method !== "POST")
+    return error(405, "method_not_allowed", "method not allowed");
+  const body = (await request.json().catch(() => ({}))) as {
+    artifact_key?: string;
+  };
+  const artifact = await getArtifactByUrlKey(env, body.artifact_key || "");
+  if (!artifact) return error(404, "artifact_not_found", "artifact not found");
+  const session = await getViewerSession(request, env, artifact);
+  if (!session) return error(401, "unauthorized", "viewer session required");
+  const verifiedRequired =
+    artifact.gate_level === "verified_email" ||
+    artifact.gate_level === "allowlist";
+  if (verifiedRequired && !session.verified)
+    return error(403, "verification_required", "verified session required");
+  const exp = nowSec() + 24 * 60 * 60; // 24h
+  const token = await signViewerSession(
+    {
+      artifact_id: artifact.id,
+      version_id: artifact.current_version_id,
+      email: session.email,
+      verified: session.verified,
+      view_id: session.view_id,
+      exp,
+    },
+    env,
+  );
+  const base = publicArtifactUrl(env, artifact.url_key);
+  const site = siteBaseUrl(env);
+  const prompt = [
+    `You have temporary read access to a published artifact. Explore it via its API (no browser needed), summarize it, and leave any issues as feedback.`,
+    ``,
+    `Artifact: "${artifact.title}" — ${base}`,
+    `Auth header for every call:  Authorization: Bearer ${token}   (read+comment, this artifact only, expires ${new Date(exp * 1000).toISOString()})`,
+    ``,
+    `1. GET  ${base}_au/index.json   -> title, pages, files, entrypoint, content-types`,
+    `2. GET  ${base}<file>           -> any page/asset (HTML is fine to read directly)`,
+    `3. POST ${site}/_au/comments  {artifact_key:"${artifact.url_key}", body, page_path, target?}   -> leave feedback`,
+    ``,
+    `Recurring/richer access -> connect the MCP at ${site}/mcp, or publish your own there (sign in once).`,
+  ].join("\n");
+  return json({
+    token,
+    token_type: "Bearer",
+    expires_at: exp,
+    share_url: `${base}?agent=${encodeURIComponent(token)}`,
+    prompt,
+  });
 }
 
 function injectWidget(

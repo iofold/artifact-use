@@ -10,7 +10,7 @@ import {
   handlePublisherAuth,
   renderHome,
 } from "./publisher";
-import { handleComments, servePublic } from "./serve";
+import { handleAgentToken, handleComments, servePublic } from "./serve";
 import { error, json } from "./util";
 
 const CORS = {
@@ -92,6 +92,7 @@ async function route(
     if (path.startsWith("/_au/gate/"))
       return handleGateRoute(request, env, path);
     if (path === "/_au/comments") return handleComments(request, env, path);
+    if (path === "/_au/agent-token") return handleAgentToken(request, env);
     if (request.method !== "GET" && request.method !== "HEAD")
       return error(405, "method_not_allowed", "method not allowed");
     return servePublic(request, env, path);

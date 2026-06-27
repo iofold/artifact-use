@@ -9,14 +9,17 @@ import {
 import { getArtifactById, getArtifactByUrlKey, insertView } from "./db";
 import { sendVerificationEmail } from "./mailer";
 import {
+  bearerToken,
   error,
   escapeHtml,
   htmlPage,
+  json,
   normalizeEmail,
   nowSec,
   publicArtifactPath,
   randomCode,
   randomId,
+  wantsHtml,
 } from "./util";
 
 export async function getViewerSession(
@@ -24,7 +27,14 @@ export async function getViewerSession(
   env: Env,
   artifact: Artifact,
 ): Promise<ViewerSession | null> {
-  const raw = readCookie(request, viewerCookieName(artifact.id));
+  // Cookie (human browser) or `Authorization: Bearer <viewer-session token>`
+  // (agent delegated/self-serve access). Both decode to the same session shape,
+  // scoped to this artifact, so every gated path works for agents unchanged.
+  const cookie = readCookie(request, viewerCookieName(artifact.id));
+  const raw =
+    cookie ||
+    bearerToken(request) ||
+    new URL(request.url).searchParams.get("agent");
   if (!raw) return null;
   const session = await verifyViewerSession(raw, env);
   if (!session || session.artifact_id !== artifact.id) return null;
@@ -85,6 +95,7 @@ export async function handleGateRoute(
         false,
         request,
       );
+      const exp = nowSec() + 30 * 86400;
       const session = await signViewerSession(
         {
           artifact_id: artifact.id,
@@ -92,10 +103,14 @@ export async function handleGateRoute(
           email,
           verified: false,
           view_id: viewId,
-          exp: nowSec() + 30 * 86400,
+          exp,
         },
         env,
       );
+      // Agent self-serve: a non-browser POST gets the session as a bearer token
+      // (which getViewerSession accepts) instead of a redirect + cookie.
+      if (!wantsHtml(request))
+        return json({ token: session, token_type: "Bearer", expires_at: exp });
       return redirectWithCookie(
         redirectTo,
         setViewerCookie(viewerCookieName(artifact.id), session),

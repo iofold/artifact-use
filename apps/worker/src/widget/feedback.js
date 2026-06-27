@@ -98,7 +98,8 @@
 
   panel.innerHTML =
     '<div class="au-head"><span class="au-title">Feedback</span>' +
-    '<div class="au-tools"><button class="au-icon" data-min title="Minimize" aria-label="Minimize feedback">✕</button></div></div>' +
+    '<div class="au-tools"><button class="au-icon" data-agent title="Hand to your agent" aria-label="Hand to your agent">🤖</button>' +
+    '<button class="au-icon" data-min title="Minimize" aria-label="Minimize feedback">✕</button></div></div>' +
     '<div class="au-toolbar">' +
     '<div class="au-scope" role="tablist">' +
     '<button class="au-seg is-on" data-scope="page">This page</button>' +
@@ -117,6 +118,14 @@
     '<textarea class="au-text" data-body placeholder="Leave feedback"></textarea>' +
     '<div class="au-composer-actions"><button class="au-send" data-send>Send feedback</button>' +
     '<button class="au-link" data-cancel-new>Cancel</button></div>' +
+    "</div>" +
+    '<div class="au-agent" data-agent-panel>' +
+    '<div class="au-agent-head"><strong>🤖 Hand to your agent</strong>' +
+    '<button class="au-link" data-agent-close>Close</button></div>' +
+    '<p class="au-muted">Copy this into your AI agent (Claude, Codex, ChatGPT). It can explore this artifact and leave feedback over the API — no account needed.</p>' +
+    '<textarea class="au-text au-agent-prompt" data-agent-prompt readonly></textarea>' +
+    '<div class="au-composer-actions"><button class="au-send" data-agent-copy>Copy prompt</button>' +
+    '<button class="au-link" data-agent-copylink>Copy share link</button></div>' +
     "</div>";
 
   banner.innerHTML =
@@ -765,6 +774,52 @@
     }, 3200);
   }
 
+  // ---- hand to agent ----
+  var agentShareUrl = "";
+  function setAgentOpen(on) {
+    panel.querySelector("[data-agent-panel]").classList.toggle("is-open", !!on);
+  }
+  async function openAgent() {
+    setAgentOpen(true);
+    var area = panel.querySelector("[data-agent-prompt]");
+    area.value = "Generating a secure agent prompt…";
+    agentShareUrl = "";
+    try {
+      var r = await fetch("/_au/agent-token", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ artifact_key: artifactKey }),
+      });
+      if (!r.ok) {
+        area.value =
+          r.status === 403
+            ? "Verify your email first, then try again."
+            : "Could not create an agent token — open this artifact through the access prompt first.";
+        return;
+      }
+      var j = await r.json();
+      area.value = j.prompt || "";
+      agentShareUrl = j.share_url || "";
+    } catch (e) {
+      area.value = "Could not create an agent token.";
+    }
+  }
+  function copyText(t) {
+    if (!t) return;
+    try {
+      navigator.clipboard.writeText(t).then(
+        function () {
+          showToast("Copied to clipboard.");
+        },
+        function () {
+          showToast("Copy failed — select the text and copy manually.");
+        },
+      );
+    } catch (e) {
+      showToast("Copy failed — select the text and copy manually.");
+    }
+  }
+
   // ---- select element mode ----
   function over(e) {
     if (!selecting || insideWidget(e.target)) return;
@@ -876,6 +931,7 @@
     endSelect();
     mark.style.display = "none";
     hideGhost();
+    setAgentOpen(false);
     try {
       btn.focus();
     } catch (e) {}
@@ -915,6 +971,16 @@
     else open();
   };
   panel.querySelector("[data-min]").onclick = close;
+  panel.querySelector("[data-agent]").onclick = openAgent;
+  panel.querySelector("[data-agent-close]").onclick = function () {
+    setAgentOpen(false);
+  };
+  panel.querySelector("[data-agent-copy]").onclick = function () {
+    copyText(panel.querySelector("[data-agent-prompt]").value);
+  };
+  panel.querySelector("[data-agent-copylink]").onclick = function () {
+    copyText(agentShareUrl);
+  };
   panel.querySelector("[data-new]").onclick = function () {
     openComposer(true);
   };
@@ -1144,6 +1210,10 @@
       ".au-text{width:100%;border:1px solid #c9d5d1;border-radius:6px;padding:9px 10px;resize:vertical;min-height:76px;font:inherit}",
       ".au-smalltext{min-height:54px}",
       ".au-composer-actions{display:flex;gap:12px;align-items:center}",
+      ".au-agent{position:absolute;left:0;right:0;top:46px;bottom:0;display:none;flex-direction:column;gap:10px;padding:12px;background:#fff;z-index:2}",
+      ".au-agent.is-open{display:flex}",
+      ".au-agent-head{display:flex;align-items:center;justify-content:space-between;font-weight:800}",
+      ".au-agent-prompt{flex:1 1 auto;min-height:0;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;resize:none;color:#1b2420}",
       ".au-send{border:0;background:#0f6b6f;color:#fff;border-radius:6px;padding:9px 13px;font-weight:800;cursor:pointer}",
       ".au-muted{color:#81908a}",
       ".au-mark,.au-hover{position:fixed;display:none;pointer-events:none;z-index:2147483646;border:2px solid #f3a712;border-radius:6px;box-shadow:0 0 0 9999px rgba(18,56,59,.04)}",

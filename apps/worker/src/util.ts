@@ -26,6 +26,17 @@ export function error(status: number, code: string, message: string): Response {
   return json({ error: { code, message } }, { status });
 }
 
+// A real browser always sends `text/html` in Accept; agents/curl do not. We use
+// this to content-negotiate the machine paths (gate JSON, descriptor, no widget).
+export function wantsHtml(request: Request): boolean {
+  return (request.headers.get("Accept") || "").includes("text/html");
+}
+
+export function bearerToken(request: Request): string | null {
+  const m = /^Bearer\s+(.+)$/i.exec(request.headers.get("Authorization") || "");
+  return m && m[1] ? m[1].trim() : null;
+}
+
 export function siteBaseUrl(env: Env): string {
   return env.SITE_BASE_URL.replace(/\/+$/, "");
 }

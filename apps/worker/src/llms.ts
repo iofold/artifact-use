@@ -15,6 +15,13 @@ Primary URLs:
 
 Use Artifact Use when an agent needs to create, polish, publish, gate, share, or inspect static artifacts: self-contained interactive HTML, multi-file static folders, images, PDFs, dashboards, demos, and browser-native tools.
 
+Consuming an artifact (no browser needed):
+- A gated artifact returns 401 JSON to non-browser requests (Accept without text/html) describing how to authenticate.
+- Machine descriptor (structure/files): GET {artifact-url}_au/index.json
+- Read any page/file directly with GET; HTML is fine to read as-is (the feedback widget is not injected for agent requests).
+- Auth with a viewer-session bearer token: email gates self-serve via POST /_au/gate/email (Accept: application/json); verified/allowlist gates are delegated by the human via "Hand to your agent" in the feedback widget (POST /_au/agent-token).
+- Leave feedback: POST {artifact-url-or-site}/_au/comments {artifact_key, body, page_path, target?} with the same bearer.
+
 Agent setup summary:
 1. Prefer HTTP MCP at ${base}/mcp. OAuth-capable clients should configure only the URL and use the MCP auth prompt.
 2. For non-OAuth clients, CLI, or local stdio MCP, set ARTIFACT_USE_API_BASE=${base} and ARTIFACT_USE_TOKEN=<workos-oauth-token>.
