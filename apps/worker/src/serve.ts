@@ -300,8 +300,11 @@ export async function handleComments(
       return error(404, "comment_not_found", "parent comment not found");
     const targetJson =
       commentTargetJson(body.target) || parent?.target_json || null;
-    const pagePath =
-      cleanStr(body.page_path, 300) || targetPath(targetJson) || null;
+    const pagePath = normalizePagePath(
+      env,
+      artifact,
+      cleanStr(body.page_path, 300) || targetPath(targetJson),
+    );
     const versionId = cleanStr(body.version_id, 64);
     await env.DB.prepare(
       `INSERT INTO comments
@@ -346,7 +349,7 @@ export async function handleComments(
     if (body.target !== undefined) {
       const targetJson = commentTargetJson(body.target);
       if (!targetJson) return error(400, "invalid_target", "target is invalid");
-      const pagePath = targetPath(targetJson);
+      const pagePath = normalizePagePath(env, artifact, targetPath(targetJson));
       await env.DB.prepare(
         "UPDATE comments SET target_json = ?, page_path = ? WHERE id = ? AND artifact_id = ?",
       )
@@ -478,6 +481,25 @@ function cleanStr(value: unknown, max: number): string | null {
   return s || null;
 }
 
+// Clamp a comment's page_path to a path within the artifact. A stray value
+// (absent, "/", or another origin — e.g. from an agent that guessed it) becomes
+// the artifact's base path, so the widget never navigates off the artifact.
+function normalizePagePath(
+  env: Env,
+  artifact: Artifact,
+  raw: string | null,
+): string {
+  const base = publicArtifactPath(env, artifact.url_key);
+  if (!raw) return base;
+  let p = raw;
+  try {
+    if (/^https?:\/\//i.test(p)) p = new URL(p).pathname;
+  } catch {
+    /* keep p */
+  }
+  return p.startsWith(base) ? p.slice(0, 300) : base;
+}
+
 function finiteNumber(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) ? Math.round(n) : 0;
@@ -585,8 +607,7 @@ function artifactDescriptor(
       body: {
         artifact_key: artifact.url_key,
         body: "<your comment>",
-        page_path: "<location.pathname of the page>",
-        target: "<optional>",
+        target: "<optional element anchor>",
       },
     },
     mcp: `${site}/mcp`,
@@ -623,7 +644,7 @@ export async function handleAgentToken(
         ``,
         `1. GET  ${base}_au/index.json   -> title, pages, files, entrypoint, content-types`,
         `2. GET  ${base}<file>           -> any page/asset (HTML is fine to read directly)`,
-        `3. POST ${site}/_au/comments  {artifact_key:"${artifact.url_key}", body, page_path, target?}   -> leave feedback (you'll be asked for an email once)`,
+        `3. POST ${site}/_au/comments  {artifact_key:"${artifact.url_key}", body, target?}   -> leave feedback (you'll be asked for an email once)`,
         ``,
         `Publish your own at ${site}/mcp (sign in once).`,
       ].join("\n"),
@@ -656,7 +677,7 @@ export async function handleAgentToken(
     ``,
     `1. GET  ${base}_au/index.json   -> title, pages, files, entrypoint, content-types`,
     `2. GET  ${base}<file>           -> any page/asset (HTML is fine to read directly)`,
-    `3. POST ${site}/_au/comments  {artifact_key:"${artifact.url_key}", body, page_path, target?}   -> leave feedback`,
+    `3. POST ${site}/_au/comments  {artifact_key:"${artifact.url_key}", body, target?}   -> leave feedback`,
     ``,
     `Recurring/richer access -> connect the MCP at ${site}/mcp, or publish your own there (sign in once).`,
   ].join("\n");

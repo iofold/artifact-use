@@ -59,6 +59,12 @@
   function currentPath() {
     return location.pathname;
   }
+  // Is a stored page path actually within THIS artifact? Guards against stray
+  // paths (e.g. an agent-posted comment with page_path "/") that would otherwise
+  // navigate off the artifact (to the site homepage) when clicked.
+  function withinArtifact(p) {
+    return String(p || "").indexOf("/" + artifactKey + "/") >= 0;
+  }
   function pageLabel(path) {
     if (!path) return "";
     var parts = strip(path).split("/").filter(Boolean);
@@ -393,7 +399,8 @@
     if (scope === "all") return true;
     var t = parse(c.target_json);
     var p = (t && t.path) || c.page_path;
-    if (!p) return true; // legacy comment with no page recorded
+    // No page, or a stray path not within this artifact -> show on every page.
+    if (!p || !withinArtifact(p)) return true;
     return samePath(p, currentPath());
   }
   async function load() {
@@ -606,8 +613,13 @@
   function focusComment(c) {
     var t = parse(c && c.target_json);
     var pagePath = (t && t.path) || (c && c.page_path);
-    // 1. Different page -> navigate there with a focus hint.
-    if (pagePath && !samePath(pagePath, currentPath())) {
+    // 1. Another page WITHIN this artifact -> navigate there with a focus hint.
+    //    A stray path (e.g. "/") is treated as the current page, never followed.
+    if (
+      pagePath &&
+      withinArtifact(pagePath) &&
+      !samePath(pagePath, currentPath())
+    ) {
       location.href = pagePath + "#au=" + c.id;
       return;
     }
