@@ -28,6 +28,11 @@ Update `apps/worker/wrangler.toml` with:
 - your public `SITE_BASE_URL`
 - your WorkOS/AuthKit issuer, audience, and JWKS URL
 
+Keep these environment-specific values out of the public repo: copy
+`apps/worker/.env.deploy.example` to `apps/worker/.env.deploy` (gitignored) as a
+single reference, and keep the real, operative `wrangler.prod.toml` /
+`wrangler.staging.toml` gitignored alongside it.
+
 Then apply the baseline schema:
 
 ```bash
