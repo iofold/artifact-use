@@ -38,6 +38,7 @@
   var artifactKey = CFG.artifactKey || "";
   if (!artifactKey) return;
   var versionId = CFG.versionId || "";
+  var isPublic = (CFG.gateLevel || "") === "public";
 
   // ---- state ----
   var target = null; // element chosen for a NEW comment
@@ -118,6 +119,12 @@
     '<textarea class="au-text" data-body placeholder="Leave feedback"></textarea>' +
     '<div class="au-composer-actions"><button class="au-send" data-send>Send feedback</button>' +
     '<button class="au-link" data-cancel-new>Cancel</button></div>' +
+    '<div class="au-emailgate" data-emailgate>' +
+    '<p class="au-muted">Add your email to post feedback (one time).</p>' +
+    '<input type="email" class="au-emailinput" data-email placeholder="you@example.com" autocomplete="email">' +
+    '<div class="au-composer-actions"><button class="au-send" data-email-submit>Continue</button>' +
+    '<button class="au-link" data-email-cancel>Cancel</button></div>' +
+    "</div>" +
     "</div>" +
     '<div class="au-agent" data-agent-panel>' +
     '<div class="au-agent-head"><strong>🤖 Hand to your agent</strong>' +
@@ -631,6 +638,13 @@
   }
 
   // ---- mutations ----
+  function rawPost(payload) {
+    return fetch("/_au/comments", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
   async function postComment(extra) {
     var payload = {
       artifact_key: artifactKey,
@@ -638,17 +652,80 @@
       version_id: versionId,
     };
     for (var k in extra) payload[k] = extra[k];
-    var r = await fetch("/_au/comments", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    var r = await rawPost(payload);
+    if (r.status === 401) {
+      // No session yet (e.g. a public artifact) — collect an email to mint a
+      // session, then retry the post.
+      if (!(await collectEmail())) return false;
+      r = await rawPost(payload);
+    }
     if (!r.ok) {
       showToast("Could not send feedback.");
       return false;
     }
     await load();
     return true;
+  }
+  // Show the inline email field, mint a viewer session via the email gate, and
+  // resolve true once authenticated. Used to authorize comments on public
+  // artifacts without gating the whole artifact.
+  function collectEmail() {
+    return new Promise(function (resolve) {
+      var box = panel.querySelector("[data-emailgate]");
+      var input = panel.querySelector("[data-email]");
+      var submit = panel.querySelector("[data-email-submit]");
+      var cancel = panel.querySelector("[data-email-cancel]");
+      try {
+        input.value = localStorage.getItem("au_email") || "";
+      } catch (e) {}
+      box.classList.add("is-on");
+      setTimeout(function () {
+        input.focus();
+      }, 0);
+      function done(v) {
+        box.classList.remove("is-on");
+        submit.onclick = null;
+        cancel.onclick = null;
+        resolve(v);
+      }
+      submit.onclick = async function () {
+        var email = input.value.trim();
+        if (email.indexOf("@") < 1) {
+          input.focus();
+          return;
+        }
+        submit.disabled = true;
+        try {
+          var r = await fetch("/_au/gate/email", {
+            method: "POST",
+            headers: {
+              Accept: "application/json",
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body:
+              "artifact_key=" +
+              encodeURIComponent(artifactKey) +
+              "&email=" +
+              encodeURIComponent(email),
+          });
+          submit.disabled = false;
+          if (!r.ok) {
+            showToast("Could not verify email.");
+            return;
+          }
+          try {
+            localStorage.setItem("au_email", email);
+          } catch (e) {}
+          done(true);
+        } catch (e) {
+          submit.disabled = false;
+          showToast("Could not verify email.");
+        }
+      };
+      cancel.onclick = function () {
+        done(false);
+      };
+    });
   }
   async function setResolved(c, resolved) {
     var r = await fetch("/_au/comments", {
@@ -971,6 +1048,9 @@
     else open();
   };
   panel.querySelector("[data-min]").onclick = close;
+  // Public artifacts are readable by agents without a token, so the delegated
+  // handoff button is hidden there.
+  if (isPublic) panel.querySelector("[data-agent]").style.display = "none";
   panel.querySelector("[data-agent]").onclick = openAgent;
   panel.querySelector("[data-agent-close]").onclick = function () {
     setAgentOpen(false);
@@ -1210,6 +1290,9 @@
       ".au-text{width:100%;border:1px solid #c9d5d1;border-radius:6px;padding:9px 10px;resize:vertical;min-height:76px;font:inherit}",
       ".au-smalltext{min-height:54px}",
       ".au-composer-actions{display:flex;gap:12px;align-items:center}",
+      ".au-emailgate{display:none;margin-top:10px;padding-top:10px;border-top:1px solid #eef2f1;flex-direction:column;gap:8px}",
+      ".au-emailgate.is-on{display:flex}",
+      ".au-emailinput{width:100%;border:1px solid #c9d5d1;border-radius:6px;padding:9px 10px;font:inherit;height:40px}",
       ".au-agent{position:absolute;left:0;right:0;top:46px;bottom:0;display:none;flex-direction:column;gap:10px;padding:12px;background:#fff;z-index:2}",
       ".au-agent.is-open{display:flex}",
       ".au-agent-head{display:flex;align-items:center;justify-content:space-between;font-weight:800}",

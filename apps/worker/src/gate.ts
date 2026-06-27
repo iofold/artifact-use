@@ -107,10 +107,21 @@ export async function handleGateRoute(
         },
         env,
       );
-      // Agent self-serve: a non-browser POST gets the session as a bearer token
-      // (which getViewerSession accepts) instead of a redirect + cookie.
+      // Agent self-serve / in-widget email (public artifacts): a non-browser
+      // POST gets the session as a bearer token AND sets the cookie, so the
+      // feedback widget's same-origin fetches are immediately authenticated.
       if (!wantsHtml(request))
-        return json({ token: session, token_type: "Bearer", expires_at: exp });
+        return json(
+          { token: session, token_type: "Bearer", expires_at: exp },
+          {
+            headers: {
+              "Set-Cookie": setViewerCookie(
+                viewerCookieName(artifact.id),
+                session,
+              ),
+            },
+          },
+        );
       return redirectWithCookie(
         redirectTo,
         setViewerCookie(viewerCookieName(artifact.id), session),

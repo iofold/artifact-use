@@ -258,7 +258,9 @@ export async function handleComments(
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
     const session = await getViewerSession(request, env, artifact);
-    if (!session) return error(401, "unauthorized", "viewer session required");
+    // Public artifacts allow open reading; gated ones still require a session.
+    if (!session && artifact.gate_level !== "public")
+      return error(401, "unauthorized", "viewer session required");
     const rows = await env.DB.prepare(
       `SELECT id, parent_comment_id, email, body, target_json, page_path, version_id, created_at, resolved_at, resolved_by
        FROM comments
@@ -652,10 +654,10 @@ function injectWidget(
   artifact: Artifact,
   versionId: string,
 ): string {
-  if (artifact.gate_level === "public") return html;
   const config = JSON.stringify({
     artifactKey: artifact.url_key,
     versionId,
+    gateLevel: artifact.gate_level,
   });
   const widget = FEEDBACK_WIDGET_JS.replace(/<\/(script)/gi, "<\\/$1");
   const script = `<script>window.__AU_FEEDBACK__=${config};</script><script>${widget}</script>`;
