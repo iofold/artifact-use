@@ -897,9 +897,12 @@
     }
   }
   // ---- agent CTA (dismissible promo above the launcher) ----
+  // Dismiss is per-artifact (not per-origin), so dismissing on one artifact
+  // still surfaces the CTA on others.
+  var ctaKey = "au_cta_dismissed_" + artifactKey;
   var ctaDismissed = false;
   try {
-    ctaDismissed = localStorage.getItem("au_cta_dismissed") === "1";
+    ctaDismissed = localStorage.getItem(ctaKey) === "1";
   } catch (e) {}
   function showCta() {
     if (ctaDismissed || panel.classList.contains("is-open")) return;
@@ -913,7 +916,7 @@
   function dismissCta() {
     ctaDismissed = true;
     try {
-      localStorage.setItem("au_cta_dismissed", "1");
+      localStorage.setItem(ctaKey, "1");
     } catch (e) {}
     hideCta();
   }
