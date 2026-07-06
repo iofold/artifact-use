@@ -13,6 +13,7 @@
     "migrate:remote": "wrangler d1 migrations apply artifact-use --remote"
   },
   "dependencies": {
+    "@artifact-use/client-core": "*",
     "jose": "^5.9.6"
   },
   "devDependencies": {

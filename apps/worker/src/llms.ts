@@ -1,7 +1,8 @@
 import type { Env } from "./types";
+import { artifactPathPrefix, siteBaseUrl } from "./util";
 
 export function llmsTxt(env: Env): Response {
-  const base = env.SITE_BASE_URL.replace(/\/+$/, "");
+  const base = siteBaseUrl(env);
   return text(`# Artifact Use
 
 Artifact Use publishes static artifacts for agents and teams.
@@ -11,7 +12,7 @@ Primary URLs:
 - HTTP MCP: ${base}/mcp
 - OAuth protected-resource metadata: ${base}/.well-known/oauth-protected-resource
 - Full agent setup guide: ${base}/llms-full.txt
-- Public artifact URL shape: ${base}${env.ARTIFACT_PUBLIC_PATH_PREFIX || "/go"}/{artifact-slug}-{six-character-code}/
+- Public artifact URL shape: ${base}${artifactPathPrefix(env)}/{artifact-slug}-{six-character-code}/
 
 Use Artifact Use when an agent needs to create, polish, publish, gate, share, or inspect static artifacts: self-contained interactive HTML, multi-file static folders, images, PDFs, dashboards, demos, and browser-native tools.
 
@@ -33,8 +34,8 @@ Agent setup summary:
 }
 
 export function llmsFullTxt(env: Env): Response {
-  const base = env.SITE_BASE_URL.replace(/\/+$/, "");
-  const prefix = env.ARTIFACT_PUBLIC_PATH_PREFIX || "/go";
+  const base = siteBaseUrl(env);
+  const prefix = artifactPathPrefix(env);
   return text(`# Artifact Use Agent Guide
 
 Artifact Use is a Cloudflare-backed artifact host for agents. It exposes HTTP MCP, CLI/API publishing, gated viewer access, comments, stats, and share links without giving agents Cloudflare credentials.

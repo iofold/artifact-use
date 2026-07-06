@@ -6,15 +6,7 @@ import type {
   Env,
   GateLevel,
 } from "./types";
-import { artifactUrlKey, nowSec, randomId } from "./util";
-
-export async function getArtifactByPath(
-  env: Env,
-  legacyPrefix: string,
-  slug: string,
-): Promise<Artifact | null> {
-  return getArtifactByLegacyPath(env, legacyPrefix, slug);
-}
+import { artifactUrlKey, nowSec, randomId, sha256Hex } from "./util";
 
 export async function getArtifactByLegacyPath(
   env: Env,
@@ -63,8 +55,8 @@ export async function upsertArtifact(
   env: Env,
   creator: Creator,
   artifactSlug: string,
-  title: string,
-  gateLevel: GateLevel,
+  title: string | null,
+  gateLevel: GateLevel | null,
 ): Promise<Artifact> {
   const existing = await getArtifactForOrg(env, creator.orgId, artifactSlug);
   const now = nowSec();
@@ -79,9 +71,7 @@ export async function upsertArtifact(
         existing.id,
       )
       .run();
-    return (await env.DB.prepare("SELECT * FROM artifacts WHERE id = ?")
-      .bind(existing.id)
-      .first<Artifact>()) as Artifact;
+    return (await getArtifactById(env, existing.id)) as Artifact;
   }
   const id = randomId("art");
   const urlKey = artifactUrlKey(artifactSlug, id);
@@ -96,15 +86,13 @@ export async function upsertArtifact(
       artifactSlug,
       urlKey,
       title || artifactSlug,
-      gateLevel,
+      gateLevel || "email",
       creator.sub,
       now,
       now,
     )
     .run();
-  return (await env.DB.prepare("SELECT * FROM artifacts WHERE id = ?")
-    .bind(id)
-    .first<Artifact>()) as Artifact;
+  return (await getArtifactById(env, id)) as Artifact;
 }
 
 export async function createDraftVersion(
@@ -168,27 +156,6 @@ export async function listFilesForVersion(
     .bind(versionId)
     .all<ArtifactFile>();
   return res.results || [];
-}
-
-export async function upsertFile(
-  env: Env,
-  versionId: string,
-  path: string,
-  storageKey: string,
-  contentType: string,
-  size: number,
-  sha256: string | null,
-): Promise<void> {
-  const now = nowSec();
-  await env.DB.prepare(
-    `INSERT INTO artifact_files (version_id, path, storage_key, content_type, size, sha256, uploaded_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(version_id, path)
-     DO UPDATE SET storage_key = excluded.storage_key, content_type = excluded.content_type,
-       size = excluded.size, sha256 = excluded.sha256, uploaded_at = excluded.uploaded_at`,
-  )
-    .bind(versionId, path, storageKey, contentType, size, sha256, now)
-    .run();
 }
 
 export async function upsertFileIfDraft(
@@ -302,9 +269,7 @@ export async function updateArtifactAccess(
       artifact.id,
     )
     .run();
-  return (await env.DB.prepare("SELECT * FROM artifacts WHERE id = ?")
-    .bind(artifact.id)
-    .first<Artifact>()) as Artifact;
+  return (await getArtifactById(env, artifact.id)) as Artifact;
 }
 
 export async function createShareLink(
@@ -343,16 +308,7 @@ export async function insertView(
   const ua = request.headers.get("User-Agent");
   const referrer = request.headers.get("Referer");
   const ip = request.headers.get("CF-Connecting-IP") || "";
-  const ipHash = ip
-    ? await crypto.subtle
-        .digest("SHA-256", new TextEncoder().encode(ip))
-        .then((d) =>
-          [...new Uint8Array(d)]
-            .map((b) => b.toString(16).padStart(2, "0"))
-            .join("")
-            .slice(0, 32),
-        )
-    : null;
+  const ipHash = ip ? (await sha256Hex(ip)).slice(0, 32) : null;
   const result = await env.DB.prepare(
     "INSERT INTO views (artifact_id, version_id, share_link_id, email, verified, ip_hash, ua, referrer, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
   )

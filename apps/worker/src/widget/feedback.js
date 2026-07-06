@@ -80,6 +80,11 @@
     if (text !== undefined) n.textContent = text;
     return n;
   }
+  // Panel-scoped querySelector (panel is assigned below; every caller runs
+  // after that). Keeps the many one-off panel lookups terse.
+  function $(s) {
+    return panel.querySelector(s);
+  }
   var btn = el("button", "au-launch");
   btn.appendChild(el("span", "au-launch-label", "Feedback"));
   var badge = el("span", "au-badge", "");
@@ -155,11 +160,9 @@
   panel.setAttribute("tabindex", "-1");
   btn.setAttribute("aria-label", "Feedback");
   btn.setAttribute("aria-expanded", "false");
-  panel.querySelector("[data-list]").setAttribute("role", "list");
+  $("[data-list]").setAttribute("role", "list");
   function reduceMotion() {
-    return (
-      window.matchMedia && matchMedia("(prefers-reduced-motion:reduce)").matches
-    );
+    return matchMedia("(prefers-reduced-motion:reduce)").matches;
   }
   function smoothScroll() {
     return reduceMotion() ? "auto" : "smooth";
@@ -169,16 +172,9 @@
   function insideWidget(n) {
     return n && n.closest && n.closest("[data-au-widget]");
   }
-  function cssEsc(s) {
-    return window.CSS && CSS.escape
-      ? CSS.escape(s)
-      : String(s).replace(/[^a-zA-Z0-9_-]/g, function (c) {
-          return "\\" + c;
-        });
-  }
   function selectorFor(e) {
-    if (e.id && document.querySelectorAll("#" + cssEsc(e.id)).length === 1)
-      return "#" + cssEsc(e.id);
+    if (e.id && document.querySelectorAll("#" + CSS.escape(e.id)).length === 1)
+      return "#" + CSS.escape(e.id);
     var a = [];
     for (; e && e.nodeType === 1 && e !== document.body; e = e.parentElement) {
       var n = e.localName,
@@ -202,12 +198,7 @@
     if (aria) return clean(aria);
     if (e.alt) return clean(e.alt);
     if (e.title) return clean(e.title);
-    var t = "";
-    for (var i = 0; i < e.childNodes.length; i++) {
-      var n = e.childNodes[i];
-      if (n.nodeType === 3) t += n.textContent;
-    }
-    t = clean(t);
+    var t = immediateText(e);
     if (t) return t;
     return clean(
       (e.getAttribute && e.getAttribute("name")) || e.localName || "element",
@@ -316,7 +307,7 @@
 
   // ---- composer ----
   function renderTarget() {
-    var box = panel.querySelector("[data-target]");
+    var box = $("[data-target]");
     box.innerHTML = "";
     box.appendChild(el("strong", "", "Target"));
     box.appendChild(
@@ -328,14 +319,16 @@
     );
     update();
   }
+  function clearTarget() {
+    target = null;
+    active = null;
+    renderTarget();
+  }
   function openComposer(open) {
-    panel
-      .querySelector("[data-composer]")
-      .classList.toggle("is-open", open !== false);
-    panel.querySelector("[data-new]").style.display =
-      open === false ? "" : "none";
+    $("[data-composer]").classList.toggle("is-open", open !== false);
+    $("[data-new]").style.display = open === false ? "" : "none";
     if (open !== false) {
-      var t = panel.querySelector("[data-body]");
+      var t = $("[data-body]");
       if (t)
         setTimeout(function () {
           t.focus();
@@ -345,7 +338,7 @@
 
   // ---- list ----
   function showMessage(text) {
-    var list = panel.querySelector("[data-list]");
+    var list = $("[data-list]");
     list.innerHTML = "";
     list.appendChild(el("div", "au-empty au-muted", text));
   }
@@ -353,7 +346,7 @@
     panel.classList.toggle("is-busy", !!on);
   }
   function showSkeleton() {
-    var list = panel.querySelector("[data-list]");
+    var list = $("[data-list]");
     list.innerHTML = "";
     for (var i = 0; i < 4; i++) {
       var row = el("div", "au-skel");
@@ -379,15 +372,10 @@
       button.textContent = prev;
     }
   }
-  function unresolvedRootCount(items) {
-    var n = 0;
-    items.forEach(function (c) {
-      if (!c.parent_comment_id && !c.resolved_at) n++;
-    });
-    return n;
-  }
   function refreshBadge() {
-    var n = unresolvedRootCount(allComments);
+    var n = allComments.filter(function (c) {
+      return !c.parent_comment_id && !c.resolved_at;
+    }).length;
     if (n > 0) {
       badge.textContent = String(n);
       badge.style.display = "";
@@ -405,7 +393,7 @@
   }
   async function load() {
     var open = panel.classList.contains("is-open");
-    var hasItems = !!panel.querySelector("[data-list] .au-item");
+    var hasItems = !!$("[data-list] .au-item");
     if (open && !hasItems) showSkeleton();
     setBusy(true);
     try {
@@ -432,7 +420,7 @@
     }
   }
   function renderList(items) {
-    var list = panel.querySelector("[data-list]");
+    var list = $("[data-list]");
     list.innerHTML = "";
     var roots = [],
       replies = {};
@@ -591,6 +579,19 @@
   }
   function hideGhost() {
     ghost.style.display = "none";
+    ghost._rect = null;
+  }
+  // Recompute the fixed-position ghost box from its stored document rect so it
+  // tracks the page as the user scrolls (onViewport), instead of staying glued
+  // to the viewport. No-op while hidden so scroll events during the reveal
+  // delay or after close() do not resurrect it.
+  function positionGhost() {
+    var r = ghost._rect;
+    if (!r || ghost.style.display === "none") return;
+    ghost.style.left = Math.max(0, r.x - scrollX) + "px";
+    ghost.style.top = Math.max(0, r.y - scrollY) + "px";
+    ghost.style.width = r.w + "px";
+    ghost.style.height = r.h + "px";
   }
   // Draw a dashed "ghost" box at the element's last-known document-coordinate
   // rect, for hidden/missing targets we cannot outline directly.
@@ -601,13 +602,11 @@
     }
     var targetY = Math.max(0, rect.y - innerHeight / 2 + rect.h / 2);
     scrollTo({ top: targetY, behavior: smoothScroll() });
+    ghost._rect = rect;
     setTimeout(function () {
       ghostLabel.textContent = note || "Approximate location";
       ghost.style.display = "block";
-      ghost.style.left = Math.max(0, rect.x - scrollX) + "px";
-      ghost.style.top = Math.max(0, rect.y - scrollY) + "px";
-      ghost.style.width = rect.w + "px";
-      ghost.style.height = rect.h + "px";
+      positionGhost();
     }, 300);
   }
   function focusComment(c) {
@@ -653,26 +652,31 @@
   }
 
   // ---- mutations ----
-  function rawPost(payload) {
+  // One request wrapper for /_au/comments. Injects artifact_key, and turns a
+  // network failure into a Response-like { ok:false } so callers never leak an
+  // unhandled rejection (postComment/setResolved run without their own catch).
+  function api(method, payload) {
+    payload.artifact_key = artifactKey;
     return fetch("/_au/comments", {
-      method: "POST",
+      method: method,
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
+    }).catch(function () {
+      return { ok: false, status: 0 };
     });
   }
   async function postComment(extra) {
     var payload = {
-      artifact_key: artifactKey,
       page_path: currentPath(),
       version_id: versionId,
     };
     for (var k in extra) payload[k] = extra[k];
-    var r = await rawPost(payload);
+    var r = await api("POST", payload);
     if (r.status === 401) {
       // No session yet (e.g. a public artifact) — collect an email to mint a
       // session, then retry the post.
       if (!(await collectEmail())) return false;
-      r = await rawPost(payload);
+      r = await api("POST", payload);
     }
     if (!r.ok) {
       showToast("Could not send feedback.");
@@ -686,10 +690,10 @@
   // artifacts without gating the whole artifact.
   function collectEmail() {
     return new Promise(function (resolve) {
-      var box = panel.querySelector("[data-emailgate]");
-      var input = panel.querySelector("[data-email]");
-      var submit = panel.querySelector("[data-email-submit]");
-      var cancel = panel.querySelector("[data-email-cancel]");
+      var box = $("[data-emailgate]");
+      var input = $("[data-email]");
+      var submit = $("[data-email-submit]");
+      var cancel = $("[data-email-cancel]");
       try {
         input.value = localStorage.getItem("au_email") || "";
       } catch (e) {}
@@ -743,15 +747,7 @@
     });
   }
   async function setResolved(c, resolved) {
-    var r = await fetch("/_au/comments", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        artifact_key: artifactKey,
-        id: c.id,
-        resolved: resolved,
-      }),
-    });
+    var r = await api("PATCH", { id: c.id, resolved: resolved });
     if (!r.ok) {
       showToast("Could not update feedback.");
       return;
@@ -759,21 +755,18 @@
     load();
   }
   function toggleReply(id) {
-    Array.prototype.forEach.call(
-      panel.querySelectorAll(".au-replybox"),
-      function (box) {
-        var open =
-          box.getAttribute("data-reply-box") === String(id) &&
-          !box.classList.contains("is-open");
-        box.classList.toggle("is-open", open);
-        if (open) {
-          var t = box.querySelector("textarea");
-          setTimeout(function () {
-            if (t) t.focus();
-          }, 0);
-        }
-      },
-    );
+    panel.querySelectorAll(".au-replybox").forEach(function (box) {
+      var open =
+        box.getAttribute("data-reply-box") === String(id) &&
+        !box.classList.contains("is-open");
+      box.classList.toggle("is-open", open);
+      if (open) {
+        var t = box.querySelector("textarea");
+        setTimeout(function () {
+          if (t) t.focus();
+        }, 0);
+      }
+    });
   }
   function parse(s) {
     try {
@@ -783,12 +776,9 @@
     }
   }
   function setActiveItem(id) {
-    Array.prototype.forEach.call(
-      panel.querySelectorAll(".au-item"),
-      function (it) {
-        it.classList.toggle("is-active", it.dataset.auId === String(id));
-      },
-    );
+    panel.querySelectorAll(".au-item").forEach(function (it) {
+      it.classList.toggle("is-active", it.dataset.auId === String(id));
+    });
   }
 
   // ---- persistent pins (all on-page targeted comments at once) ----
@@ -813,11 +803,9 @@
       pin.dataset.auWidget = "1";
       pin.title = c.body ? c.body.slice(0, 80) : "";
       pin._t = t;
-      (function (cc) {
-        pin.onclick = function () {
-          focusComment(cc);
-        };
-      })(c);
+      pin.onclick = function () {
+        focusComment(c);
+      };
       root.appendChild(pin);
       pinEls.push(pin);
     });
@@ -869,11 +857,11 @@
   // ---- hand to agent ----
   var agentShareUrl = "";
   function setAgentOpen(on) {
-    panel.querySelector("[data-agent-panel]").classList.toggle("is-open", !!on);
+    $("[data-agent-panel]").classList.toggle("is-open", !!on);
   }
   async function openAgent() {
     setAgentOpen(true);
-    var area = panel.querySelector("[data-agent-prompt]");
+    var area = $("[data-agent-prompt]");
     area.value = "Generating a secure agent prompt…";
     agentShareUrl = "";
     try {
@@ -963,7 +951,6 @@
     var picked = targetFrom(e.target);
     if (reanchorFor) {
       var c = reanchorFor;
-      reanchorFor = null;
       endSelect();
       reanchorComment(c, picked);
       return;
@@ -980,15 +967,7 @@
   async function reanchorComment(c, tgt) {
     var ok = false;
     try {
-      var r = await fetch("/_au/comments", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          artifact_key: artifactKey,
-          id: c.id,
-          target: tgt,
-        }),
-      });
+      var r = await api("PATCH", { id: c.id, target: tgt });
       ok = r.ok;
     } catch (e) {}
     showToast(ok ? "Re-anchored to the new element." : "Could not re-anchor.");
@@ -1088,74 +1067,60 @@
     if (panel.classList.contains("is-open")) close();
     else open();
   };
-  panel.querySelector("[data-min]").onclick = close;
-  panel.querySelector("[data-agent]").onclick = openAgent;
+  $("[data-min]").onclick = close;
+  $("[data-agent]").onclick = openAgent;
   cta.querySelector("[data-cta-open]").onclick = function () {
     open();
     openAgent();
   };
   cta.querySelector("[data-cta-dismiss]").onclick = dismissCta;
-  panel.querySelector("[data-agent-close]").onclick = function () {
+  $("[data-agent-close]").onclick = function () {
     setAgentOpen(false);
   };
-  panel.querySelector("[data-agent-copy]").onclick = function () {
-    copyText(panel.querySelector("[data-agent-prompt]").value);
+  $("[data-agent-copy]").onclick = function () {
+    copyText($("[data-agent-prompt]").value);
   };
-  panel.querySelector("[data-agent-copylink]").onclick = function () {
+  $("[data-agent-copylink]").onclick = function () {
     copyText(agentShareUrl);
   };
-  panel.querySelector("[data-new]").onclick = function () {
+  $("[data-new]").onclick = function () {
     openComposer(true);
   };
-  panel.querySelector("[data-cancel-new]").onclick = function () {
+  $("[data-cancel-new]").onclick = function () {
     openComposer(false);
-    target = null;
-    active = null;
-    renderTarget();
+    clearTarget();
   };
-  panel.querySelector("[data-clear]").onclick = function () {
-    target = null;
-    active = null;
-    renderTarget();
-  };
-  panel.querySelector("[data-select]").onclick = startSelect;
+  $("[data-clear]").onclick = clearTarget;
+  $("[data-select]").onclick = startSelect;
   banner.querySelector("[data-cancel-select]").onclick = endSelect;
-  panel.querySelector("[data-hide-resolved]").onchange = function (e) {
+  $("[data-hide-resolved]").onchange = function (e) {
     hideResolved = !!e.target.checked;
     renderList(allComments);
     renderPins();
   };
-  panel.querySelector("[data-pins]").onchange = function (e) {
+  $("[data-pins]").onchange = function (e) {
     pinsOn = !!e.target.checked;
     renderPins();
   };
-  Array.prototype.forEach.call(
-    panel.querySelectorAll("[data-scope]"),
-    function (b) {
-      b.onclick = function () {
-        scope = b.getAttribute("data-scope");
-        Array.prototype.forEach.call(
-          panel.querySelectorAll("[data-scope]"),
-          function (x) {
-            x.classList.toggle("is-on", x === b);
-          },
-        );
-        renderList(allComments);
-        renderPins();
-      };
-    },
-  );
-  panel.querySelector("[data-send]").onclick = function () {
-    var t = panel.querySelector("[data-body]"),
+  panel.querySelectorAll("[data-scope]").forEach(function (b) {
+    b.onclick = function () {
+      scope = b.getAttribute("data-scope");
+      panel.querySelectorAll("[data-scope]").forEach(function (x) {
+        x.classList.toggle("is-on", x === b);
+      });
+      renderList(allComments);
+      renderPins();
+    };
+  });
+  $("[data-send]").onclick = function () {
+    var t = $("[data-body]"),
       body = t.value.trim(),
-      sendBtn = panel.querySelector("[data-send]");
+      sendBtn = $("[data-send]");
     if (!body) return;
     withBusy(sendBtn, "Sending…", async function () {
       if (await postComment({ body: body, target: target })) {
         t.value = "";
-        target = null;
-        active = null;
-        renderTarget();
+        clearTarget();
         openComposer(false);
       }
     });
@@ -1164,6 +1129,7 @@
   function onViewport() {
     update();
     positionPins();
+    positionGhost();
   }
   addEventListener("scroll", onViewport, true);
   addEventListener("resize", onViewport);
@@ -1191,7 +1157,7 @@
   var host = document.createElement("div");
   host.id = "au-host";
   host.dataset.auWidget = "1";
-  var root = host.attachShadow ? host.attachShadow({ mode: "open" }) : host;
+  var root = host.attachShadow({ mode: "open" });
   root.appendChild(css);
   root.appendChild(mark);
   root.appendChild(hover);
@@ -1253,18 +1219,16 @@
 
   // Keep the host last in document order and the launcher promoted, even if the
   // artifact appends its own nodes or swaps the top layer.
-  if (window.MutationObserver) {
-    var mo = new MutationObserver(function () {
-      if (
-        !document.fullscreenElement &&
-        document.documentElement.lastElementChild !== host
-      ) {
-        document.documentElement.appendChild(host);
-        showTop(btn);
-      }
-    });
-    mo.observe(document.documentElement, { childList: true });
-  }
+  var mo = new MutationObserver(function () {
+    if (
+      !document.fullscreenElement &&
+      document.documentElement.lastElementChild !== host
+    ) {
+      document.documentElement.appendChild(host);
+      showTop(btn);
+    }
+  });
+  mo.observe(document.documentElement, { childList: true });
   // Ride into the fullscreen element so we stay visible there too.
   document.addEventListener("fullscreenchange", function () {
     (document.fullscreenElement || document.documentElement).appendChild(host);

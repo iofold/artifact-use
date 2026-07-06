@@ -5,7 +5,20 @@ import type {
   GateLevel,
   PublisherSession,
 } from "./types";
-import { readCookie } from "./auth";
+import {
+  extractStringArray,
+  fromBase64Url,
+  readCookie,
+  signPayload,
+  userScopedOrgId,
+  verifyPayload,
+} from "./auth";
+import {
+  stringClaim,
+  workosApi,
+  workosApiMaybe,
+  WorkosApiError,
+} from "./workos";
 import { createShareLink, updateArtifactAccess } from "./db";
 import {
   artifactUrlCode,
@@ -83,15 +96,6 @@ type AdminDailyView = {
   n: number;
 };
 
-type SuperArtifactRow = Artifact & {
-  file_count: number | null;
-  total_size: number | null;
-  completed_at: number | null;
-  total_views: number;
-  share_links: number;
-  comment_count: number;
-};
-
 type AdminMaps = {
   shares: Map<string, AdminShareLink[]>;
   comments: Map<string, AdminComment[]>;
@@ -151,13 +155,12 @@ export async function renderHome(
 ): Promise<Response> {
   const session = await getPublisherSession(request, env);
   if (session) return renderAdmin(request, env, session);
-  const signedIn = Boolean(session);
   return page(
     "Artifact Use",
     `<header class="top">
       <a class="brand" href="/">Artifact Use</a>
       <nav>
-        ${signedIn ? `<a href="/admin">Admin</a><a href="/logout">Sign out</a>` : `<a href="/login">Sign in</a><a class="button small" href="/signup">Sign up</a>`}
+        <a href="/login">Sign in</a><a class="button small" href="/signup">Sign up</a>
       </nav>
     </header>
     <main class="home">
@@ -296,7 +299,7 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
   const accessClaims = decodeJwtClaims(stringClaim(auth.access_token)) || {};
   const fallbackOrgIds = [
     userId ? legacyPublisherUserOrgId(userId) : "",
-    userId ? legacyBearerUserOrgId(userId) : "",
+    userId ? userScopedOrgId(userId) : "",
     email ? `email:${email}` : "",
   ].filter(Boolean);
   const authOrgId =
@@ -332,6 +335,7 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
     await migratePublisherDataToOrg(env, fallbackOrgIds, authOrgId, userId);
   }
   const session: PublisherSession = {
+    typ: "publisher",
     sub: userId,
     orgId,
     email,
@@ -349,7 +353,7 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
   const headers = new Headers();
   headers.append(
     "Set-Cookie",
-    cookie(SESSION_COOKIE, await signSession(session, env), 7 * 86400),
+    cookie(SESSION_COOKIE, await signPayload(session, env), 7 * 86400),
   );
   headers.append("Set-Cookie", expireCookie(STATE_COOKIE));
   headers.append("Set-Cookie", expireCookie(INVITE_COOKIE));
@@ -371,25 +375,18 @@ async function exchangeCode(
     user_agent: request.headers.get("User-Agent") || undefined,
   };
   if (invitationToken) body.invitation_token = invitationToken;
-  const res = await fetch(
-    "https://api.workos.com/user_management/authenticate",
-    {
+  try {
+    return await workosApi(env, {
+      path: "/user_management/authenticate",
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${env.WORKOS_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    },
-  );
-  const text = await res.text();
-  const parsed = text ? (JSON.parse(text) as Record<string, unknown>) : {};
-  if (!res.ok) {
-    throw new Error(
-      `WorkOS auth failed: ${res.status} ${String(parsed.error || parsed.code || text)}`,
-    );
+      body,
+    });
+  } catch (e) {
+    // The message surfaces in the 500 response body on failed sign-in.
+    if (e instanceof WorkosApiError)
+      throw new Error(`WorkOS auth failed: ${e.message}`);
+    throw e;
   }
-  return parsed;
 }
 
 async function ensurePublisherOrganization(
@@ -508,32 +505,10 @@ async function renderAdmin(
 ): Promise<Response> {
   const openId = new URL(request.url).searchParams.get("open") || "";
   const superAdmin = isSuperAdmin(session, env);
-  const rows = await env.DB.prepare(
-    `SELECT a.*,
-      av.file_count AS file_count,
-      av.total_size AS total_size,
-      av.completed_at AS completed_at,
-      COUNT(DISTINCT v.id) AS total_views,
-      COUNT(DISTINCT v.email) AS unique_viewers,
-      MAX(v.ts) AS last_view_ts,
-      COUNT(DISTINCT sl.id) AS share_links,
-      COUNT(DISTINCT c.id) AS comment_count,
-      COUNT(DISTINCT CASE
-        WHEN c.parent_comment_id IS NULL AND c.resolved_at IS NULL THEN c.id
-        ELSE NULL
-      END) AS open_comments
-     FROM artifacts a
-     LEFT JOIN artifact_versions av ON av.id = a.current_version_id
-     LEFT JOIN views v ON v.artifact_id = a.id
-     LEFT JOIN share_links sl ON sl.artifact_id = a.id
-     LEFT JOIN comments c ON c.artifact_id = a.id AND c.deleted_at IS NULL
-     WHERE a.org_id = ?
-     GROUP BY a.id
-     ORDER BY total_views DESC, a.updated_at DESC`,
-  )
-    .bind(session.orgId)
-    .all<ArtifactRow>();
-  const artifacts = rows.results || [];
+  const artifacts = await artifactStatsRows(env, {
+    orgId: session.orgId,
+    orderBy: "total_views DESC, a.updated_at DESC",
+  });
   const maps = await adminMaps(env, session.orgId);
   const totalViews = artifacts.reduce(
     (sum, row) => sum + Number(row.total_views || 0),
@@ -544,15 +519,14 @@ async function renderAdmin(
     0,
   );
   const views7d = await viewsSince(env, session.orgId, nowSec() - 7 * 86400);
-  const uniqueViewers = new Set<string>();
-  const uniqueRows = await env.DB.prepare(
-    `SELECT DISTINCT v.email
+  const uniqueRow = await env.DB.prepare(
+    `SELECT COUNT(DISTINCT v.email) AS n
      FROM views v JOIN artifacts a ON a.id = v.artifact_id
      WHERE a.org_id = ?`,
   )
     .bind(session.orgId)
-    .all<{ email: string }>();
-  for (const row of uniqueRows.results || []) uniqueViewers.add(row.email);
+    .first<{ n: number }>();
+  const uniqueViewers = Number(uniqueRow?.n || 0);
   const recent = Array.from(maps.recent.values())
     .flat()
     .sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0))
@@ -575,7 +549,7 @@ async function renderAdmin(
         <div class="metrics">
           <div><strong>${artifacts.length}</strong><span>Artifacts</span></div>
           <div><strong>${totalViews}</strong><span>Views</span></div>
-          <div><strong>${uniqueViewers.size}</strong><span>Viewers</span></div>
+          <div><strong>${uniqueViewers}</strong><span>Viewers</span></div>
           <div><strong>${views7d}</strong><span>Views · 7d</span></div>
           <div><strong>${totalComments}</strong><span>Feedback</span></div>
         </div>
@@ -847,6 +821,40 @@ async function adminMaps(env: Env, orgId: string): Promise<AdminMaps> {
   };
 }
 
+// Shared stats aggregation behind the admin and super-admin tables. orgId is
+// bound as a parameter; orderBy/limit are interpolated and must remain
+// internal literals, never caller/user input.
+async function artifactStatsRows(
+  env: Env,
+  opts: { orgId?: string; orderBy: string; limit?: number },
+): Promise<ArtifactRow[]> {
+  const stmt = env.DB.prepare(
+    `SELECT a.*,
+      av.file_count AS file_count,
+      av.total_size AS total_size,
+      av.completed_at AS completed_at,
+      COUNT(DISTINCT v.id) AS total_views,
+      COUNT(DISTINCT v.email) AS unique_viewers,
+      MAX(v.ts) AS last_view_ts,
+      COUNT(DISTINCT sl.id) AS share_links,
+      COUNT(DISTINCT c.id) AS comment_count,
+      COUNT(DISTINCT CASE
+        WHEN c.parent_comment_id IS NULL AND c.resolved_at IS NULL THEN c.id
+        ELSE NULL
+      END) AS open_comments
+     FROM artifacts a
+     LEFT JOIN artifact_versions av ON av.id = a.current_version_id
+     LEFT JOIN views v ON v.artifact_id = a.id
+     LEFT JOIN share_links sl ON sl.artifact_id = a.id
+     LEFT JOIN comments c ON c.artifact_id = a.id AND c.deleted_at IS NULL
+     ${opts.orgId ? "WHERE a.org_id = ?" : ""}
+     GROUP BY a.id
+     ORDER BY ${opts.orderBy}${opts.limit ? ` LIMIT ${opts.limit}` : ""}`,
+  );
+  const bound = opts.orgId ? stmt.bind(opts.orgId) : stmt;
+  return (await bound.all<ArtifactRow>()).results || [];
+}
+
 async function viewsSince(
   env: Env,
   orgId: string,
@@ -872,24 +880,10 @@ async function renderSuperAdmin(
     return error(403, "forbidden", "super admin access is not configured");
   const url = new URL(request.url);
   const openId = url.searchParams.get("open") || "";
-  const rows = await env.DB.prepare(
-    `SELECT a.*,
-      av.file_count AS file_count,
-      av.total_size AS total_size,
-      av.completed_at AS completed_at,
-      COUNT(DISTINCT v.id) AS total_views,
-      COUNT(DISTINCT sl.id) AS share_links,
-      COUNT(DISTINCT c.id) AS comment_count
-     FROM artifacts a
-     LEFT JOIN artifact_versions av ON av.id = a.current_version_id
-     LEFT JOIN views v ON v.artifact_id = a.id
-     LEFT JOIN share_links sl ON sl.artifact_id = a.id
-     LEFT JOIN comments c ON c.artifact_id = a.id AND c.deleted_at IS NULL
-     GROUP BY a.id
-     ORDER BY a.updated_at DESC
-     LIMIT 500`,
-  ).all<SuperArtifactRow>();
-  const artifacts = rows.results || [];
+  const artifacts = await artifactStatsRows(env, {
+    orderBy: "a.updated_at DESC",
+    limit: 500,
+  });
   const orgs = new Set(artifacts.map((artifact) => artifact.org_id));
   const totalViews = artifacts.reduce(
     (sum, artifact) => sum + Number(artifact.total_views || 0),
@@ -934,7 +928,7 @@ async function renderSuperAdmin(
 
 function superArtifactRow(
   env: Env,
-  artifact: SuperArtifactRow,
+  artifact: ArtifactRow,
   open: boolean,
 ): string {
   const url = publicArtifactUrl(env, artifact.url_key);
@@ -1526,71 +1520,6 @@ function isWorkosOrgId(value: string): boolean {
   return value.startsWith("org_");
 }
 
-async function workosApiMaybe(
-  env: Env,
-  path: string,
-): Promise<Record<string, unknown> | null> {
-  try {
-    return await workosApi(env, { path });
-  } catch (e) {
-    if (e instanceof WorkosApiError && e.status === 404) return null;
-    throw e;
-  }
-}
-
-async function workosApi(
-  env: Env,
-  init: {
-    path: string;
-    method?: string;
-    body?: Record<string, unknown>;
-  },
-): Promise<Record<string, unknown>> {
-  if (!env.WORKOS_API_KEY) throw new Error("WorkOS API key is not configured");
-  const headers = new Headers({
-    Authorization: `Bearer ${env.WORKOS_API_KEY}`,
-  });
-  let body: string | undefined;
-  if (init.body) {
-    headers.set("Content-Type", "application/json");
-    body = JSON.stringify(init.body);
-  }
-  const requestInit: RequestInit = {
-    method: init.method || "GET",
-    headers,
-  };
-  if (body) requestInit.body = body;
-  const res = await fetch(`https://api.workos.com${init.path}`, requestInit);
-  const text = await res.text();
-  const parsed = text ? (JSON.parse(text) as Record<string, unknown>) : {};
-  if (!res.ok) throw WorkosApiError.from(res.status, parsed, text);
-  return parsed;
-}
-
-class WorkosApiError extends Error {
-  constructor(
-    public readonly status: number,
-    message: string,
-  ) {
-    super(message);
-  }
-
-  static from(
-    status: number,
-    parsed: Record<string, unknown>,
-    fallback: string,
-  ): WorkosApiError {
-    const message =
-      stringClaim(parsed.message) ||
-      stringClaim(parsed.error_description) ||
-      stringClaim(parsed.error) ||
-      stringClaim(parsed.code) ||
-      fallback ||
-      "WorkOS request failed";
-    return new WorkosApiError(status, `WorkOS ${status}: ${message}`);
-  }
-}
-
 function sessionRoles(auth: Record<string, unknown>): string[] {
   const claims = decodeJwtClaims(stringClaim(auth.access_token)) || {};
   return [
@@ -1615,13 +1544,6 @@ function sessionPermissions(auth: Record<string, unknown>): string[] {
   );
 }
 
-function extractStringArray(value: unknown): string[] {
-  if (typeof value === "string") return value.split(/\s+/).filter(Boolean);
-  if (Array.isArray(value))
-    return value.filter((item): item is string => typeof item === "string");
-  return [];
-}
-
 function decodeJwtClaims(token: string | null): Record<string, unknown> | null {
   if (!token) return null;
   const [, payload] = token.split(".");
@@ -1641,10 +1563,6 @@ function asArray(value: unknown): unknown[] {
 
 function legacyPublisherUserOrgId(userId: string): string {
   return `user:${userId}`;
-}
-
-function legacyBearerUserOrgId(userId: string): string {
-  return `user_${userId.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 }
 
 async function publisherArtifact(
@@ -1681,8 +1599,11 @@ async function getPublisherSession(
 ): Promise<PublisherSession | null> {
   const raw = readCookie(request, SESSION_COOKIE);
   if (!raw) return null;
-  const session = await verifySession(raw, env);
-  if (!session || session.exp < nowSec()) return null;
+  const session = await verifyPayload<PublisherSession>(raw, env);
+  // The typ check keeps viewer/upload tokens (same secret, same format) from
+  // ever verifying as a publisher session.
+  if (!session || session.typ !== "publisher" || session.exp < nowSec())
+    return null;
   return session;
 }
 
@@ -1697,58 +1618,6 @@ function publicSession(session: PublisherSession): Record<string, unknown> {
     permissions: session.permissions || [],
     exp: session.exp,
   };
-}
-
-async function signSession(
-  session: PublisherSession,
-  env: Env,
-): Promise<string> {
-  const payload = base64Url(new TextEncoder().encode(JSON.stringify(session)));
-  return `${payload}.${await hmac(env.SESSION_SECRET, payload)}`;
-}
-
-async function verifySession(
-  raw: string,
-  env: Env,
-): Promise<PublisherSession | null> {
-  const [payload, sig] = raw.split(".");
-  if (!payload || !sig) return null;
-  const expected = await hmac(env.SESSION_SECRET, payload);
-  if (expected !== sig) return null;
-  return JSON.parse(
-    new TextDecoder().decode(fromBase64Url(payload)),
-  ) as PublisherSession;
-}
-
-async function hmac(secret: string, data: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  const sig = await crypto.subtle.sign(
-    "HMAC",
-    key,
-    new TextEncoder().encode(data),
-  );
-  return base64Url(new Uint8Array(sig));
-}
-
-function base64Url(bytes: Uint8Array): string {
-  let s = "";
-  for (const b of bytes) s += String.fromCharCode(b);
-  return btoa(s).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
-}
-
-function fromBase64Url(s: string): Uint8Array {
-  const padded = s
-    .replaceAll("-", "+")
-    .replaceAll("_", "/")
-    .padEnd(Math.ceil(s.length / 4) * 4, "=");
-  const bin = atob(padded);
-  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 
 function cookie(name: string, value: string, maxAge: number): string {
@@ -1772,10 +1641,6 @@ function workosLogoutUrl(sessionId: string): string {
   const url = new URL("https://api.workos.com/user_management/sessions/logout");
   url.searchParams.set("session_id", sessionId);
   return url.toString();
-}
-
-function stringClaim(value: unknown): string | null {
-  return typeof value === "string" && value ? value : null;
 }
 
 function page(title: string, body: string): Response {

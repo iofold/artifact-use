@@ -107,6 +107,7 @@ export interface UploadSession {
 }
 
 export interface PublisherSession {
+  typ: "publisher";
   sub: string;
   orgId: string;
   email: string | null;

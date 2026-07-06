@@ -19,6 +19,7 @@ import {
   publicArtifactPath,
   randomCode,
   randomId,
+  requiresVerified,
   wantsHtml,
 } from "./util";
 
@@ -47,9 +48,7 @@ export function renderGate(
   prefillEmail = "",
   shareLinkId = "",
 ): Response {
-  const verified =
-    artifact.gate_level === "verified_email" ||
-    artifact.gate_level === "allowlist";
+  const verified = requiresVerified(artifact.gate_level);
   const action = verified ? "/_au/gate/start" : "/_au/gate/email";
   return htmlPage(
     artifact.title,
@@ -87,44 +86,14 @@ export async function handleGateRoute(
         request,
         form.get("redirect_to"),
       );
-      const viewId = await insertView(
+      return issueViewerSession(
+        request,
         env,
         artifact,
-        shareLinkId,
         email,
         false,
-        request,
-      );
-      const exp = nowSec() + 30 * 86400;
-      const session = await signViewerSession(
-        {
-          artifact_id: artifact.id,
-          version_id: artifact.current_version_id,
-          email,
-          verified: false,
-          view_id: viewId,
-          exp,
-        },
-        env,
-      );
-      // Agent self-serve / in-widget email (public artifacts): a non-browser
-      // POST gets the session as a bearer token AND sets the cookie, so the
-      // feedback widget's same-origin fetches are immediately authenticated.
-      if (!wantsHtml(request))
-        return json(
-          { token: session, token_type: "Bearer", expires_at: exp },
-          {
-            headers: {
-              "Set-Cookie": setViewerCookie(
-                viewerCookieName(artifact.id),
-                session,
-              ),
-            },
-          },
-        );
-      return redirectWithCookie(
+        shareLinkId,
         redirectTo,
-        setViewerCookie(viewerCookieName(artifact.id), session),
       );
     }
 
@@ -224,6 +193,7 @@ ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${cod
         env,
         artifact,
         row.token,
+        email,
         safeArtifactRedirect(env, artifact, request, form.get("redirect_to")),
         String(form.get("share_link_id") || "") || null,
       );
@@ -258,6 +228,7 @@ ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${cod
         env,
         artifact,
         token,
+        row.email,
         safeArtifactRedirect(env, artifact, request, row.redirect_to),
         row.share_link_id || null,
       );
@@ -277,24 +248,42 @@ async function consumeVerified(
   env: Env,
   artifact: Artifact,
   token: string,
+  email: string,
   redirectTo: string,
   shareLinkId: string | null,
 ): Promise<Response> {
-  const row = await env.DB.prepare(
-    "SELECT email FROM viewer_tokens WHERE token = ?",
-  )
-    .bind(token)
-    .first<{ email: string }>();
-  if (!row) return error(404, "token_not_found", "token not found");
   await env.DB.prepare("UPDATE viewer_tokens SET used_at = ? WHERE token = ?")
     .bind(nowSec(), token)
     .run();
+  return issueViewerSession(
+    request,
+    env,
+    artifact,
+    email,
+    true,
+    shareLinkId,
+    redirectTo,
+  );
+}
+
+// Shared tail of every gate flow: record the view, mint the 30-day session,
+// and answer with a bearer token (agents / in-widget fetches) or a redirect
+// (browsers). Callers must pass an already-sanitized redirectTo.
+async function issueViewerSession(
+  request: Request,
+  env: Env,
+  artifact: Artifact,
+  email: string,
+  verified: boolean,
+  shareLinkId: string | null,
+  redirectTo: string,
+): Promise<Response> {
   const viewId = await insertView(
     env,
     artifact,
     shareLinkId,
-    row.email,
-    true,
+    email,
+    verified,
     request,
   );
   const exp = nowSec() + 30 * 86400;
@@ -302,25 +291,20 @@ async function consumeVerified(
     {
       artifact_id: artifact.id,
       version_id: artifact.current_version_id,
-      email: row.email,
-      verified: true,
+      email,
+      verified,
       view_id: viewId,
       exp,
     },
     env,
   );
   const cookie = setViewerCookie(viewerCookieName(artifact.id), session);
-  // Agent OTP self-serve: a non-browser verify returns the verified session as a
-  // bearer token (and sets the cookie) instead of redirecting.
   if (!wantsHtml(request))
     return json(
       { token: session, token_type: "Bearer", expires_at: exp },
       { headers: { "Set-Cookie": cookie } },
     );
-  return redirectWithCookie(
-    safeArtifactRedirect(env, artifact, request, redirectTo),
-    cookie,
-  );
+  return redirectWithCookie(redirectTo, cookie);
 }
 
 function redirectWithCookie(url: string, cookie: string): Response {

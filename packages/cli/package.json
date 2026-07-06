@@ -12,6 +12,9 @@
     "dev": "tsx src/index.ts",
     "typecheck": "tsc --noEmit"
   },
+  "dependencies": {
+    "@artifact-use/client-core": "*"
+  },
   "devDependencies": {
     "tsx": "^4.19.4"
   }

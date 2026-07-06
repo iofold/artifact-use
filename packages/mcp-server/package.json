@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@artifact-use/client-core": "*",
     "@modelcontextprotocol/sdk": "^1.12.1"
   },
   "devDependencies": {

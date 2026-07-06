@@ -1,6 +1,7 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
 import type { Creator, Env, UploadSession, ViewerSession } from "./types";
-import { json } from "./util";
+import { bearerToken, json, nowSec } from "./util";
+import { stringClaim, workosApiMaybe } from "./workos";
 
 let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
 let jwksUrlCache = "";
@@ -13,17 +14,11 @@ function getJwks(env: Env): ReturnType<typeof createRemoteJWKSet> {
   return jwksCache;
 }
 
-function bearer(request: Request): string | null {
-  const header = request.headers.get("Authorization") || "";
-  if (!header.startsWith("Bearer ")) return null;
-  return header.slice("Bearer ".length).trim() || null;
-}
-
 export async function getCreator(
   request: Request,
   env: Env,
 ): Promise<Creator | null> {
-  const token = bearer(request);
+  const token = bearerToken(request);
   if (!token) return null;
   if (env.DEV_AUTH_TOKEN && token === env.DEV_AUTH_TOKEN) {
     const sub = env.DEV_AUTH_USER_ID || "";
@@ -166,7 +161,7 @@ function splitList(value?: string): string[] | null {
     .filter(Boolean);
 }
 
-function extractStringArray(value: unknown): string[] {
+export function extractStringArray(value: unknown): string[] {
   if (typeof value === "string") return splitList(value) || [];
   if (Array.isArray(value))
     return value.flatMap((item) => extractStringArray(item));
@@ -185,32 +180,11 @@ async function defaultWorkosOrgForUser(
   return stringClaim(organization?.id);
 }
 
-async function workosApiMaybe(
-  env: Env,
-  path: string,
-): Promise<Record<string, unknown> | null> {
-  const res = await fetch(`https://api.workos.com${path}`, {
-    headers: { Authorization: `Bearer ${env.WORKOS_API_KEY}` },
-  });
-  if (res.status === 404) return null;
-  const text = await res.text();
-  const parsed = text ? (JSON.parse(text) as Record<string, unknown>) : {};
-  if (!res.ok)
-    throw new Error(
-      `WorkOS ${res.status}: ${String(parsed.message || parsed.error || parsed.code || text)}`,
-    );
-  return parsed;
-}
-
-function stringClaim(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
 function isWorkosUserId(value: string): boolean {
   return /^user_[A-Za-z0-9]+$/.test(value);
 }
 
-function userScopedOrgId(sub: string): string {
+export function userScopedOrgId(sub: string): string {
   return `user_${sub.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 }
 
@@ -220,7 +194,7 @@ function base64Url(bytes: Uint8Array): string {
   return btoa(s).replaceAll("+", "-").replaceAll("/", "_").replaceAll("=", "");
 }
 
-function fromBase64Url(s: string): Uint8Array {
+export function fromBase64Url(s: string): Uint8Array {
   const padded = s
     .replaceAll("-", "+")
     .replaceAll("_", "/")
@@ -245,27 +219,38 @@ async function hmac(secret: string, data: string): Promise<string> {
   return base64Url(new Uint8Array(sig));
 }
 
+// Generic HMAC token layer shared by viewer sessions, upload tokens, and
+// publisher sessions. Deliberately does NOT check exp or typ — each wrapper
+// enforces its own claims, which is the only defense against cross-type token
+// confusion since every type is signed with the same SESSION_SECRET.
+export async function signPayload(payload: unknown, env: Env): Promise<string> {
+  const encoded = base64Url(new TextEncoder().encode(JSON.stringify(payload)));
+  return `${encoded}.${await hmac(env.SESSION_SECRET, encoded)}`;
+}
+
+export async function verifyPayload<T>(
+  raw: string,
+  env: Env,
+): Promise<T | null> {
+  const [payload, sig] = raw.split(".");
+  if (!payload || !sig) return null;
+  if ((await hmac(env.SESSION_SECRET, payload)) !== sig) return null;
+  return JSON.parse(new TextDecoder().decode(fromBase64Url(payload))) as T;
+}
+
 export async function signViewerSession(
   session: ViewerSession,
   env: Env,
 ): Promise<string> {
-  const payload = base64Url(new TextEncoder().encode(JSON.stringify(session)));
-  const sig = await hmac(env.SESSION_SECRET, payload);
-  return `${payload}.${sig}`;
+  return signPayload(session, env);
 }
 
 export async function verifyViewerSession(
   raw: string,
   env: Env,
 ): Promise<ViewerSession | null> {
-  const [payload, sig] = raw.split(".");
-  if (!payload || !sig) return null;
-  const expected = await hmac(env.SESSION_SECRET, payload);
-  if (expected !== sig) return null;
-  const decoded = JSON.parse(
-    new TextDecoder().decode(fromBase64Url(payload)),
-  ) as ViewerSession;
-  if (!decoded.exp || decoded.exp < Math.floor(Date.now() / 1000)) return null;
+  const decoded = await verifyPayload<ViewerSession>(raw, env);
+  if (!decoded || !decoded.exp || decoded.exp < nowSec()) return null;
   return decoded;
 }
 
@@ -273,25 +258,17 @@ export async function signUploadToken(
   session: UploadSession,
   env: Env,
 ): Promise<string> {
-  const payload = base64Url(new TextEncoder().encode(JSON.stringify(session)));
-  const sig = await hmac(env.SESSION_SECRET, payload);
-  return `${payload}.${sig}`;
+  return signPayload(session, env);
 }
 
 export async function verifyUploadToken(
   raw: string,
   env: Env,
 ): Promise<UploadSession | null> {
-  const [payload, sig] = raw.split(".");
-  if (!payload || !sig) return null;
-  const expected = await hmac(env.SESSION_SECRET, payload);
-  if (expected !== sig) return null;
-  const decoded = JSON.parse(
-    new TextDecoder().decode(fromBase64Url(payload)),
-  ) as UploadSession;
-  if (decoded.typ !== "artifact_upload") return null;
+  const decoded = await verifyPayload<UploadSession>(raw, env);
+  if (!decoded || decoded.typ !== "artifact_upload") return null;
   if (!decoded.version_id || !decoded.org_id) return null;
-  if (!decoded.exp || decoded.exp < Math.floor(Date.now() / 1000)) return null;
+  if (!decoded.exp || decoded.exp < nowSec()) return null;
   return decoded;
 }
 

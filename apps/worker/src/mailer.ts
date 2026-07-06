@@ -1,4 +1,5 @@
 import type { Artifact, Env } from "./types";
+import { escapeHtml } from "./util";
 
 export async function sendVerificationEmail(
   env: Env,
@@ -31,17 +32,4 @@ export async function sendVerificationEmail(
   });
   if (!res.ok)
     throw new Error(`Resend failed: ${res.status} ${await res.text()}`);
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (c) => {
-    const map: Record<string, string> = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    };
-    return map[c] || c;
-  });
 }

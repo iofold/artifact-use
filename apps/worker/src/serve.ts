@@ -17,6 +17,7 @@ import {
   nowSec,
   publicArtifactPath,
   publicArtifactUrl,
+  requiresVerified,
   siteBaseUrl,
   stripPublicArtifactPrefix,
   validateAssetPath,
@@ -51,12 +52,10 @@ export async function servePublic(
   }
   if (!artifact || !artifact.current_version_id)
     return error(404, "artifact_not_found", "artifact not found");
-  if (rest.length === 1 && rest[0] === artifact.slug) {
-    const url = new URL(request.url);
-    url.pathname = publicArtifactPath(env, artifact.url_key);
-    return Response.redirect(url.toString(), 301);
-  }
-  if (!path.endsWith("/") && rest.length === 0) {
+  if (
+    (rest.length === 1 && rest[0] === artifact.slug) ||
+    (rest.length === 0 && !path.endsWith("/"))
+  ) {
     const url = new URL(request.url);
     url.pathname = publicArtifactPath(env, artifact.url_key);
     return Response.redirect(url.toString(), 301);
@@ -65,10 +64,10 @@ export async function servePublic(
   const share = await sharePrefill(env, artifact, url.searchParams.get("v"));
   if (artifact.gate_level !== "public") {
     const session = await getViewerSession(request, env, artifact);
-    const verifiedRequired =
-      artifact.gate_level === "verified_email" ||
-      artifact.gate_level === "allowlist";
-    if (!session || (verifiedRequired && !session.verified)) {
+    if (
+      !session ||
+      (requiresVerified(artifact.gate_level) && !session.verified)
+    ) {
       // Machine-readable gate: a non-browser fetch gets a 401 + JSON describing
       // how to get in, instead of a 200 HTML email form.
       if (!wantsHtml(request)) return gateJson(env, artifact);
@@ -95,8 +94,10 @@ export async function servePublic(
   // enforced above) — structure for agents without scraping HTML.
   if (rest.length === 2 && rest[0] === "_au" && rest[1] === "index.json")
     return artifactDescriptor(env, artifact, version);
+  // `rest` never carries a trailing slash (split+filter drops the empty
+  // segment), so directory-style URLs are detected from the raw request path.
   let assetPath = rest.join("/") || version.entrypoint || "index.html";
-  if (assetPath.endsWith("/")) assetPath += "index.html";
+  if (rest.length && publicPath.endsWith("/")) assetPath += "/index.html";
   assetPath = validateAssetPath(assetPath);
   const row = await getFile(env, version.id, assetPath);
   if (!row) return error(404, "file_not_found", "file not found");
@@ -104,8 +105,9 @@ export async function servePublic(
   const isHtmlPath =
     mediaType(rowType) === "text/html" || /\.html?$/i.test(row.path);
   const getOptions: R2GetOptions = {};
-  const onlyIf = isHtmlPath ? undefined : conditionalHeaders(request.headers);
-  if (onlyIf) getOptions.onlyIf = onlyIf;
+  // HTML responses strip ETag/Last-Modified and inject the feedback widget, so
+  // they must never short-circuit to 304/412.
+  if (!isHtmlPath) getOptions.onlyIf = request.headers;
   const rangeHeaders = await r2RangeHeaders(
     env,
     row.storage_key,
@@ -185,20 +187,6 @@ function cacheControl(
   return "public, max-age=300, must-revalidate";
 }
 
-function conditionalHeaders(headers: Headers): Headers | undefined {
-  const conditional = new Headers();
-  for (const name of [
-    "If-Match",
-    "If-None-Match",
-    "If-Modified-Since",
-    "If-Unmodified-Since",
-  ]) {
-    const value = headers.get(name);
-    if (value) conditional.set(name, value);
-  }
-  return [...conditional].length ? conditional : undefined;
-}
-
 async function r2RangeHeaders(
   env: Env,
   storageKey: string,
@@ -249,9 +237,11 @@ export async function handleComments(
   env: Env,
   path: string,
 ): Promise<Response> {
-  if (path === "/_au/comments" && request.method === "GET") {
+  if (path !== "/_au/comments")
+    return error(404, "not_found", "comments route not found");
+  if (request.method === "GET") {
     const url = new URL(request.url);
-    const artifact = await commentArtifact(
+    const artifact = await getArtifactByUrlKey(
       env,
       url.searchParams.get("artifact_key") || "",
     );
@@ -274,7 +264,7 @@ export async function handleComments(
       .all();
     return json({ comments: rows.results || [] });
   }
-  if (path === "/_au/comments" && request.method === "POST") {
+  if (request.method === "POST") {
     const body = (await request.json()) as {
       artifact_key?: string;
       body?: string;
@@ -283,7 +273,7 @@ export async function handleComments(
       page_path?: unknown;
       version_id?: unknown;
     };
-    const artifact = await commentArtifact(env, body.artifact_key || "");
+    const artifact = await getArtifactByUrlKey(env, body.artifact_key || "");
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
     const session = await getViewerSession(request, env, artifact);
@@ -325,14 +315,14 @@ export async function handleComments(
       .run();
     return json({ ok: true });
   }
-  if (path === "/_au/comments" && request.method === "PATCH") {
+  if (request.method === "PATCH") {
     const body = (await request.json()) as {
       artifact_key?: string;
       id?: unknown;
       resolved?: unknown;
       target?: unknown;
     };
-    const artifact = await commentArtifact(env, body.artifact_key || "");
+    const artifact = await getArtifactByUrlKey(env, body.artifact_key || "");
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
     const session = await getViewerSession(request, env, artifact);
@@ -371,14 +361,6 @@ export async function handleComments(
     });
   }
   return error(404, "not_found", "comments route not found");
-}
-
-async function commentArtifact(
-  env: Env,
-  artifactKey: string,
-): Promise<Artifact | null> {
-  if (artifactKey) return getArtifactByUrlKey(env, artifactKey);
-  return null;
 }
 
 async function commentParent(
@@ -541,9 +523,7 @@ function gateJson(env: Env, artifact: Artifact): Response {
   const base = publicArtifactUrl(env, artifact.url_key);
   const site = siteBaseUrl(env);
   const isEmail = artifact.gate_level === "email";
-  const needsOtp =
-    artifact.gate_level === "verified_email" ||
-    artifact.gate_level === "allowlist";
+  const needsOtp = requiresVerified(artifact.gate_level);
   return json(
     {
       error: {
@@ -658,10 +638,7 @@ export async function handleAgentToken(
   }
   const session = await getViewerSession(request, env, artifact);
   if (!session) return error(401, "unauthorized", "viewer session required");
-  const verifiedRequired =
-    artifact.gate_level === "verified_email" ||
-    artifact.gate_level === "allowlist";
-  if (verifiedRequired && !session.verified)
+  if (requiresVerified(artifact.gate_level) && !session.verified)
     return error(403, "verification_required", "verified session required");
   const exp = nowSec() + 24 * 60 * 60; // 24h
   const token = await signViewerSession(

@@ -7,6 +7,10 @@ export const GATE_LEVELS = new Set([
   "allowlist",
 ]);
 
+export function requiresVerified(level: string): boolean {
+  return level === "verified_email" || level === "allowlist";
+}
+
 export function nowSec(): number {
   return Math.floor(Date.now() / 1000);
 }
@@ -53,22 +57,6 @@ export function publicArtifactPath(env: Env, urlKey: string): string {
 
 export function publicArtifactUrl(env: Env, urlKey: string): string {
   return `${siteBaseUrl(env)}${publicArtifactPath(env, urlKey)}`;
-}
-
-export function legacyArtifactPath(
-  env: Env,
-  legacyPrefix: string,
-  artifact: string,
-): string {
-  return `${artifactPathPrefix(env)}/${legacyPrefix}/${artifact}/`;
-}
-
-export function legacyArtifactUrl(
-  env: Env,
-  legacyPrefix: string,
-  artifact: string,
-): string {
-  return `${siteBaseUrl(env)}${legacyArtifactPath(env, legacyPrefix, artifact)}`;
 }
 
 export function stripPublicArtifactPrefix(
@@ -128,7 +116,6 @@ export function slugify(value: string, fallback = "publisher"): string {
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
-    .replace(/-{2,}/g, "-")
     .slice(0, 63)
     .replace(/-+$/g, "");
   return isSlug(slug) ? slug : fallback;
@@ -147,13 +134,7 @@ export function validateAssetPath(path: string): string {
   while (decoded.includes("//")) decoded = decoded.replaceAll("//", "/");
   if (!decoded || decoded.length > 512)
     throw new Error("path must be 1-512 chars");
-  if (
-    decoded.startsWith("_") ||
-    decoded.startsWith("_iof/") ||
-    decoded.startsWith("_au/")
-  ) {
-    throw new Error("reserved artifact path");
-  }
+  if (decoded.startsWith("_")) throw new Error("reserved artifact path");
   if (decoded === "cdn-cgi" || decoded.startsWith("cdn-cgi/"))
     throw new Error("reserved artifact path");
   const parts = decoded.split("/");
@@ -197,9 +178,10 @@ export function mimeFor(
   return table[ext] || fallback;
 }
 
-export async function sha256Hex(input: string): Promise<string> {
-  const bytes = new TextEncoder().encode(input);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
+export async function sha256Hex(input: string | Uint8Array): Promise<string> {
+  const bytes =
+    typeof input === "string" ? new TextEncoder().encode(input) : input;
+  const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
   return [...new Uint8Array(digest)]
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");

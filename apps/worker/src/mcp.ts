@@ -1,94 +1,20 @@
 import type { Env } from "./types";
+import {
+  artifactManageTool,
+  artifactPublishTool,
+  artifactUploadSessionTool,
+} from "@artifact-use/client-core/schemas";
 import { handleAdminApi } from "./admin";
 import { safeCreator } from "./auth";
 import { handlePublish } from "./publish";
-import { error, json } from "./util";
+import { error, json, mimeFor, sha256Hex } from "./util";
 
+// The hosted /mcp endpoint serves the base (HTTP) tool surface; the stdio
+// server composes its local-only dir/dry_run inputs on top.
 const TOOLS = [
-  {
-    name: "artifact_publish",
-    description:
-      "Publish or update a static artifact. Pass html for a single-file artifact, or files for a small inline multi-file artifact. If you can read files from a local filesystem and make HTTP requests from a shell, prefer artifact_upload_session so file bytes go directly over HTTP instead of through MCP/model context.",
-    inputSchema: {
-      type: "object",
-      required: ["artifact"],
-      properties: {
-        artifact: { type: "string", description: "Artifact slug to publish." },
-        title: { type: "string" },
-        gate_level: {
-          type: "string",
-          enum: ["public", "email", "verified_email", "allowlist"],
-        },
-        entrypoint: { type: "string", default: "index.html" },
-        html: { type: "string" },
-        files: {
-          type: "array",
-          description:
-            "Inline files for multi-file artifacts. Use content for text or content_base64 for binary.",
-          items: {
-            type: "object",
-            required: ["path"],
-            properties: {
-              path: { type: "string" },
-              content: { type: "string" },
-              content_base64: { type: "string" },
-              content_type: { type: "string" },
-            },
-          },
-        },
-      },
-    },
-  },
-  {
-    name: "artifact_upload_session",
-    description:
-      "Create a short-lived direct upload session for large files or folders. Use this when the agent has filesystem and shell/curl access: call this tool for a 6-hour bearer upload_token, then PUT file bytes directly to upload_base with Content-Length, Content-Type, and X-Artifact-Sha256, and POST the manifest to complete_url without embedding file contents in MCP arguments.",
-    inputSchema: {
-      type: "object",
-      required: ["artifact"],
-      properties: {
-        artifact: { type: "string", description: "Artifact slug to publish." },
-        title: { type: "string" },
-        gate_level: {
-          type: "string",
-          enum: ["public", "email", "verified_email", "allowlist"],
-        },
-        entrypoint: { type: "string", default: "index.html" },
-        ttl_seconds: {
-          type: "number",
-          description: "Token lifetime in seconds. Maximum is 21600 (6 hours).",
-          default: 21600,
-        },
-      },
-    },
-  },
-  {
-    name: "artifact_manage",
-    description:
-      "List artifacts, fetch stats, update access, or create a tracked share link.",
-    inputSchema: {
-      type: "object",
-      required: ["action"],
-      properties: {
-        action: {
-          type: "string",
-          enum: ["list", "stats", "set_access", "share_link"],
-        },
-        artifact: {
-          type: "string",
-          description: "Artifact url_key from list output, or artifact slug.",
-        },
-        gate_level: {
-          type: "string",
-          enum: ["public", "email", "verified_email", "allowlist"],
-        },
-        allowlist: { type: "object" },
-        recipient_email: { type: "string" },
-        recipient_label: { type: "string" },
-        expires_days: { type: "number" },
-      },
-    },
-  },
+  artifactPublishTool,
+  artifactUploadSessionTool,
+  artifactManageTool,
 ];
 
 export async function handleMcp(request: Request, env: Env): Promise<Response> {
@@ -148,6 +74,24 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
   }
 }
 
+type ApiHandler = (
+  request: Request,
+  env: Env,
+  path: string,
+) => Promise<Response>;
+
+// The MCP tools are thin adapters over the HTTP API: build an internal Request
+// and dispatch it straight to the route handler.
+function callApi(
+  request: Request,
+  env: Env,
+  handler: ApiHandler,
+  path: string,
+  init: RequestInit,
+): Promise<Response> {
+  return handler(new Request(new URL(path, request.url), init), env, path);
+}
+
 async function callTool(
   request: Request,
   env: Env,
@@ -158,6 +102,7 @@ async function callTool(
     Authorization: request.headers.get("Authorization") || "",
     "Content-Type": "application/json",
   };
+  const postJson = (body: unknown) => postJsonInit(headers, body);
   if (name === "artifact_publish") {
     if (Array.isArray(args.files)) {
       return publishInlineFiles(request, env, headers, args);
@@ -165,90 +110,64 @@ async function callTool(
     if (typeof args.html !== "string" || !args.html.trim()) {
       throw new Error("artifact_publish requires html or files");
     }
-    const r = await handlePublish(
-      new Request(new URL("/api/v1/publish/html", request.url), {
-        method: "POST",
-        headers,
-        body: JSON.stringify(args),
-      }),
+    const r = await callApi(
+      request,
       env,
+      handlePublish,
       "/api/v1/publish/html",
+      postJson(args),
     );
     return r.json();
   }
   if (name === "artifact_upload_session") {
-    const r = await handlePublish(
-      new Request(new URL("/api/v1/publish/upload-session", request.url), {
-        method: "POST",
-        headers,
-        body: JSON.stringify(args),
-      }),
+    const r = await callApi(
+      request,
       env,
+      handlePublish,
       "/api/v1/publish/upload-session",
+      postJson(args),
     );
     return r.json();
   }
   if (name === "artifact_manage") {
     const action = String(args.action || "");
-    if (action === "list") {
-      const r = await handleAdminApi(
-        new Request(new URL("/api/v1/artifacts", request.url), {
-          method: "GET",
-          headers,
-        }),
-        env,
-        "/api/v1/artifacts",
-      );
-      return r.json();
-    }
     const artifact = String(args.artifact || "");
-    if (!artifact)
+    if (action !== "list" && !artifact)
       throw new Error(
         `artifact_manage ${action || "action"} requires artifact`,
       );
-    const artifactRef = encodeURIComponent(artifact);
-    if (action === "set_access") {
-      const r = await handleAdminApi(
-        new Request(new URL(`/api/v1/artifacts/${artifactRef}`, request.url), {
-          method: "PATCH",
-          headers,
-          body: JSON.stringify({
+    const ref = encodeURIComponent(artifact);
+    const routes: Record<string, { path: string; init: RequestInit }> = {
+      list: { path: "/api/v1/artifacts", init: { method: "GET", headers } },
+      stats: {
+        path: `/api/v1/artifacts/${ref}/stats`,
+        init: { method: "GET", headers },
+      },
+      set_access: {
+        path: `/api/v1/artifacts/${ref}`,
+        init: {
+          ...postJson({
             gate_level: args.gate_level,
             allowlist: args.allowlist,
           }),
-        }),
-        env,
-        `/api/v1/artifacts/${artifactRef}`,
-      );
-      return r.json();
-    }
-    if (action === "share_link") {
-      const r = await handleAdminApi(
-        new Request(
-          new URL(`/api/v1/artifacts/${artifactRef}/share-links`, request.url),
-          {
-            method: "POST",
-            headers,
-            body: JSON.stringify(args),
-          },
-        ),
-        env,
-        `/api/v1/artifacts/${artifactRef}/share-links`,
-      );
-      return r.json();
-    }
-    if (action === "stats") {
-      const r = await handleAdminApi(
-        new Request(
-          new URL(`/api/v1/artifacts/${artifactRef}/stats`, request.url),
-          { method: "GET", headers },
-        ),
-        env,
-        `/api/v1/artifacts/${artifactRef}/stats`,
-      );
-      return r.json();
-    }
-    throw new Error(`unknown artifact_manage action: ${action}`);
+          method: "PATCH",
+        },
+      },
+      share_link: {
+        path: `/api/v1/artifacts/${ref}/share-links`,
+        init: postJson(args),
+      },
+    };
+    const route = routes[action];
+    if (!route) throw new Error(`unknown artifact_manage action: ${action}`);
+    const r = await callApi(
+      request,
+      env,
+      handleAdminApi,
+      route.path,
+      route.init,
+    );
+    return r.json();
   }
   throw new Error(`unknown tool: ${name}`);
 }
@@ -275,78 +194,74 @@ async function publishInlineFiles(
       return {
         path,
         bytes,
-        contentType: String(file.content_type || contentTypeFor(path)),
+        contentType: String(file.content_type || mimeFor(path)),
         sha256: await sha256Hex(bytes),
       };
     }),
   );
 
   const start = (await readJsonOrThrow(
-    await handlePublish(
-      new Request(new URL("/api/v1/publish/start", request.url), {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          artifact: args.artifact,
-          title: args.title,
-          gate_level: args.gate_level || "email",
-          entrypoint: args.entrypoint || "index.html",
-        }),
-      }),
+    await callApi(
+      request,
       env,
+      handlePublish,
       "/api/v1/publish/start",
+      postJsonInit(headers, {
+        artifact: args.artifact,
+        title: args.title,
+        gate_level: args.gate_level,
+        entrypoint: args.entrypoint || "index.html",
+      }),
     ),
   )) as { version: { id: string } };
 
   for (const file of normalized) {
-    const authHeader = headers.Authorization || "";
-    const uploadHeaders = {
-      Authorization: authHeader,
-      "Content-Type": file.contentType,
-      "Content-Length": String(file.bytes.byteLength),
-      "X-Artifact-Sha256": file.sha256,
-    };
+    // The raw path is used for both the URL and the route match; encoding it
+    // would make the stored path diverge for names with literal %XX sequences.
     await readJsonOrThrow(
-      await handlePublish(
-        new Request(
-          new URL(
-            `/api/v1/publish/${start.version.id}/files/${encodePath(file.path)}`,
-            request.url,
-          ),
-          {
-            method: "PUT",
-            headers: uploadHeaders,
-            body: arrayBufferFor(file.bytes),
-          },
-        ),
+      await callApi(
+        request,
         env,
+        handlePublish,
         `/api/v1/publish/${start.version.id}/files/${file.path}`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: headers.Authorization || "",
+            "Content-Type": file.contentType,
+            "Content-Length": String(file.bytes.byteLength),
+            "X-Artifact-Sha256": file.sha256,
+          },
+          body: arrayBufferFor(file.bytes),
+        },
       ),
     );
   }
 
   return readJsonOrThrow(
-    await handlePublish(
-      new Request(
-        new URL(`/api/v1/publish/${start.version.id}/complete`, request.url),
-        {
-          method: "POST",
-          headers,
-          body: JSON.stringify({
-            entrypoint: args.entrypoint || "index.html",
-            files: normalized.map((file) => ({
-              path: file.path,
-              content_type: file.contentType,
-              size: file.bytes.byteLength,
-              sha256: file.sha256,
-            })),
-          }),
-        },
-      ),
+    await callApi(
+      request,
       env,
+      handlePublish,
       `/api/v1/publish/${start.version.id}/complete`,
+      postJsonInit(headers, {
+        entrypoint: args.entrypoint || "index.html",
+        files: normalized.map((file) => ({
+          path: file.path,
+          content_type: file.contentType,
+          size: file.bytes.byteLength,
+          sha256: file.sha256,
+        })),
+      }),
     ),
   );
+}
+
+function postJsonInit(
+  headers: Record<string, string>,
+  body: unknown,
+): RequestInit {
+  return { method: "POST", headers, body: JSON.stringify(body) };
 }
 
 async function readJsonOrThrow(response: Response): Promise<unknown> {
@@ -360,41 +275,10 @@ function decodeBase64(value: string): Uint8Array {
   return Uint8Array.from(bin, (c) => c.charCodeAt(0));
 }
 
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", arrayBufferFor(bytes));
-  return [...new Uint8Array(digest)]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-}
-
 function arrayBufferFor(bytes: Uint8Array): ArrayBuffer {
   const sliced = bytes.buffer.slice(
     bytes.byteOffset,
     bytes.byteOffset + bytes.byteLength,
   );
   return sliced as ArrayBuffer;
-}
-
-function encodePath(path: string): string {
-  return path.split("/").map(encodeURIComponent).join("/");
-}
-
-function contentTypeFor(path: string): string {
-  const ext = path.split(".").pop()?.toLowerCase() || "";
-  const table: Record<string, string> = {
-    html: "text/html; charset=utf-8",
-    htm: "text/html; charset=utf-8",
-    css: "text/css; charset=utf-8",
-    js: "application/javascript; charset=utf-8",
-    json: "application/json; charset=utf-8",
-    svg: "image/svg+xml",
-    png: "image/png",
-    jpg: "image/jpeg",
-    jpeg: "image/jpeg",
-    gif: "image/gif",
-    webp: "image/webp",
-    pdf: "application/pdf",
-    txt: "text/plain; charset=utf-8",
-  };
-  return table[ext] || "application/octet-stream";
 }

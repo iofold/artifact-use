@@ -23,11 +23,11 @@ import {
   listFilesForVersion,
   revertVersionToDraft,
   upsertArtifact,
-  upsertFile,
   upsertFileIfDraft,
 } from "./db";
 import {
   assertSlug,
+  bearerToken,
   error,
   GATE_LEVELS,
   json,
@@ -142,7 +142,7 @@ export async function handlePublish(
       const putOptions: R2PutOptions = {
         httpMetadata: { contentType },
         customMetadata: { sha256 },
-        sha256: hexToBytes(sha256),
+        sha256,
       };
       const put = await env.BUCKET.put(
         storageKey,
@@ -156,11 +156,6 @@ export async function handlePublish(
           "file_too_large",
           "file exceeds configured file limit",
         );
-      }
-      const latest = await getVersionForOrg(env, actor.orgId, versionId);
-      if (!latest || latest.status !== "draft") {
-        await env.BUCKET.delete(storageKey);
-        return error(409, "version_not_draft", "version is not writable");
       }
       const upserted = await upsertFileIfDraft(
         env,
@@ -261,32 +256,21 @@ export async function handlePublish(
       const body = (await request.json()) as StartBody & { html?: string };
       const html = String(body.html || "");
       if (!html) return error(400, "html_required", "html is required");
-      if (new TextEncoder().encode(html).byteLength > readLimit(env, "file"))
-        return error(413, "file_too_large", "html exceeds file limit");
-      const artifactSlug = assertSlug("artifact", String(body.artifact || ""));
-      const gateLevel = (body.gate_level || "email") as GateLevel;
-      if (!GATE_LEVELS.has(gateLevel))
-        return error(400, "invalid_gate_level", "gate_level is not supported");
-      const artifact = await upsertArtifact(
-        env,
-        creator,
-        artifactSlug,
-        body.title || artifactSlug,
-        gateLevel,
-      );
-      const version = await createDraftVersion(
-        env,
-        creator,
-        artifact,
-        "index.html",
-      );
-      const storageKey = `orgs/${creator.orgId}/artifacts/${version.artifact_id}/versions/${version.id}/files/index.html`;
       const bytes = new TextEncoder().encode(html);
+      if (bytes.byteLength > readLimit(env, "file"))
+        return error(413, "file_too_large", "html exceeds file limit");
+      // Pin the entrypoint after the spread so a caller-supplied one stays ignored.
+      const { artifact, version } = await createDraft(env, creator, {
+        ...body,
+        entrypoint: "index.html",
+      });
+      const storageKey = `orgs/${creator.orgId}/artifacts/${version.artifact_id}/versions/${version.id}/files/index.html`;
       await env.BUCKET.put(storageKey, bytes, {
         httpMetadata: { contentType: "text/html; charset=utf-8" },
       });
-      await upsertFile(
+      const upserted = await upsertFileIfDraft(
         env,
+        creator.orgId,
         version.id,
         "index.html",
         storageKey,
@@ -294,6 +278,8 @@ export async function handlePublish(
         bytes.byteLength,
         null,
       );
+      if (!upserted)
+        return error(409, "version_not_draft", "version is not writable");
       const manifest: PublishManifest = {
         entrypoint: "index.html",
         files: [
@@ -340,15 +326,17 @@ async function createDraft(
   limits: { package_bytes: number; file_bytes: number; file_count: number };
 }> {
   const artifactSlug = assertSlug("artifact", String(body.artifact || ""));
-  const gateLevel = (body.gate_level || "email") as GateLevel;
-  if (!GATE_LEVELS.has(gateLevel))
+  // Pass absent title/gate_level through as null so upsertArtifact keeps the
+  // existing values on republish instead of resetting them.
+  const gateLevel = (body.gate_level || null) as GateLevel | null;
+  if (gateLevel && !GATE_LEVELS.has(gateLevel))
     throw new Error("gate_level is not supported");
   const entrypoint = validateAssetPath(String(body.entrypoint || "index.html"));
   const artifact = await upsertArtifact(
     env,
     creator,
     artifactSlug,
-    body.title || artifactSlug,
+    body.title || null,
     gateLevel,
   );
   const version = await createDraftVersion(env, creator, artifact, entrypoint);
@@ -398,12 +386,6 @@ async function publishActorForVersion(
   };
 }
 
-function bearerToken(request: Request): string | null {
-  const header = request.headers.get("Authorization") || "";
-  if (!header.startsWith("Bearer ")) return null;
-  return header.slice("Bearer ".length).trim() || null;
-}
-
 function parseContentLength(request: Request): number | Response {
   const raw = request.headers.get("Content-Length");
   if (!raw)
@@ -431,14 +413,6 @@ function uploadSessionTtl(value: unknown): number | Response {
   if (!Number.isFinite(ttl))
     return error(400, "invalid_ttl", "ttl_seconds must be a number");
   return Math.max(60, Math.min(6 * 60 * 60, Math.floor(ttl)));
-}
-
-function hexToBytes(hex: string): Uint8Array {
-  const bytes = new Uint8Array(hex.length / 2);
-  for (let i = 0; i < bytes.length; i += 1) {
-    bytes[i] = Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
 }
 
 async function validateManifest(
