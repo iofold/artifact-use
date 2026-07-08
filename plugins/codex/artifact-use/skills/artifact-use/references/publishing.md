@@ -10,12 +10,26 @@ Default endpoint:
 https://artifacts.iofold.com/mcp
 ```
 
-OAuth-capable MCP clients should authenticate from the MCP prompt. If Codex's
-MCP OAuth token refresh is unreliable, use the bearer-token fallback:
+OAuth-capable MCP clients should authenticate from the MCP prompt.
+
+No token and no browser? Self-serve one with the connect flow:
+
+1. `POST https://artifacts.iofold.com/api/v1/connect/start` with JSON
+   `{"agent_label": "<who you are>"}` → returns `device_code`, `user_code`,
+   and `verification_url`.
+2. Ask your human to approve the `user_code` at the `verification_url`.
+3. Poll `POST https://artifacts.iofold.com/api/v1/connect/poll` with
+   `{"device_code": "..."}` every few seconds until it returns your bearer
+   token (delivered once) plus a ready-to-follow setup prompt.
+4. Verify with `GET https://artifacts.iofold.com/api/v1/me`.
+
+If Codex's MCP OAuth token refresh is unreliable, use the bearer-token
+fallback:
 
 1. Sign in at `https://artifacts.iofold.com/admin`.
-2. In **Agent setup**, create a Codex token.
-3. Export it before starting Codex:
+2. In **Agent setup**, generate an agent prompt (the token is embedded), or
+   use the manual pieces it offers.
+3. Export the token before starting Codex:
 
 ```bash
 export ARTIFACT_USE_API_BASE=https://artifacts.iofold.com

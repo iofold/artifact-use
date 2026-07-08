@@ -42,10 +42,14 @@ User journey:
 
 1. Sign in to Artifact Use in a browser.
 2. Open `/admin`.
-3. In **Agent setup**, click **Create Codex token**.
-4. Copy the generated shell export into the environment that launches Codex.
+3. In **Agent setup**, click **Generate agent prompt**. The page shows a
+   one-paste prompt with the token embedded, plus the raw pieces below it.
+4. Copy the shell export into the environment that launches Codex.
 5. Add the bearer-token MCP block to `~/.codex/config.toml`.
 6. Start a fresh Codex process or open a new thread.
+
+Tokens can be revoked anytime in **Agent setup**; revocation takes effect on
+the token's next use.
 
 Shell environment:
 
@@ -63,12 +67,27 @@ bearer_token_env_var = "ARTIFACT_USE_TOKEN"
 ```
 
 Do not paste the token itself into `config.toml`, source files, prompts, or
-published artifact HTML. Creator tokens are stateless and expire at the time
-shown on the admin page; rotate by minting a new token and replacing the
-environment variable.
+published artifact HTML. Rotate by minting a new token and revoking the old
+one in the admin.
 
 For CLI usage, local stdio MCP, or non-OAuth clients, pass the same creator
 token explicitly through `ARTIFACT_USE_TOKEN`.
+
+### Agent Connect (Device-Code Style)
+
+When the agent has no token and no browser, it can request one itself:
+
+1. Agent: `POST /api/v1/connect/start` with optional `{"agent_label": "..."}`
+   → `device_code`, `user_code`, `verification_url`, `expires_in` (15 min).
+2. Human: open the `verification_url` (or `/connect`), review the label, and
+   approve the code from a signed-in publisher session.
+3. Agent: `POST /api/v1/connect/poll` with `{"device_code": "..."}` →
+   `{"status": "pending"}` until approval, then the bearer token (delivered
+   exactly once) plus a ready-to-follow setup prompt.
+
+Programmatic minting also exists for OAuth-authenticated identities:
+`POST /api/v1/tokens` `{"label": "...", "expires_days": 30}`. Creator tokens
+cannot mint further tokens.
 
 ## Codex
 

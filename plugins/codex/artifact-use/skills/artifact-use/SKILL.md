@@ -13,7 +13,8 @@ Artifact Use publishes static artifacts to `https://artifacts.iofold.com` withou
 - Prefer hosted HTTP MCP at `https://artifacts.iofold.com/mcp`; OAuth-capable clients should authenticate through the MCP prompt.
 - For OAuth-capable clients, configure only the MCP URL. Do not add an `Authorization` header unless you are intentionally passing a fresh bearer token.
 - After `codex mcp login artifact-use`, restart the active Codex session before using `mcp__artifact_use`; Codex may keep the old HTTP MCP auth state in memory.
-- If Codex MCP OAuth refresh is unreliable, sign in at `/admin`, create a Codex token in Agent setup, export it as `ARTIFACT_USE_TOKEN`, and set `bearer_token_env_var = "ARTIFACT_USE_TOKEN"` for the MCP server.
+- No token and no browser? Use the connect flow: `POST /api/v1/connect/start`, have the human approve the code at `/connect`, then `POST /api/v1/connect/poll` for a bearer token; verify with `GET /api/v1/me`. Details in `references/publishing.md`.
+- If Codex MCP OAuth refresh is unreliable, sign in at `/admin`, generate an agent prompt in Agent setup (the token is embedded), export the token as `ARTIFACT_USE_TOKEN`, and set `bearer_token_env_var = "ARTIFACT_USE_TOKEN"` for the MCP server.
 - Use `ARTIFACT_USE_TOKEN` for the Codex bearer fallback, CLI, local stdio MCP, or non-OAuth clients.
 - Use `artifact_publish` for a single HTML string or small inline multi-file payloads.
 - Use `artifact_upload_session`, local stdio MCP with `dir`, or the CLI for local folders, large files, images, PDFs, or multi-file artifacts.

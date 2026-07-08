@@ -89,10 +89,20 @@ Use the hosted HTTP MCP endpoint when the agent can authenticate through OAuth:
 }
 ```
 
+Tokenless agents can self-serve with the connect flow — no browser needed on
+the agent side:
+
+```text
+POST /api/v1/connect/start            -> device_code + user_code + verification_url
+(human approves the code at /connect)
+POST /api/v1/connect/poll             -> bearer token + one-paste setup prompt
+```
+
 Codex fallback when OAuth refresh is unreliable:
 
 1. Sign in at `https://artifacts.iofold.com/admin`.
-2. In **Agent setup**, create a Codex token.
+2. In **Agent setup**, generate an agent prompt (a scoped bearer token is
+   embedded; tokens are listed and revocable there too).
 3. Store the token in the environment that launches Codex:
 
 ```bash

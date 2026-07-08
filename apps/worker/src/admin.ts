@@ -1,5 +1,6 @@
 import type { Artifact, Env, GateLevel } from "./types";
-import { requirePermission, safeCreator } from "./auth";
+import { mintCreatorToken, requirePermission, safeCreator } from "./auth";
+import { agentSetupPrompt } from "./llms";
 import {
   createShareLink,
   getArtifactByLegacyPath,
@@ -45,6 +46,51 @@ export async function handleAdminApi(
       return json({
         artifacts: await listArtifactsForOrg(env, creator.orgId),
       });
+    }
+
+    if (path === "/api/v1/tokens") {
+      // Creator tokens must not mint further tokens — a leaked token could
+      // otherwise extend its own life forever. OAuth/JWT identities only.
+      if (creator.raw.creator_token)
+        return error(
+          403,
+          "token_mint_forbidden",
+          "creator tokens cannot mint tokens; authenticate with WorkOS OAuth, or ask a human to generate one at /admin",
+        );
+      if (request.method === "GET") {
+        requirePermission(creator, env, "artifacts:read");
+        const rows = await env.DB.prepare(
+          `SELECT id, label, source, created_at, expires_at FROM creator_tokens
+           WHERE org_id = ? AND revoked_at IS NULL AND expires_at > ?
+           ORDER BY created_at DESC LIMIT 50`,
+        )
+          .bind(creator.orgId, nowSec())
+          .all();
+        return json({ tokens: rows.results || [] });
+      }
+      if (request.method === "POST") {
+        requirePermission(creator, env, "artifacts:manage_access");
+        const body = (await request.json().catch(() => ({}))) as {
+          label?: unknown;
+          expires_days?: unknown;
+        };
+        const minted = await mintCreatorToken(env, {
+          sub: creator.sub,
+          orgId: creator.orgId,
+          email: creator.email,
+          label: body.label ? String(body.label).slice(0, 80) : null,
+          source: "api",
+          expiresDays: Number(body.expires_days) || 30,
+        });
+        return json({
+          token: minted.token,
+          token_id: minted.id,
+          token_type: "Bearer",
+          expires_at: minted.expiresAt,
+          prompt: agentSetupPrompt(env, minted.token, minted.expiresAt),
+        });
+      }
+      return error(405, "method_not_allowed", "method not allowed");
     }
 
     const parsed = parseArtifactApiPath(path);

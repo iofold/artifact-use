@@ -40,6 +40,7 @@ export interface Creator {
 
 export interface CreatorToken {
   typ: "creator";
+  jti?: string;
   sub: string;
   org_id: string;
   email: string | null;

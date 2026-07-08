@@ -25,12 +25,13 @@ Consuming an artifact (no browser needed):
 
 Agent setup summary:
 1. Prefer HTTP MCP at ${base}/mcp. OAuth-capable clients should configure only the URL and use the MCP auth prompt.
-2. If Codex MCP OAuth refresh is unreliable, sign in at ${base}/admin, create a Codex token in Agent setup, export it as ARTIFACT_USE_TOKEN, and set bearer_token_env_var = "ARTIFACT_USE_TOKEN".
-3. For non-OAuth clients, CLI, or local stdio MCP, set ARTIFACT_USE_API_BASE=${base} and ARTIFACT_USE_TOKEN=<artifact-use-creator-token>.
-4. Install or create a skill named artifact-use using the guidance in ${base}/llms-full.txt.
-5. Use artifact_publish for one HTML string or small inline files.
-6. Use artifact_upload_session, local stdio MCP, or CLI publish-folder for local folders and large/multi-file artifacts.
-7. Do not use Wrangler, Cloudflare API tokens, direct R2, or direct D1 for publishing artifacts.
+2. No token and no browser? Self-serve a publisher token: POST ${base}/api/v1/connect/start (JSON, optional {"agent_label": "..."}) -> tell your human to approve at the returned verification_url with the user_code -> poll ${base}/api/v1/connect/poll {"device_code": "..."} until it returns your token and a setup prompt.
+3. Humans can also mint a token in the admin: sign in at ${base}/admin, use "Connect an agent", and paste the generated prompt (token embedded) to the agent.
+4. Bearer tokens (au_creator_...) work everywhere: HTTP MCP at ${base}/mcp (Codex: bearer_token_env_var = "ARTIFACT_USE_TOKEN"), the HTTP API, the CLI, and local stdio MCP via ARTIFACT_USE_API_BASE=${base} and ARTIFACT_USE_TOKEN.
+5. Verify a token with GET ${base}/api/v1/me. Install or create a skill named artifact-use using the guidance in ${base}/llms-full.txt.
+6. Use artifact_publish for one HTML string or small inline files.
+7. Use artifact_upload_session, local stdio MCP, or CLI publish-folder for local folders and large/multi-file artifacts.
+8. Do not use Wrangler, Cloudflare API tokens, direct R2, or direct D1 for publishing artifacts.
 `);
 }
 
@@ -119,6 +120,15 @@ For non-OAuth clients, CLI, or local stdio MCP, use the same token:
 export ARTIFACT_USE_API_BASE=${base}
 export ARTIFACT_USE_TOKEN=<artifact-use-creator-token>
 \`\`\`
+
+Agent connect (self-serve token, no browser needed by the agent):
+
+1. \`POST ${base}/api/v1/connect/start\` with JSON \`{"agent_label": "<who you are>"}\` (label optional). The response contains \`device_code\`, \`user_code\`, \`verification_url\`, and \`expires_in\` seconds.
+2. Tell your human: "Approve code \`<user_code>\` at \`<verification_url>\`" (the URL already carries the code).
+3. Poll \`POST ${base}/api/v1/connect/poll\` with JSON \`{"device_code": "..."}\` every few seconds. While pending it returns \`{"status": "pending"}\`; after approval it returns your bearer token, its expiry, and a ready-to-follow setup prompt. The token is delivered exactly once.
+4. Verify with \`GET ${base}/api/v1/me\` using \`Authorization: Bearer <token>\`.
+
+Tokens can be listed and revoked by the human at ${base}/admin, and minted programmatically with \`POST ${base}/api/v1/tokens\` \`{"label": "...", "expires_days": 30}\` when already authenticated with WorkOS OAuth (creator tokens cannot mint further tokens).
 
 ## 3. Skill setup
 
@@ -293,6 +303,36 @@ Report:
 - Viewports/interactions checked.
 - Any skipped checks or assumptions.
 `);
+}
+
+// One-paste prompt handed to a publishing agent together with a fresh creator
+// bearer token. Publisher-side sibling of the viewer handoff prompt in
+// serve.ts handleAgentToken: same shape — capability line, credential,
+// numbered steps, upgrade pointer.
+export function agentSetupPrompt(
+  env: Env,
+  token: string,
+  expiresAt: number,
+): string {
+  const base = siteBaseUrl(env);
+  const expires = new Date(expiresAt * 1000).toISOString();
+  return [
+    `You are connected to Artifact Use — publish and manage web artifacts (HTML tools, dashboards, static folders, PDFs) at ${base}.`,
+    ``,
+    `Bearer token (publish + manage, expires ${expires}) — send on every call:`,
+    `  Authorization: Bearer ${token}`,
+    ``,
+    `1. Verify:   GET ${base}/api/v1/me`,
+    `2. Learn:    GET ${base}/llms-full.txt   (publishing rules, MCP tools, limits)`,
+    `3. Publish:  MCP at ${base}/mcp accepts this same bearer token`,
+    `             (Codex config.toml: url = "${base}/mcp", bearer_token_env_var = "ARTIFACT_USE_TOKEN").`,
+    `             For the HTTP API or CLI instead:`,
+    `               export ARTIFACT_USE_API_BASE=${base}`,
+    `               export ARTIFACT_USE_TOKEN='${token}'`,
+    `4. Manage:   GET ${base}/api/v1/artifacts   (stats, access, share links per artifact)`,
+    ``,
+    `Keep this token out of committed files and published HTML.`,
+  ].join("\n");
 }
 
 function text(body: string): Response {

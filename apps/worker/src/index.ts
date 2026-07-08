@@ -4,8 +4,10 @@ import { oauthResource, supportedScopes } from "./auth";
 import { handleGateRoute } from "./gate";
 import { llmsFullTxt, llmsTxt } from "./llms";
 import { handleMcp } from "./mcp";
+import { handleConnectApi } from "./connect";
 import { handlePublish } from "./publish";
 import {
+  handleConnectPage,
   handlePublisherAdmin,
   handlePublisherAuth,
   renderHome,
@@ -86,6 +88,9 @@ async function route(
       return handlePublisherAdmin(request, env, path);
     if (path === "/health") return json({ ok: true, name: "artifact-use" });
     if (path === "/mcp") return handleMcp(request, env);
+    if (path === "/connect") return handleConnectPage(request, env);
+    if (path.startsWith("/api/v1/connect/"))
+      return handleConnectApi(request, env, path);
     if (path.startsWith("/api/v1/publish/"))
       return handlePublish(request, env, path);
     if (path.startsWith("/api/v1/")) return handleAdminApi(request, env, path);

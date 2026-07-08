@@ -8,12 +8,18 @@ import type {
 import {
   extractStringArray,
   fromBase64Url,
+  mintCreatorToken,
   readCookie,
-  signCreatorToken,
   signPayload,
   userScopedOrgId,
   verifyPayload,
 } from "./auth";
+import {
+  approveConnectRequest,
+  pendingConnectRequest,
+  normalizeUserCode,
+} from "./connect";
+import { agentSetupPrompt } from "./llms";
 import {
   stringClaim,
   workosApi,
@@ -33,12 +39,15 @@ import {
   publicArtifactPath,
   publicArtifactUrl,
   randomId,
+  siteBaseUrl,
   slugify,
+  wantsHtml,
 } from "./util";
 
 const SESSION_COOKIE = "au_pub";
 const STATE_COOKIE = "au_state";
 const INVITE_COOKIE = "au_invite";
+const NEXT_COOKIE = "au_next";
 const TEAM_ADMIN_ROLES = new Set(["admin", "owner"]);
 const TEAM_MANAGE_PERMISSIONS = new Set([
   "artifacts:admin",
@@ -46,12 +55,6 @@ const TEAM_MANAGE_PERMISSIONS = new Set([
   "organization_memberships:write",
 ]);
 const TEAM_ROLE_OPTIONS = ["member", "admin"];
-const CREATOR_TOKEN_PERMISSIONS = [
-  "artifacts:publish",
-  "artifacts:read",
-  "artifacts:manage_access",
-  "artifacts:view_stats",
-];
 
 type ArtifactRow = Artifact & {
   total_views: number;
@@ -156,39 +159,106 @@ type WorkosTeam = {
   error: string | null;
 };
 
+const GITHUB_URL = "https://github.com/iofold/artifact-use";
+
 export async function renderHome(
   request: Request,
   env: Env,
 ): Promise<Response> {
   const session = await getPublisherSession(request, env);
   if (session) return renderAdmin(request, env, session);
+  const base = siteBaseUrl(env);
+  const prefix = artifactPathPrefix(env) || "";
   return page(
-    "Artifact Use",
+    "Artifact Use — publish agent output as review-ready links",
     `<header class="top">
       <a class="brand" href="/">Artifact Use</a>
       <nav>
-        <a href="/login">Sign in</a><a class="button small" href="/signup">Sign up</a>
+        <a href="${GITHUB_URL}">GitHub</a>
+        <a href="/llms.txt">For agents</a>
+        <a href="/login">Sign in</a>
+        <a class="button small" href="/signup">Sign up</a>
       </nav>
     </header>
     <main class="home">
       <section class="hero">
         <div>
-          <p class="eyebrow">Review-ready artifact links</p>
-          <h1>Turn agent output into polished links people can open and review.</h1>
-          <p class="lead">Publish single-file HTML prototypes, PDFs, images, or complete multi-file folders with stable artifact links, access controls, and comments for feedback.</p>
-          <div class="actions">
-            <a class="button" href="/signup">Sign up</a>
-            <a class="button ghost" href="/login">Sign in</a>
+          <p class="eyebrow rise">Review-ready artifact links</p>
+          <h1 class="rise d1">Turn agent output into links people can open and review.</h1>
+          <p class="lead rise d2">Your coding agent publishes HTML tools, dashboards, PDFs, and whole static folders to one stable URL — with access gates, versioning, and comments built in.</p>
+          <div class="actions rise d3">
+            <a class="button" href="/signup">Start publishing</a>
+            <a class="button ghost" href="/llms.txt">Connect your agent</a>
           </div>
         </div>
-        <div class="status" aria-label="Artifact Use features">
-          <span></span>
-          <strong>Single HTML or full folders</strong>
-          <em>WorkOS SSO publisher sign-in, email access, magic-link or email OTP links, whitelist gates, and comments.</em>
-          <small>${escapeHtml(publicArtifactUrl(env, "example-abc123"))}</small>
+        <div class="term rise d2" role="img" aria-label="A coding agent publishing an artifact and getting a stable link back">
+          <div class="term-bar"><i></i><i></i><i></i><span>agent session</span></div>
+          <pre><span class="t-dim"># your agent, at the end of a task</span>
+&gt; artifact_publish { title: "Claims audit console", dir: "dist/" }
+
+<span class="t-ok">published</span>  12 files · v3 · gate: email
+<span class="t-url">${escapeHtml(base + prefix)}/claims-audit-console-4fk2a9/</span>
+
+<span class="t-dim"># teammates open it and comment on it;</span>
+<span class="t-dim"># the next agent reads the feedback</span><span class="caret"></span></pre>
         </div>
       </section>
+      <section class="steps" aria-label="How it works">
+        <section>
+          <span class="step-n">01</span>
+          <h3>Agents publish</h3>
+          <p>Over MCP, CLI, or plain HTTP — single HTML files or complete folders with images, data, and PDFs. Versions are immutable and promoted atomically.</p>
+        </section>
+        <section>
+          <span class="step-n">02</span>
+          <h3>People review</h3>
+          <p>One stable link behind an email, verified-email, or allowlist gate. Reviewers comment directly on the artifact — no extra tooling.</p>
+        </section>
+        <section>
+          <span class="step-n">03</span>
+          <h3>Work loops back</h3>
+          <p>Views and feedback are readable through the same API, so the next agent iteration starts where the review ended.</p>
+        </section>
+      </section>
+      <section class="feat" aria-label="What you get">
+        <div><strong>Stable links</strong><span>${escapeHtml(prefix)}/{slug}-{code}/ URLs that survive every republish.</span></div>
+        <div><strong>Access gates</strong><span>Public, email, verified email, or per-domain and per-address allowlists.</span></div>
+        <div><strong>Feedback</strong><span>Comments with element anchors, replies, and resolve/reopen — on the artifact itself.</span></div>
+        <div><strong>Agent-first API</strong><span>HTTP MCP with OAuth or bearer tokens, a JSON-first CLI, and machine descriptors for every artifact.</span></div>
+        <div><strong>Your infrastructure</strong><span>MIT licensed; runs on your Cloudflare account with R2 and D1. Agents never hold Cloudflare credentials.</span></div>
+        <div><strong>Team workspaces</strong><span>Invite teammates — everyone shares the same artifact list, stats, and feedback.</span></div>
+      </section>
+      <section class="agents" id="agents">
+        <div>
+          <p class="eyebrow">Built for agents first</p>
+          <h2>Your agent can set itself up.</h2>
+          <p>Point any MCP-capable agent at the endpoint and it authenticates with OAuth — or it requests a token and asks you to approve a one-time code, with no browser on its side.</p>
+          <p>Everything here is machine-readable. Agents start at <a href="/llms.txt">${escapeHtml(base)}/llms.txt</a>.</p>
+        </div>
+        <div>
+          <div class="codeblock"><button class="copy-btn" type="button" data-copy="mcp-config">Copy</button><pre id="mcp-config">${escapeHtml(mcpConfig(env))}</pre></div>
+          <div class="codeblock"><button class="copy-btn" type="button" data-copy="connect-snippet">Copy</button><pre id="connect-snippet"><span class="t-dim"># tokenless agents: device-style connect</span>
+POST ${escapeHtml(base)}/api/v1/connect/start
+<span class="t-dim"># -> human approves the code at ${escapeHtml(base)}/connect</span>
+POST ${escapeHtml(base)}/api/v1/connect/poll
+<span class="t-dim"># -> bearer token + ready-to-run setup prompt</span></pre></div>
+        </div>
+      </section>
+      <footer class="site">
+        <span>Artifact Use · MIT licensed</span>
+        <nav>
+          <a href="${GITHUB_URL}">GitHub</a>
+          <a href="/llms.txt">llms.txt</a>
+          <a href="/llms-full.txt">Agent guide</a>
+          <code>MCP ${escapeHtml(base)}/mcp</code>
+        </nav>
+      </footer>
     </main>`,
+    {
+      robots: "index",
+      description:
+        "Publish agent-generated HTML tools, dashboards, and folders as stable, gated, reviewable links. MCP, CLI, and HTTP publishing on your own Cloudflare account.",
+    },
   );
 }
 
@@ -225,7 +295,12 @@ export async function handlePublisherAdmin(
   path: string,
 ): Promise<Response> {
   const session = await getPublisherSession(request, env);
-  if (!session) return redirect("/login");
+  if (!session) {
+    // Browsers get the sign-in redirect; agents get instructions instead of
+    // a dead-end 302 (same pattern as the artifact gate JSON).
+    if (!wantsHtml(request)) return adminGateJson(env);
+    return redirect("/login");
+  }
   if (path === "/admin" && request.method === "GET")
     return renderAdmin(request, env, session);
   if (path === "/admin/super" && request.method === "GET")
@@ -238,8 +313,13 @@ export async function handlePublisherAdmin(
     return createAdminShareLink(request, env, session);
   if (path === "/admin/artifact/share-link/revoke" && request.method === "POST")
     return revokeAdminShareLink(request, env, session);
-  if (path === "/admin/creator-token" && request.method === "POST")
-    return createCreatorToken(request, env, session);
+  if (
+    (path === "/admin/agent-prompt" || path === "/admin/creator-token") &&
+    request.method === "POST"
+  )
+    return createAgentPrompt(request, env, session);
+  if (path === "/admin/agent-token/revoke" && request.method === "POST")
+    return revokeAgentToken(request, env, session);
   if (path === "/admin/team/invite" && request.method === "POST")
     return createPublisherInvite(request, env, session);
   if (path === "/admin/team/invite/revoke" && request.method === "POST")
@@ -247,6 +327,28 @@ export async function handlePublisherAdmin(
   if (path === "/admin/me" && request.method === "GET")
     return json({ publisher: publicSession(session) });
   return error(404, "not_found", "publisher admin route not found");
+}
+
+function adminGateJson(env: Env): Response {
+  const base = siteBaseUrl(env);
+  return json(
+    {
+      error: {
+        code: "publisher_session_required",
+        message: "the publisher admin is a browser surface",
+      },
+      access: {
+        human: `sign in at ${base}/admin in a browser`,
+        agent_connect: `no token? POST ${base}/api/v1/connect/start, have your human approve the code at ${base}/connect, then POST ${base}/api/v1/connect/poll for a bearer token`,
+        api: `with a bearer token, use ${base}/api/v1/me, ${base}/api/v1/artifacts, and ${base}/mcp instead of /admin`,
+        guide: `${base}/llms.txt`,
+      },
+    },
+    {
+      status: 401,
+      headers: { "WWW-Authenticate": 'Bearer realm="artifact-use"' },
+    },
+  );
 }
 
 async function startAuth(
@@ -366,7 +468,12 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
   );
   headers.append("Set-Cookie", expireCookie(STATE_COOKIE));
   headers.append("Set-Cookie", expireCookie(INVITE_COOKIE));
-  return redirect("/admin", headers);
+  // Honor a pre-auth destination (e.g. /connect?code=...) set before the
+  // sign-in redirect. Same-site relative paths only.
+  const next = readCookie(request, NEXT_COOKIE);
+  const dest = next && /^\/(?!\/)[\w\-./?=&%]*$/.test(next) ? next : "/admin";
+  if (next) headers.append("Set-Cookie", expireCookie(NEXT_COOKIE));
+  return redirect(dest, headers);
 }
 
 async function exchangeCode(
@@ -519,124 +626,187 @@ async function renderAdmin(
     orderBy: "total_views DESC, a.updated_at DESC",
   });
   const maps = await adminMaps(env, session.orgId);
-  const totalViews = artifacts.reduce(
-    (sum, row) => sum + Number(row.total_views || 0),
-    0,
-  );
-  const totalComments = artifacts.reduce(
-    (sum, row) => sum + Number(row.comment_count || 0),
-    0,
-  );
-  const views7d = await viewsSince(env, session.orgId, nowSec() - 7 * 86400);
-  const uniqueRow = await env.DB.prepare(
-    `SELECT COUNT(DISTINCT v.email) AS n
-     FROM views v JOIN artifacts a ON a.id = v.artifact_id
-     WHERE a.org_id = ?`,
-  )
-    .bind(session.orgId)
-    .first<{ n: number }>();
-  const uniqueViewers = Number(uniqueRow?.n || 0);
+  const team = await adminTeam(env, session);
+  const tokens = await listAgentTokens(env, session.orgId);
+  const hasArtifacts = artifacts.length > 0;
+
+  // Metrics only mean something once there is something to measure; a new
+  // workspace gets the onboarding card instead of a row of zeros.
+  let metricsHtml = "";
+  if (hasArtifacts) {
+    const totalViews = artifacts.reduce(
+      (sum, row) => sum + Number(row.total_views || 0),
+      0,
+    );
+    const totalComments = artifacts.reduce(
+      (sum, row) => sum + Number(row.comment_count || 0),
+      0,
+    );
+    const views7d = await viewsSince(env, session.orgId, nowSec() - 7 * 86400);
+    const uniqueRow = await env.DB.prepare(
+      `SELECT COUNT(DISTINCT v.email) AS n
+       FROM views v JOIN artifacts a ON a.id = v.artifact_id
+       WHERE a.org_id = ?`,
+    )
+      .bind(session.orgId)
+      .first<{ n: number }>();
+    metricsHtml = `<div class="metrics">
+      <div><strong>${artifacts.length}</strong><span>Artifacts</span></div>
+      <div><strong>${formatNumber(totalViews)}</strong><span>Views</span></div>
+      <div><strong>${formatNumber(Number(uniqueRow?.n || 0))}</strong><span>Viewers</span></div>
+      <div><strong>${formatNumber(views7d)}</strong><span>Views · 7d</span></div>
+      <div><strong>${formatNumber(totalComments)}</strong><span>Feedback</span></div>
+    </div>`;
+  }
   const recent = Array.from(maps.recent.values())
     .flat()
     .sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0))
     .slice(0, 18);
-  const team = await adminTeam(env, session);
+
+  const artifactsHtml = hasArtifacts
+    ? `<section class="table" aria-label="Artifacts">
+        <div class="table-head"><span>Artifact</span><span>Public path</span><span>Access</span><span>Stats</span><span></span></div>
+        ${artifacts
+          .map((artifact) =>
+            artifactRow(
+              env,
+              artifact,
+              {
+                shares: maps.shares.get(artifact.id) || [],
+                comments: maps.comments.get(artifact.id) || [],
+                recent: maps.recent.get(artifact.id) || [],
+                daily: maps.daily.get(artifact.id) || [],
+              },
+              openId === artifact.id,
+            ),
+          )
+          .join("")}
+      </section>`
+    : `<div class="onboard">
+        <p class="eyebrow">First artifact</p>
+        <h2>Connect an agent and publish something.</h2>
+        <ol>
+          <li><strong>Connect an agent</strong>Generate a one-paste prompt below — it carries a scoped publish token, so any agent can publish here immediately.</li>
+          <li><strong>Ask for an artifact</strong>"Publish this prototype with an email gate." The agent gets back a stable link under ${escapeHtml(artifactPathPrefix(env) || "/")}/.</li>
+          <li><strong>Share and review</strong>Send the link around; views and comments land back here and in your agent's API.</li>
+        </ol>
+        <div class="actions">
+          <a class="button" href="#agent-setup">Connect an agent</a>
+          <a class="button ghost" href="${GITHUB_URL}">Read the docs</a>
+        </div>
+      </div>`;
 
   return page(
-    "Publisher Admin",
+    "Artifact Use admin",
     `<header class="top">
       <a class="brand" href="/">Artifact Use</a>
-      <nav><a href="/admin">Admin</a>${superAdmin ? `<a href="/admin/super">Super Admin</a>` : ""}<a href="/logout">Sign out</a></nav>
+      <nav>${superAdmin ? `<a href="/admin/super">Super Admin</a>` : ""}<a href="#agent-setup">Connect an agent</a><a href="/logout">Sign out</a></nav>
     </header>
     <main class="admin">
       <section class="headline">
         <div>
           <p class="eyebrow">Publisher admin</p>
-          <h1>${escapeHtml(session.name || session.email || "Publisher")}</h1>
-          <p class="muted">${escapeHtml(session.email || session.sub)} · ${escapeHtml(session.orgId)}</p>
+          <h1>Artifacts</h1>
+          <p class="muted">${escapeHtml(session.email || session.name || session.sub)}</p>
         </div>
-        <div class="metrics">
-          <div><strong>${artifacts.length}</strong><span>Artifacts</span></div>
-          <div><strong>${totalViews}</strong><span>Views</span></div>
-          <div><strong>${uniqueViewers}</strong><span>Viewers</span></div>
-          <div><strong>${views7d}</strong><span>Views · 7d</span></div>
-          <div><strong>${totalComments}</strong><span>Feedback</span></div>
-        </div>
+        ${metricsHtml}
       </section>
-      <section class="route-panel">
-        <div>
-          <p class="eyebrow">Prefixes</p>
-          <h2>Routes in use</h2>
-          <p class="muted">Artifact links stay under the public prefix and use a slug plus a six-character code derived from the artifact id.</p>
-        </div>
-        <div class="prefix-grid">
-          ${prefixItem("Site base", env.SITE_BASE_URL)}
-          ${prefixItem("Public artifact prefix", artifactPathPrefix(env) || "/")}
-          ${prefixItem("Artifact path pattern", `${artifactPathPrefix(env)}/{artifact-slug}-{code}/`)}
-          ${prefixItem("URL code source", "first 6 characters from artifact id")}
-          ${prefixItem("Reserved product paths", "/admin, /api/v1, /_au, /login, /signup, /invite, /callback, /logout, /llms.txt")}
-        </div>
-      </section>
-      <section class="setup">
-        <div>
-          <p class="eyebrow">Agent setup</p>
-          <h2>Connect your coding agent</h2>
-          <p class="muted">Use OAuth when your MCP client refreshes tokens reliably. Use a creator bearer token for Codex sessions that need durable publishing without Codex MCP OAuth refresh.</p>
-        </div>
-        <div class="setup-grid">
-          <label>MCP URL
-            <input readonly value="${escapeHtml(env.SITE_BASE_URL)}/mcp" onclick="this.select()">
-          </label>
-          <label>OAuth MCP config
-            <textarea readonly rows="7" onclick="this.select()">${escapeHtml(mcpConfig(env))}</textarea>
-          </label>
-          <label>Codex bearer MCP config
-            <textarea readonly rows="5" onclick="this.select()">${escapeHtml(codexBearerConfig(env))}</textarea>
-          </label>
-          <form method="post" action="/admin/creator-token" class="token-create">
-            <label>Token label
-              <input name="label" placeholder="codex dev1">
-            </label>
-            <label>Expires in days
-              <input name="expires_days" inputmode="numeric" placeholder="30">
-            </label>
-            <button type="submit">Create Codex token</button>
-          </form>
-          <p class="mini">The token is shown once. Store it in <code>ARTIFACT_USE_TOKEN</code>, not in <code>config.toml</code>, source files, or published HTML.</p>
-        </div>
-      </section>
+      ${artifactsHtml}
+      ${agentSetupSection(env, tokens)}
       ${teamSection(session, team)}
-      <section class="table">
-        <div class="table-head"><span>Artifact</span><span>Public path</span><span>Access</span><span>Stats</span><span></span></div>
-        ${
-          artifacts.length
-            ? artifacts
-                .map((artifact) =>
-                  artifactRow(
-                    env,
-                    artifact,
-                    {
-                      shares: maps.shares.get(artifact.id) || [],
-                      comments: maps.comments.get(artifact.id) || [],
-                      recent: maps.recent.get(artifact.id) || [],
-                      daily: maps.daily.get(artifact.id) || [],
-                    },
-                    openId === artifact.id,
-                  ),
-                )
-                .join("")
-            : `<div class="empty"><strong>No artifacts yet.</strong><span>Published artifacts from MCP or the CLI will appear here.</span></div>`
-        }
-      </section>
-      <section class="activity">
-        <div>
-          <p class="eyebrow">Recent activity</p>
-          <h2>Latest views</h2>
-        </div>
-        ${recent.length ? `<ul class="activity-feed">${recent.map(recentViewItem).join("")}</ul>` : `<div class="empty"><strong>No views yet.</strong><span>Viewer activity will appear here after gated artifacts are opened.</span></div>`}
-      </section>
+      ${
+        recent.length
+          ? `<section class="activity">
+              <p class="eyebrow">Recent activity</p>
+              <h2>Latest views</h2>
+              <ul class="activity-feed">${recent.map(recentViewItem).join("")}</ul>
+            </section>`
+          : ""
+      }
     </main>`,
   );
+}
+
+type AgentTokenRow = {
+  id: string;
+  label: string | null;
+  source: string;
+  created_at: number;
+  expires_at: number;
+};
+
+async function listAgentTokens(
+  env: Env,
+  orgId: string,
+): Promise<AgentTokenRow[]> {
+  const rows = await env.DB.prepare(
+    `SELECT id, label, source, created_at, expires_at FROM creator_tokens
+     WHERE org_id = ? AND revoked_at IS NULL AND expires_at > ?
+     ORDER BY created_at DESC LIMIT 25`,
+  )
+    .bind(orgId, nowSec())
+    .all<AgentTokenRow>();
+  return rows.results || [];
+}
+
+function agentSetupSection(env: Env, tokens: AgentTokenRow[]): string {
+  const base = siteBaseUrl(env);
+  return `<section class="setup" id="agent-setup">
+    <div>
+      <p class="eyebrow">Agent setup</p>
+      <h2>Connect an agent</h2>
+      <p class="muted">Generate a prompt with a scoped publish token baked in and paste it to any agent — it handles the rest. OAuth-capable MCP clients can skip tokens: give them the MCP URL and sign in when prompted.</p>
+      <p class="muted">Agent asked you to approve a code? <a href="/connect"><strong>Approve it here →</strong></a></p>
+    </div>
+    <div class="setup-grid">
+      <form method="post" action="/admin/agent-prompt" class="token-form">
+        <div>
+          <label for="ap-label">Agent label</label>
+          <input id="ap-label" name="label" placeholder="codex on my-laptop">
+        </div>
+        <div>
+          <label for="ap-days">Expires in days</label>
+          <input id="ap-days" name="expires_days" inputmode="numeric" placeholder="30">
+        </div>
+        <button type="submit">Generate agent prompt</button>
+      </form>
+      ${tokenListHtml(tokens)}
+      <details class="manual">
+        <summary>Manual setup — MCP URL and configs</summary>
+        <div class="setup-grid">
+          <div>
+            <label for="mcp-url">MCP URL</label>
+            <div class="copywrap"><button class="copy-lite" type="button" data-copy="mcp-url">Copy</button><input id="mcp-url" readonly value="${escapeHtml(base)}/mcp"></div>
+          </div>
+          <div>
+            <label for="mcp-json">OAuth MCP config (Claude Code, MCP clients)</label>
+            <div class="copywrap"><button class="copy-lite" type="button" data-copy="mcp-json">Copy</button><textarea id="mcp-json" readonly rows="8">${escapeHtml(mcpConfig(env))}</textarea></div>
+          </div>
+          <div>
+            <label for="mcp-toml">Codex bearer config (~/.codex/config.toml)</label>
+            <div class="copywrap"><button class="copy-lite" type="button" data-copy="mcp-toml">Copy</button><textarea id="mcp-toml" readonly rows="4">${escapeHtml(codexBearerConfig(env))}</textarea></div>
+          </div>
+          <p class="mini">Bearer tokens live in <code>ARTIFACT_USE_TOKEN</code> — never in config files, source, or published HTML.</p>
+        </div>
+      </details>
+    </div>
+  </section>`;
+}
+
+function tokenListHtml(tokens: AgentTokenRow[]): string {
+  if (!tokens.length)
+    return `<p class="mini">No active agent tokens yet. Generate a prompt above, or approve an agent's connect code at <a href="/connect">/connect</a>.</p>`;
+  return `<ul class="token-list">${tokens
+    .map(
+      (token) => `<li>
+      <span><strong>${escapeHtml(token.label || "Agent token")}</strong><small>${escapeHtml(token.source)} · created ${dateLabel(token.created_at)} · expires ${dateLabel(token.expires_at)}</small></span>
+      <form method="post" action="/admin/agent-token/revoke">
+        <input type="hidden" name="id" value="${escapeHtml(token.id)}">
+        <button class="button small danger" type="submit">Revoke</button>
+      </form>
+    </li>`,
+    )
+    .join("")}</ul>`;
 }
 
 async function adminTeam(
@@ -655,7 +825,7 @@ async function adminTeam(
       members: [],
       invitations: [],
       error:
-        "Team invitations are unavailable until this publisher session is upgraded to a WorkOS organization. Sign out and sign in again to upgrade.",
+        "Team invites need a refreshed session for this workspace. Sign out, sign back in, and try again.",
     };
   }
   try {
@@ -702,7 +872,8 @@ function teamSection(session: PublisherSession, team: WorkosTeam): string {
     <div>
       <p class="eyebrow">Team</p>
       <h2>Publisher access</h2>
-      <p class="muted">Publisher accounts use WorkOS organization membership. Everyone in this organization works from the same artifact list.</p>
+      <p class="muted">Teammates you invite see the same artifacts, stats, and feedback as you.</p>
+      <p class="mini">Workspace ID <code>${escapeHtml(session.orgId)}</code></p>
     </div>
     <div class="team-body">
       ${
@@ -1242,10 +1413,6 @@ function artifactRow(
   </article>`;
 }
 
-function prefixItem(label: string, value: string): string {
-  return `<div class="prefix-item"><span>${escapeHtml(label)}</span><code>${escapeHtml(value)}</code></div>`;
-}
-
 function barsHtml(daily: AdminDailyView[]): string {
   if (!daily.length)
     return `<div class="empty small-empty">No views in this window.</div>`;
@@ -1458,80 +1625,174 @@ async function revokeAdminShareLink(
   return redirect(`/admin?open=${encodeURIComponent(row.artifact_id)}`);
 }
 
-async function createCreatorToken(
+async function createAgentPrompt(
   request: Request,
   env: Env,
   session: PublisherSession,
 ): Promise<Response> {
   const form = await request.formData();
-  const daysRaw = Number(form.get("expires_days") || 30);
-  const days =
-    Number.isFinite(daysRaw) && daysRaw > 0
-      ? Math.max(1, Math.min(90, Math.floor(daysRaw)))
-      : 30;
-  const now = nowSec();
-  const exp = now + days * 86400;
-  const label = String(form.get("label") || "")
-    .trim()
-    .slice(0, 80);
-  const token = await signCreatorToken(
-    {
-      typ: "creator",
-      sub: session.sub,
-      org_id: session.orgId,
-      email: session.email,
-      name: label || session.name || "Codex bearer token",
-      permissions: CREATOR_TOKEN_PERMISSIONS,
-      iat: now,
-      exp,
-    },
-    env,
-  );
+  const label =
+    String(form.get("label") || "")
+      .trim()
+      .slice(0, 80) || null;
+  const days = Number(form.get("expires_days") || 30);
+  const minted = await mintCreatorToken(env, {
+    sub: session.sub,
+    orgId: session.orgId,
+    email: session.email,
+    label,
+    source: "admin",
+    expiresDays: Number.isFinite(days) ? days : 30,
+  });
+  const prompt = agentSetupPrompt(env, minted.token, minted.expiresAt);
   return page(
-    "Creator Token",
+    "Agent connect prompt",
     `<header class="top">
       <a class="brand" href="/">Artifact Use</a>
-      <nav><a href="/admin">Admin</a><a href="/logout">Sign out</a></nav>
+      <nav><a href="/admin">Back to admin</a><a href="/logout">Sign out</a></nav>
     </header>
-    <main class="admin token-page">
+    <main class="admin">
       <section class="headline">
         <div>
-          <p class="eyebrow">Codex bearer setup</p>
-          <h1>Creator token created</h1>
-          <p class="muted">This token can publish, list, manage access, create share links, and read stats for ${escapeHtml(session.orgId)} until ${escapeHtml(new Date(exp * 1000).toISOString())}.</p>
+          <p class="eyebrow">Agent setup</p>
+          <h1>Paste this to your agent.</h1>
+          <p class="muted">One message is the whole setup: token, endpoints, and instructions. It is shown once — generate another anytime, revoke this one from the admin.</p>
         </div>
       </section>
-      <section class="setup token-result">
+      <section class="setup prompt-block">
         <div>
-          <p class="eyebrow">Step 1</p>
-          <h2>Store the token</h2>
-          <p class="muted">Copy this into the shell, secret manager, or service environment that launches Codex. Do not commit it.</p>
+          <p class="eyebrow">One-paste prompt</p>
+          <h2>${escapeHtml(label || "Agent token")}</h2>
+          <p class="muted">Valid until ${dateLabel(minted.expiresAt)}. Scope: publish, read, manage access, and stats — this workspace only.</p>
         </div>
         <div class="setup-grid">
-          <label>Shell environment
-            <textarea readonly rows="5" onclick="this.select()">${escapeHtml(creatorTokenShell(env, token))}</textarea>
-          </label>
-          <label>Raw bearer token
-            <textarea readonly rows="4" onclick="this.select()">${escapeHtml(token)}</textarea>
-          </label>
-        </div>
-      </section>
-      <section class="setup token-result">
-        <div>
-          <p class="eyebrow">Step 2</p>
-          <h2>Point Codex at the env var</h2>
-          <p class="muted">Add this to <code>~/.codex/config.toml</code>, then start a fresh Codex process or open a new thread.</p>
-        </div>
-        <div class="setup-grid">
-          <label>Codex config
-            <textarea readonly rows="5" onclick="this.select()">${escapeHtml(codexBearerConfig(env))}</textarea>
-          </label>
-          <div class="empty small-empty">
-            <strong>Rotation</strong>
-            <span>Creator tokens are stateless. To rotate, create a replacement token and remove the old value from the environment or secret store.</span>
+          <div class="copywrap">
+            <button class="copy-lite" type="button" data-copy="agent-prompt">Copy</button>
+            <textarea id="agent-prompt" readonly rows="18">${escapeHtml(prompt)}</textarea>
           </div>
+          <details class="manual">
+            <summary>Just the pieces — token, env, Codex config</summary>
+            <div class="setup-grid">
+              <div>
+                <label for="raw-token">Bearer token</label>
+                <div class="copywrap"><button class="copy-lite" type="button" data-copy="raw-token">Copy</button><textarea id="raw-token" readonly rows="4">${escapeHtml(minted.token)}</textarea></div>
+              </div>
+              <div>
+                <label for="raw-env">Shell environment</label>
+                <div class="copywrap"><button class="copy-lite" type="button" data-copy="raw-env">Copy</button><textarea id="raw-env" readonly rows="4">${escapeHtml(creatorTokenShell(env, minted.token))}</textarea></div>
+              </div>
+              <div>
+                <label for="raw-toml">Codex config (~/.codex/config.toml)</label>
+                <div class="copywrap"><button class="copy-lite" type="button" data-copy="raw-toml">Copy</button><textarea id="raw-toml" readonly rows="4">${escapeHtml(codexBearerConfig(env))}</textarea></div>
+              </div>
+            </div>
+          </details>
+          <p class="mini">Keep the token in <code>ARTIFACT_USE_TOKEN</code> or a secret store — never in config files, source, or published HTML.</p>
         </div>
       </section>
+    </main>`,
+  );
+}
+
+async function revokeAgentToken(
+  request: Request,
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  const form = await request.formData();
+  const id = String(form.get("id") || "").trim();
+  if (!id.startsWith("crt_"))
+    return error(400, "token_id_required", "token id is required");
+  await env.DB.prepare(
+    "UPDATE creator_tokens SET revoked_at = ? WHERE id = ? AND org_id = ? AND revoked_at IS NULL",
+  )
+    .bind(nowSec(), id, session.orgId)
+    .run();
+  return redirect("/admin#agent-setup");
+}
+
+// Human side of the device-code style agent connect flow. GET shows what is
+// being approved; POST mints the token onto the pending request.
+export async function handleConnectPage(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const session = await getPublisherSession(request, env);
+  if (!session) {
+    const headers = new Headers();
+    headers.append(
+      "Set-Cookie",
+      cookie(NEXT_COOKIE, `/connect${url.search || ""}`, 15 * 60),
+    );
+    return redirect("/login", headers);
+  }
+  if (request.method === "POST") {
+    const form = await request.formData();
+    const code = String(form.get("code") || "");
+    const pending = await pendingConnectRequest(env, code);
+    if (!pending)
+      return connectPage({
+        code,
+        error:
+          "No pending request matches this code — it may have expired (codes last 15 minutes) or already been used. Ask the agent to start again.",
+      });
+    const approved = await approveConnectRequest(env, pending, session);
+    if (!approved.ok)
+      return connectPage({
+        code,
+        error: "This code was just approved in another window.",
+      });
+    return connectPage({ approvedLabel: approved.label });
+  }
+  const code = url.searchParams.get("code") || "";
+  const pending = code ? await pendingConnectRequest(env, code) : null;
+  return connectPage({
+    code,
+    pendingLabel: pending?.agent_label || null,
+    notFound: Boolean(code && normalizeUserCode(code) && !pending),
+  });
+}
+
+function connectPage(state: {
+  code?: string;
+  pendingLabel?: string | null;
+  notFound?: boolean;
+  error?: string;
+  approvedLabel?: string;
+}): Response {
+  const header = `<header class="top">
+    <a class="brand" href="/">Artifact Use</a>
+    <nav><a href="/admin">Admin</a><a href="/logout">Sign out</a></nav>
+  </header>`;
+  if (state.approvedLabel) {
+    return page(
+      "Agent approved",
+      `${header}
+      <main class="panel narrow">
+        <p class="eyebrow">Agent connect</p>
+        <h1>Approved.</h1>
+        <p class="muted"><strong>${escapeHtml(state.approvedLabel)}</strong> receives its token the next time it polls — usually within seconds. It can publish to your workspace for 30 days.</p>
+        <p class="muted">Change your mind? Revoke the token anytime under <a href="/admin#agent-setup"><strong>Agent setup</strong></a>.</p>
+        <div class="actions"><a class="button" href="/admin">Back to admin</a></div>
+      </main>`,
+    );
+  }
+  return page(
+    "Approve an agent",
+    `${header}
+    <main class="panel narrow">
+      <p class="eyebrow">Agent connect</p>
+      <h1>Approve an agent.</h1>
+      <p class="muted">An agent asked to publish to your workspace and showed you a code. Approving mints it a 30-day publish token${state.pendingLabel ? ` for <strong>${escapeHtml(state.pendingLabel)}</strong>` : ""}, scoped to your artifacts.</p>
+      ${state.error ? `<p class="error">${escapeHtml(state.error)}</p>` : ""}
+      ${state.notFound ? `<p class="error">No pending request matches this code — it may have expired (codes last 15 minutes) or already been used.</p>` : ""}
+      <form method="post" action="/connect">
+        <label for="code">Connect code</label>
+        <input id="code" class="code-input" name="code" value="${escapeHtml(state.code || "")}" placeholder="ABCD-2345" autocomplete="one-time-code" required>
+        <div class="actions"><button type="submit">Approve agent</button><a class="button ghost" href="/admin">Cancel</a></div>
+      </form>
+      <p class="mini">Only approve codes from an agent session you or a teammate started. Approval gives that agent publish access to this workspace.</p>
     </main>`,
   );
 }
@@ -1760,22 +2021,185 @@ function workosLogoutUrl(sessionId: string): string {
   return url.toString();
 }
 
-function page(title: string, body: string): Response {
+// Inline SVG mark: teal plate, chartreuse signal dot, two "document" rules.
+const FAVICON =
+  "data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%230b5d52'/%3E%3Ccircle%20cx='22'%20cy='10.5'%20r='5'%20fill='%23d8ff4a'/%3E%3Crect%20x='7'%20y='17'%20width='12'%20height='2.6'%20rx='1.3'%20fill='%23fffdf7'/%3E%3Crect%20x='7'%20y='22'%20width='17'%20height='2.6'%20rx='1.3'%20fill='%23fffdf7'/%3E%3C/svg%3E";
+
+// One shared clipboard handler: any element with data-copy="<id>" copies the
+// value/text of that element and flips its own label briefly.
+const COPY_SCRIPT = `<script>addEventListener("click",function(e){var b=e.target.closest("[data-copy]");if(!b)return;var t=document.getElementById(b.getAttribute("data-copy"));if(!t)return;var v="value"in t&&t.value?t.value:t.textContent||"";navigator.clipboard.writeText(v).then(function(){var o=b.textContent;b.textContent="Copied";b.classList.add("copied");setTimeout(function(){b.textContent=o;b.classList.remove("copied")},1400)})});</script>`;
+
+function page(
+  title: string,
+  body: string,
+  opts: { description?: string; robots?: "index" | "noindex" } = {},
+): Response {
+  const description = opts.description
+    ? `<meta name="description" content="${escapeHtml(opts.description)}"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(opts.description)}">`
+    : "";
+  const headers: Record<string, string> = {
+    "Content-Type": "text/html; charset=utf-8",
+    "Cache-Control": "private, no-store",
+  };
+  if (opts.robots !== "index") headers["X-Robots-Tag"] = "noindex, nofollow";
   return new Response(
-    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>
-:root{--ink:#17201d;--muted:#65736d;--line:#d8dfdc;--paper:#fbfcfa;--panel:#fff;--field:#f4f7f5;--accent:#0b6f5f;--accent2:#d6ff62}
-*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:Aptos,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}a{color:inherit;text-decoration:none}.top{height:66px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 clamp(18px,4vw,48px);background:var(--paper);position:sticky;top:0;z-index:5}.brand{font-weight:800}.top nav{display:flex;gap:10px;align-items:center}.top nav a{padding:9px 10px;border-radius:6px;color:var(--muted)}.top nav a:hover{background:var(--field);color:var(--ink)}.button,button{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border:1px solid var(--accent);border-radius:6px;background:var(--accent);color:#fff;padding:0 14px;font:700 14px inherit;cursor:pointer}.button.ghost{background:transparent;color:var(--accent)}.button.small{min-height:34px;padding:0 11px}.button.danger{border-color:#b84a3a;color:#b84a3a}.home,.admin{max-width:1180px;margin:0 auto;padding:clamp(26px,5vw,56px) clamp(18px,4vw,34px)}.hero{min-height:calc(100vh - 150px);display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:44px;align-items:center}.eyebrow{font-size:12px;font-weight:800;text-transform:uppercase;color:var(--accent);margin:0 0 14px}.hero h1,.headline h1{font-size:clamp(36px,6vw,74px);line-height:.96;margin:0;max-width:780px}.lead{font-size:20px;line-height:1.5;color:var(--muted);max-width:680px}.actions{display:flex;gap:12px;margin-top:26px}.status{border-left:3px solid var(--accent);padding:18px 0 18px 20px}.status span{display:block;width:10px;height:10px;border-radius:50%;background:var(--accent2);box-shadow:0 0 0 5px rgba(214,255,98,.28);margin-bottom:16px}.status strong,.status em,.status small{display:block}.status em{margin-top:8px;color:var(--muted);font-style:normal;line-height:1.5}.status small{margin-top:14px;color:var(--muted);word-break:break-all}.headline{display:flex;align-items:end;justify-content:space-between;gap:24px;border-bottom:1px solid var(--line);padding-bottom:26px}.headline h1{font-size:clamp(32px,4vw,54px)}.muted{color:var(--muted)}.metrics{display:grid;grid-template-columns:repeat(5,minmax(92px,1fr));border:1px solid var(--line);background:var(--panel);min-width:min(620px,100%)}.metrics div{padding:16px;border-right:1px solid var(--line)}.metrics div:last-child{border-right:0}.metrics strong{display:block;font-size:26px}.metrics span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.route-panel{display:grid;grid-template-columns:280px minmax(0,1fr);gap:24px;padding:24px 0;border-bottom:1px solid var(--line)}.route-panel h2{margin:0 0 8px;font-size:24px}.prefix-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.prefix-item{border:1px solid var(--line);background:#fff;padding:11px;border-radius:6px;min-width:0}.prefix-item span{display:block;color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase;margin-bottom:6px}.prefix-item code,.path-block code,.meta-list code{font-family:"SFMono-Regular",Consolas,monospace;font-size:12px;word-break:break-all}.setup{display:grid;grid-template-columns:280px minmax(0,1fr);gap:24px;padding:24px 0;border-bottom:1px solid var(--line)}.setup h2{margin:0 0 8px;font-size:24px}.setup-grid{display:grid;gap:12px}label{display:block;font-size:12px;font-weight:800;text-transform:uppercase;color:var(--muted);margin-bottom:8px}.toolbar{padding:24px 0;border-bottom:1px solid var(--line)}.inline{display:grid;grid-template-columns:minmax(160px,260px) minmax(160px,1fr) auto;gap:10px}input,select,textarea{width:100%;min-height:38px;border:1px solid var(--line);border-radius:6px;background:#fff;padding:8px 10px;font:inherit;text-transform:none;color:var(--ink)}textarea{resize:vertical;font-family:"SFMono-Regular",Consolas,monospace;font-size:13px;line-height:1.45}.table{margin-top:22px}.table-head,.artifact-row{display:grid;grid-template-columns:minmax(220px,1.1fr) minmax(220px,1fr) 210px 155px 96px;gap:14px;align-items:center}.table-head{padding:0 12px 10px;color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase}.artifact-card{background:#fff;border:1px solid var(--line);margin-bottom:10px}.artifact-row{border:0;padding:12px;margin:0}.artifact-title strong,.artifact-title span,.path-block small,.views span{display:block}.artifact-title span,.path-block small,.views span{color:var(--muted);font-size:13px;margin-top:3px;word-break:break-all}.row-actions{display:flex;justify-content:flex-end}.access{display:grid;grid-template-columns:1fr auto;gap:8px}.artifact-detail{border-top:1px solid var(--line);padding:0 12px 14px}.artifact-detail summary{cursor:pointer;color:var(--accent);font-weight:800;padding:12px 0}.detail-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(220px,.75fr);gap:22px}.detail-grid h3,.activity h2{margin:14px 0 10px;font-size:12px;text-transform:uppercase;color:var(--muted)}.bars{height:70px;display:flex;gap:3px;align-items:flex-end;border-bottom:1px solid var(--line)}.bars span{flex:1;min-height:4px;background:var(--accent);border-radius:3px 3px 0 0}.mini{font-size:12px;color:var(--muted);margin:7px 0 0}.detail-list,.activity-feed{list-style:none;margin:0;padding:0}.detail-list li,.activity-feed li{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #edf1f0;padding:8px 0;font-size:13px}.detail-list li small,.activity-feed li small{display:block;color:var(--muted);margin-top:3px;word-break:break-word}.detail-list time,.activity-feed time{color:var(--muted);white-space:nowrap}.links-list form{margin:0}.share-create{display:grid;grid-template-columns:minmax(120px,1fr) minmax(90px,.8fr) 70px auto;gap:8px;margin-top:10px}.meta-list{display:grid;gap:7px;margin:0}.meta-list div{display:grid;grid-template-columns:100px minmax(0,1fr);gap:10px}.meta-list dt{color:var(--muted);font-size:12px}.meta-list dd{margin:0;font-size:13px}.allowlist-form{display:grid;gap:8px}.activity{padding-top:24px}.empty{border:1px solid var(--line);background:#fff;padding:24px}.small-empty{padding:10px;font-size:13px}.empty strong,.empty span{display:block}.empty span{color:var(--muted);margin-top:6px}.pill{display:inline-flex;align-items:center;min-height:28px;border-radius:999px;background:var(--field);color:var(--muted);font-size:12px;padding:0 9px}.panel.narrow{max-width:520px;margin:14vh auto;padding:32px}.error{color:#a33434}@media(max-width:900px){.headline,.route-panel,.setup{align-items:start;grid-template-columns:1fr}.detail-grid,.prefix-grid{grid-template-columns:1fr}.table-head,.artifact-row{grid-template-columns:1fr}.table-head{display:none}.row-actions{justify-content:flex-start}.share-create{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,minmax(0,1fr));width:100%;min-width:0}.metrics div{border-right:0;border-bottom:1px solid var(--line)}.metrics div:last-child{border-bottom:0}}@media(max-width:760px){.hero{grid-template-columns:1fr;min-height:auto}.headline{align-items:start;flex-direction:column}.setup{grid-template-columns:1fr}.inline{grid-template-columns:1fr}.access{grid-template-columns:1fr}.actions{flex-wrap:wrap}}
-@media(min-width:901px){.table-head,.artifact-row{grid-template-columns:minmax(180px,.8fr) minmax(280px,1.35fr) 210px 150px 88px}.share-create{grid-template-columns:minmax(120px,1fr) minmax(90px,1fr) 70px}.share-create button{grid-column:1/-1}}.share-create button{white-space:nowrap}
-.team-panel{display:grid;grid-template-columns:280px minmax(0,1fr);gap:24px;padding:24px 0;border-bottom:1px solid var(--line)}.team-panel h2{margin:0 0 8px;font-size:24px}.team-body{display:grid;gap:14px;align-content:start}.team-invite{display:grid;grid-template-columns:minmax(190px,1fr) 140px 110px auto;gap:10px;align-items:end}.team-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}.team-grid h3{margin:10px 0;font-size:12px;text-transform:uppercase;color:var(--muted)}.error-box{color:#8f2f26;border-color:#e3b7af;background:#fff8f6}.invite-list form{margin:0}@media(max-width:900px){.team-panel,.team-grid,.team-invite{grid-template-columns:1fr}}
-.token-create{display:grid;grid-template-columns:minmax(180px,1fr) 140px auto;gap:10px;align-items:end}.token-create label{margin:0}.token-result textarea{font-size:12px}.token-page .headline h1{font-size:clamp(30px,4vw,48px)}@media(max-width:900px){.token-create{grid-template-columns:1fr}}
-.super-head,.super-row{grid-template-columns:minmax(190px,.9fr) minmax(220px,1fr) minmax(240px,1.1fr) 150px 88px}.super-transfer{display:grid;grid-template-columns:minmax(190px,1fr) minmax(190px,1fr) auto;gap:10px;align-items:end}.super-transfer label{margin:0}@media(max-width:900px){.super-head,.super-row,.super-transfer{grid-template-columns:1fr}}
-</style></head><body>${body}</body></html>`,
-    {
-      headers: {
-        "Content-Type": "text/html; charset=utf-8",
-        "Cache-Control": "private, no-store",
-        "X-Robots-Tag": "noindex, nofollow",
-      },
-    },
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title>${description}<link rel="icon" href="${FAVICON}"><style>
+:root{--paper:#f6f4ec;--panel:#fffdf7;--ink:#1f2723;--muted:#68726c;--line:#ddd7c6;--line-soft:#eae6d8;--accent:#0b5d52;--accent-deep:#083f38;--lume:#d8ff4a;--dark:#132420;--dark-2:#0d1b18;--danger:#a33d2e;--serif:"Iowan Old Style","Palatino Linotype",Palatino,"Book Antiqua",Georgia,serif;--mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;--sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);background-image:radial-gradient(rgba(31,39,35,.03) 1px,transparent 1px);background-size:22px 22px;color:var(--ink);font:16px/1.55 var(--sans)}
+a{color:inherit;text-decoration:none}
+::selection{background:var(--lume);color:var(--ink)}
+h1,h2,h3{font-family:var(--serif);font-weight:600;letter-spacing:-.01em}
+.top{height:64px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 clamp(18px,4vw,48px);background:var(--paper);position:sticky;top:0;z-index:5}
+.brand{font:700 17px var(--serif);display:inline-flex;align-items:center;gap:8px}
+.brand::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--lume);box-shadow:0 0 0 1.5px var(--accent)}
+.top nav{display:flex;gap:6px;align-items:center}
+.top nav a{padding:8px 11px;border-radius:5px;color:var(--muted);font-size:14.5px}
+.top nav a:hover{background:var(--line-soft);color:var(--ink)}
+.top nav a.button{color:#fff}
+.button,button{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border:1px solid var(--accent-deep);border-radius:5px;background:var(--accent);color:#fff;padding:0 15px;font:600 14px var(--sans);cursor:pointer;transition:background .15s}
+.button:hover,button:hover{background:var(--accent-deep)}
+.button.ghost{background:transparent;color:var(--accent);border-color:var(--accent)}
+.button.ghost:hover{background:rgba(11,93,82,.08)}
+.button.small{min-height:32px;padding:0 11px;font-size:13px}
+.button.danger,button.danger{background:transparent;border-color:var(--danger);color:var(--danger)}
+.button.danger:hover,button.danger:hover{background:rgba(163,61,46,.08)}
+.eyebrow{font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.16em;color:var(--accent);margin:0 0 10px}
+.eyebrow::before{content:"// "}
+.muted{color:var(--muted)}
+.mini{font-size:12.5px;color:var(--muted);margin:7px 0 0}
+.error{color:var(--danger)}
+label{display:block;font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin-bottom:8px}
+input,select,textarea{width:100%;min-height:38px;border:1px solid var(--line);border-radius:5px;background:#fff;padding:8px 10px;font:14px var(--sans);color:var(--ink);text-transform:none;letter-spacing:0}
+textarea{resize:vertical;font:12.5px/1.55 var(--mono)}
+input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-offset:0;border-color:var(--accent)}
+.home{max-width:1120px;margin:0 auto;padding:0 clamp(18px,4vw,34px) 8px}
+.hero{display:grid;grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr);gap:clamp(28px,4vw,52px);align-items:center;padding:clamp(40px,7vh,76px) 0 clamp(40px,6vh,64px)}
+.hero h1{font-size:clamp(34px,4.4vw,54px);line-height:1.06;margin:12px 0 0}
+.lead{font-size:17.5px;line-height:1.65;color:var(--muted);max-width:54ch;margin:18px 0 0}
+.actions{display:flex;gap:12px;margin-top:28px;flex-wrap:wrap}
+.rise{animation:rise .6s cubic-bezier(.2,.7,.2,1) both}
+.d1{animation-delay:.06s}.d2{animation-delay:.14s}.d3{animation-delay:.22s}.d4{animation-delay:.32s}
+@keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+@keyframes blink{50%{opacity:0}}
+.term{background:var(--dark);border:1px solid #24443c;border-radius:10px;box-shadow:0 24px 48px -20px rgba(19,36,32,.5);overflow:hidden}
+.term-bar{display:flex;align-items:center;gap:6px;padding:10px 14px;border-bottom:1px solid rgba(232,240,233,.12);color:#8fa79d;font:600 10.5px var(--mono);letter-spacing:.14em;text-transform:uppercase}
+.term-bar i{width:9px;height:9px;border-radius:50%;background:#2c4b42}
+.term-bar i:first-child{background:var(--lume)}
+.term-bar span{margin-left:auto}
+.term pre{margin:0;padding:18px 18px 22px;font:13px/1.75 var(--mono);color:#e6efe8;white-space:pre-wrap;word-break:break-word}
+.t-dim{color:#748c81}.t-ok{color:var(--lume)}.t-url{color:#8ce0cf}
+.caret{display:inline-block;width:8px;height:14px;background:var(--lume);vertical-align:-2px;margin-left:3px;animation:blink 1.1s steps(1) infinite}
+.steps{display:grid;grid-template-columns:repeat(3,1fr);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.steps section{padding:26px clamp(16px,2.5vw,28px) 30px;border-right:1px solid var(--line)}
+.steps section:last-child{border-right:0}
+.step-n{display:block;font:600 12px var(--mono);color:var(--accent);letter-spacing:.12em;margin-bottom:12px}
+.steps h3{font-size:20px;margin:0 0 8px}
+.steps p{margin:0;font-size:14.5px;line-height:1.6;color:var(--muted)}
+.feat{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--line);border:1px solid var(--line);margin:44px 0}
+.feat div{background:var(--panel);padding:18px 20px}
+.feat strong{display:block;font-size:15px;margin-bottom:5px}
+.feat strong::before{content:"-> ";font-family:var(--mono);color:var(--accent)}
+.feat span{font-size:13.5px;line-height:1.55;color:var(--muted)}
+.agents{background:var(--dark);color:#e6efe8;border-radius:12px;padding:clamp(24px,4vw,40px);display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:clamp(22px,3.5vw,40px)}
+.agents .eyebrow{color:var(--lume)}
+.agents h2{font-size:clamp(24px,2.6vw,30px);margin:8px 0 12px;color:#fff}
+.agents p{color:#9db3a9;font-size:15px;line-height:1.65;margin:0 0 10px}
+.agents a{color:#8ce0cf;text-decoration:underline dotted}
+.codeblock{position:relative;background:var(--dark-2);border:1px solid rgba(232,240,233,.14);border-radius:8px;margin-top:12px}
+.codeblock pre{margin:0;padding:14px 16px;font:12.5px/1.6 var(--mono);color:#cfe3d8;overflow-x:auto}
+.copy-btn{position:absolute;top:8px;right:8px;min-height:26px;padding:0 9px;font:600 11px var(--mono);border-radius:4px;border:1px solid rgba(232,240,233,.25);background:rgba(232,240,233,.06);color:#cfe3d8;cursor:pointer}
+.copy-btn:hover{background:rgba(232,240,233,.14)}
+.copy-btn.copied{border-color:var(--lume);color:var(--lume);background:transparent}
+.copy-lite{position:absolute;top:8px;right:8px;min-height:26px;padding:0 9px;font:600 11px var(--mono);border-radius:4px;border:1px solid var(--line);background:#fff;color:var(--muted);cursor:pointer}
+.copy-lite:hover{color:var(--ink);border-color:var(--accent);background:#fff}
+.copy-lite.copied{color:var(--accent);border-color:var(--accent);background:#fff}
+.copywrap{position:relative}
+footer.site{border-top:1px solid var(--line);margin-top:56px;padding:26px 0 44px;display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:13.5px}
+footer.site nav{display:flex;gap:18px;flex-wrap:wrap}
+footer.site a:hover{color:var(--ink)}
+footer.site code{font:12px var(--mono)}
+.admin{max-width:1180px;margin:0 auto;padding:30px clamp(18px,4vw,34px) 72px}
+.headline{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding-bottom:20px;border-bottom:2px solid var(--ink)}
+.headline h1{font-size:clamp(28px,3.2vw,38px);margin:8px 0 4px}
+.headline .muted{font-size:14px}
+.metrics{display:flex;flex-wrap:wrap;border:1px solid var(--line);background:var(--panel)}
+.metrics div{padding:12px 18px 11px;border-right:1px solid var(--line);min-width:84px}
+.metrics div:last-child{border-right:0}
+.metrics strong{display:block;font:600 22px/1.1 var(--serif);font-variant-numeric:tabular-nums}
+.metrics span{display:block;font:600 10px var(--mono);text-transform:uppercase;letter-spacing:.12em;color:var(--muted);margin-top:5px}
+.setup,.team-panel{display:grid;grid-template-columns:270px minmax(0,1fr);gap:30px;padding:30px 0;border-bottom:1px solid var(--line)}
+.setup h2,.team-panel h2{margin:0 0 8px;font-size:23px}
+.setup-grid{display:grid;gap:14px}
+.token-form{display:grid;grid-template-columns:minmax(170px,1fr) 130px auto;gap:10px;align-items:end;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+.token-form label{margin:0 0 6px}
+.token-list{list-style:none;margin:6px 0 0;padding:0}
+.token-list li{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid var(--line-soft);padding:8px 2px;font-size:13.5px}
+.token-list li small{display:block;color:var(--muted);margin-top:2px}
+.token-list form{margin:0}
+details.manual{border:1px solid var(--line);border-radius:8px;background:var(--panel)}
+details.manual summary{cursor:pointer;padding:12px 14px;font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--accent)}
+details.manual .setup-grid{padding:2px 14px 16px}
+.table{margin-top:26px}
+.table-head,.artifact-row{display:grid;grid-template-columns:minmax(180px,.8fr) minmax(280px,1.35fr) 210px 150px 88px;gap:14px;align-items:center}
+.table-head{padding:0 12px 10px;color:var(--muted);font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.1em}
+.artifact-card{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:10px}
+.artifact-row{padding:12px}
+.artifact-title strong,.artifact-title span,.path-block small,.views span{display:block}
+.artifact-title span,.path-block small,.views span{color:var(--muted);font-size:12.5px;margin-top:3px;word-break:break-all}
+.path-block code,.meta-list code{font:12px var(--mono);word-break:break-all}
+.views strong{font-variant-numeric:tabular-nums}
+.row-actions{display:flex;justify-content:flex-end}
+.access{display:grid;grid-template-columns:1fr auto;gap:8px}
+.artifact-detail{border-top:1px solid var(--line-soft);padding:0 12px 14px}
+.artifact-detail summary{cursor:pointer;color:var(--accent);font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.08em;padding:12px 0}
+.detail-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(220px,.75fr);gap:22px}
+.detail-grid h3{margin:14px 0 10px;font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+.bars{height:70px;display:flex;gap:3px;align-items:flex-end;border-bottom:1px solid var(--line)}
+.bars span{flex:1;min-height:4px;background:var(--accent);border-radius:2px 2px 0 0}
+.bars span:hover{background:var(--accent-deep)}
+.detail-list,.activity-feed{list-style:none;margin:0;padding:0}
+.detail-list li,.activity-feed li{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid var(--line-soft);padding:8px 0;font-size:13px}
+.detail-list li small,.activity-feed li small{display:block;color:var(--muted);margin-top:3px;word-break:break-word}
+.detail-list time,.activity-feed time{color:var(--muted);white-space:nowrap;font:11.5px var(--mono)}
+.links-list form{margin:0}
+.share-create{display:grid;grid-template-columns:minmax(120px,1fr) minmax(90px,1fr) 70px;gap:8px;margin-top:10px}
+.share-create button{grid-column:1/-1;white-space:nowrap}
+.meta-list{display:grid;gap:7px;margin:0}
+.meta-list div{display:grid;grid-template-columns:100px minmax(0,1fr);gap:10px}
+.meta-list dt{color:var(--muted);font-size:12px}
+.meta-list dd{margin:0;font-size:13px}
+.allowlist-form{display:grid;gap:8px}
+.activity{padding-top:26px}
+.activity h2{margin:0 0 10px;font-size:23px}
+.empty{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:24px}
+.small-empty{padding:10px;font-size:13px}
+.empty strong,.empty span{display:block}
+.empty span{color:var(--muted);margin-top:6px}
+.onboard{border:1px dashed var(--accent);background:var(--panel);border-radius:10px;padding:clamp(20px,3vw,30px);margin-top:26px}
+.onboard h2{margin:0 0 6px;font-size:24px}
+.onboard ol{list-style:none;counter-reset:ob;margin:18px 0 0;padding:0;display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.onboard li{counter-increment:ob;font-size:14px;line-height:1.6;color:var(--muted)}
+.onboard li::before{content:"0" counter(ob);display:block;font:600 12px var(--mono);letter-spacing:.12em;color:var(--accent);margin-bottom:8px}
+.onboard li strong{display:block;color:var(--ink);font-size:15px;margin-bottom:4px}
+.onboard .actions{margin-top:22px}
+.pill{display:inline-flex;align-items:center;min-height:26px;border-radius:999px;background:var(--line-soft);color:var(--muted);font:600 11px var(--mono);padding:0 10px}
+.panel.narrow{max-width:560px;margin:10vh auto;padding:34px;background:var(--panel);border:1px solid var(--line);border-radius:10px}
+.code-big{display:inline-block;font:600 24px var(--mono);letter-spacing:.14em;background:#fff;border:1px dashed var(--accent);border-radius:8px;padding:10px 16px;margin:10px 0}
+.code-input{font:600 22px var(--mono);letter-spacing:.14em;text-transform:uppercase;text-align:center;min-height:54px;border-style:dashed;border-color:var(--accent)}
+.prompt-block textarea{min-height:300px}
+.team-body{display:grid;gap:14px;align-content:start}
+.team-invite{display:grid;grid-template-columns:minmax(190px,1fr) 140px 110px auto;gap:10px;align-items:end}
+.team-invite label{margin:0 0 6px}
+.team-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}
+.team-grid h3{margin:10px 0;font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+.error-box{color:#8f2f26;border-color:#e3b7af;background:#fff8f6}
+.invite-list form{margin:0}
+.super-head,.super-row{grid-template-columns:minmax(190px,.9fr) minmax(220px,1fr) minmax(240px,1.1fr) 150px 88px}
+.super-transfer{display:grid;grid-template-columns:minmax(190px,1fr) minmax(190px,1fr) auto;gap:10px;align-items:end}
+.super-transfer label{margin:0 0 6px}
+@media(max-width:940px){.hero{grid-template-columns:1fr;padding-top:34px}.steps,.feat{grid-template-columns:1fr}.steps section{border-right:0;border-bottom:1px solid var(--line)}.steps section:last-child{border-bottom:0}.agents{grid-template-columns:1fr}.headline{flex-direction:column;align-items:flex-start}.setup,.team-panel,.team-grid,.team-invite,.token-form,.super-transfer{grid-template-columns:1fr}.detail-grid{grid-template-columns:1fr}.table-head{display:none}.artifact-row,.super-head,.super-row{grid-template-columns:1fr}.row-actions{justify-content:flex-start}.access,.share-create{grid-template-columns:1fr}.onboard ol{grid-template-columns:1fr}.metrics div{flex:1 1 33%;border-bottom:1px solid var(--line)}}
+</style></head><body>${body}${COPY_SCRIPT}</body></html>`,
+    { headers },
   );
 }

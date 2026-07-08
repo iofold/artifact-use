@@ -10,8 +10,6 @@ import { getViewerSession, renderGate } from "./gate";
 import { FEEDBACK_WIDGET_JS } from "./widget/feedback.generated";
 import {
   error,
-  escapeHtml,
-  htmlPage,
   json,
   mimeFor,
   nowSec,
@@ -487,14 +485,13 @@ function finiteNumber(value: unknown): number {
   return Number.isFinite(n) ? Math.round(n) : 0;
 }
 
+// The bare artifact prefix (/go, /go/) has no content of its own; send the
+// visitor to the real landing page instead of a second, drifting one.
 function landing(env: Env): Response {
-  return htmlPage(
-    "Artifact Use",
-    `<h1>Artifact Use</h1>
-<p class="muted">Artifact publishing for agents and teams.</p>
-<p>Use the API, CLI, or MCP server to publish static artifacts.</p>
-<p><code>${escapeHtml(publicArtifactUrl(env, "example-abc123"))}</code></p>`,
-  );
+  return new Response(null, {
+    status: 302,
+    headers: { Location: siteBaseUrl(env) + "/" },
+  });
 }
 
 async function sharePrefill(

@@ -72,6 +72,9 @@ zone_name = "example.com"
 [[routes]]
 pattern = "artifacts.example.com/admin*"
 zone_name = "example.com"
+[[routes]]
+pattern = "artifacts.example.com/connect*"
+zone_name = "example.com"
 
 [[routes]]
 pattern = "artifacts.example.com/health*"

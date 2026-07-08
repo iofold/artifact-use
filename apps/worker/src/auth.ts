@@ -6,7 +6,7 @@ import type {
   UploadSession,
   ViewerSession,
 } from "./types";
-import { bearerToken, json, nowSec } from "./util";
+import { bearerToken, json, nowSec, randomId } from "./util";
 import { stringClaim, workosApiMaybe } from "./workos";
 
 let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
@@ -265,6 +265,54 @@ export async function signCreatorToken(
   return `${CREATOR_TOKEN_PREFIX}${await signPayload(session, env)}`;
 }
 
+export const CREATOR_TOKEN_PERMISSIONS = [
+  "artifacts:publish",
+  "artifacts:read",
+  "artifacts:manage_access",
+  "artifacts:view_stats",
+];
+
+// Mint a creator bearer token and record it in the registry so it can be
+// listed and revoked. Verification stays signature-based; the registry row is
+// the revocation switch.
+export async function mintCreatorToken(
+  env: Env,
+  input: {
+    sub: string;
+    orgId: string;
+    email: string | null;
+    label: string | null;
+    source: "admin" | "api" | "connect";
+    expiresDays: number;
+  },
+): Promise<{ token: string; id: string; expiresAt: number }> {
+  const days = Math.max(1, Math.min(90, Math.floor(input.expiresDays || 30)));
+  const now = nowSec();
+  const expiresAt = now + days * 86400;
+  const id = randomId("crt");
+  const token = await signCreatorToken(
+    {
+      typ: "creator",
+      jti: id,
+      sub: input.sub,
+      org_id: input.orgId,
+      email: input.email,
+      name: input.label || "Agent token",
+      permissions: CREATOR_TOKEN_PERMISSIONS,
+      iat: now,
+      exp: expiresAt,
+    },
+    env,
+  );
+  await env.DB.prepare(
+    `INSERT INTO creator_tokens (id, org_id, user_id, label, source, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+  )
+    .bind(id, input.orgId, input.sub, input.label, input.source, now, expiresAt)
+    .run();
+  return { token, id, expiresAt };
+}
+
 export async function verifyCreatorToken(
   raw: string,
   env: Env,
@@ -277,6 +325,17 @@ export async function verifyCreatorToken(
   if (!decoded || decoded.typ !== "creator") return null;
   if (!decoded.sub || !decoded.org_id) return null;
   if (!decoded.exp || decoded.exp < nowSec()) return null;
+  // Tokens minted since the registry exists carry a jti and honor revocation.
+  // A missing registry row is not a failure: the signature already proves
+  // authenticity, and local/dev databases may not share the registry.
+  if (decoded.jti) {
+    const row = await env.DB.prepare(
+      "SELECT revoked_at FROM creator_tokens WHERE id = ?",
+    )
+      .bind(decoded.jti)
+      .first<{ revoked_at: number | null }>();
+    if (row?.revoked_at) return null;
+  }
   return {
     sub: decoded.sub,
     orgId: decoded.org_id,
@@ -286,6 +345,7 @@ export async function verifyCreatorToken(
     ),
     raw: {
       creator_token: true,
+      token_id: decoded.jti || null,
       name: decoded.name || null,
       iat: decoded.iat,
       exp: decoded.exp,
