@@ -38,6 +38,17 @@ export interface Creator {
   raw: Record<string, unknown>;
 }
 
+export interface CreatorToken {
+  typ: "creator";
+  sub: string;
+  org_id: string;
+  email: string | null;
+  name?: string | null;
+  permissions: string[];
+  iat: number;
+  exp: number;
+}
+
 export interface Artifact {
   id: string;
   org_id: string;

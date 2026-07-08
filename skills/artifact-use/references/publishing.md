@@ -10,12 +10,28 @@ Default endpoint:
 https://artifacts.iofold.com/mcp
 ```
 
-OAuth-capable MCP clients should authenticate from the MCP prompt. Non-OAuth clients, the CLI, and local stdio MCP need a bearer token:
+OAuth-capable MCP clients should authenticate from the MCP prompt. If Codex's
+MCP OAuth token refresh is unreliable, use the bearer-token fallback:
+
+1. Sign in at `https://artifacts.iofold.com/admin`.
+2. In **Agent setup**, create a Codex token.
+3. Export it before starting Codex:
 
 ```bash
 export ARTIFACT_USE_API_BASE=https://artifacts.iofold.com
-export ARTIFACT_USE_TOKEN=<workos-oauth-token>
+export ARTIFACT_USE_TOKEN='au_creator_...'
 ```
+
+4. Add this to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.artifact-use]
+url = "https://artifacts.iofold.com/mcp"
+bearer_token_env_var = "ARTIFACT_USE_TOKEN"
+```
+
+Then start a fresh Codex process or open a new thread. Use the same
+`ARTIFACT_USE_TOKEN` for non-OAuth clients, the CLI, and local stdio MCP.
 
 Tools:
 

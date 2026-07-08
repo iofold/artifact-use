@@ -9,6 +9,7 @@ import {
   extractStringArray,
   fromBase64Url,
   readCookie,
+  signCreatorToken,
   signPayload,
   userScopedOrgId,
   verifyPayload,
@@ -45,6 +46,12 @@ const TEAM_MANAGE_PERMISSIONS = new Set([
   "organization_memberships:write",
 ]);
 const TEAM_ROLE_OPTIONS = ["member", "admin"];
+const CREATOR_TOKEN_PERMISSIONS = [
+  "artifacts:publish",
+  "artifacts:read",
+  "artifacts:manage_access",
+  "artifacts:view_stats",
+];
 
 type ArtifactRow = Artifact & {
   total_views: number;
@@ -231,6 +238,8 @@ export async function handlePublisherAdmin(
     return createAdminShareLink(request, env, session);
   if (path === "/admin/artifact/share-link/revoke" && request.method === "POST")
     return revokeAdminShareLink(request, env, session);
+  if (path === "/admin/creator-token" && request.method === "POST")
+    return createCreatorToken(request, env, session);
   if (path === "/admin/team/invite" && request.method === "POST")
     return createPublisherInvite(request, env, session);
   if (path === "/admin/team/invite/revoke" && request.method === "POST")
@@ -572,15 +581,28 @@ async function renderAdmin(
         <div>
           <p class="eyebrow">Agent setup</p>
           <h2>Connect your coding agent</h2>
-          <p class="muted">Use the remote MCP URL below. OAuth-capable MCP clients will prompt you to sign in with WorkOS.</p>
+          <p class="muted">Use OAuth when your MCP client refreshes tokens reliably. Use a creator bearer token for Codex sessions that need durable publishing without Codex MCP OAuth refresh.</p>
         </div>
         <div class="setup-grid">
           <label>MCP URL
             <input readonly value="${escapeHtml(env.SITE_BASE_URL)}/mcp" onclick="this.select()">
           </label>
-          <label>MCP config
+          <label>OAuth MCP config
             <textarea readonly rows="7" onclick="this.select()">${escapeHtml(mcpConfig(env))}</textarea>
           </label>
+          <label>Codex bearer MCP config
+            <textarea readonly rows="5" onclick="this.select()">${escapeHtml(codexBearerConfig(env))}</textarea>
+          </label>
+          <form method="post" action="/admin/creator-token" class="token-create">
+            <label>Token label
+              <input name="label" placeholder="codex dev1">
+            </label>
+            <label>Expires in days
+              <input name="expires_days" inputmode="numeric" placeholder="30">
+            </label>
+            <button type="submit">Create Codex token</button>
+          </form>
+          <p class="mini">The token is shown once. Store it in <code>ARTIFACT_USE_TOKEN</code>, not in <code>config.toml</code>, source files, or published HTML.</p>
         </div>
       </section>
       ${teamSection(session, team)}
@@ -1126,6 +1148,23 @@ function mcpConfig(env: Env): string {
   );
 }
 
+function codexBearerConfig(env: Env): string {
+  return [
+    "[mcp_servers.artifact-use]",
+    `url = "${env.SITE_BASE_URL}/mcp"`,
+    'bearer_token_env_var = "ARTIFACT_USE_TOKEN"',
+  ].join("\n");
+}
+
+function creatorTokenShell(env: Env, token: string): string {
+  return [
+    `export ARTIFACT_USE_API_BASE=${env.SITE_BASE_URL}`,
+    `export ARTIFACT_USE_TOKEN='${token}'`,
+    "",
+    "# Then start a fresh Codex process or open a new Codex thread.",
+  ].join("\n");
+}
+
 function artifactRow(
   env: Env,
   artifact: ArtifactRow,
@@ -1419,6 +1458,84 @@ async function revokeAdminShareLink(
   return redirect(`/admin?open=${encodeURIComponent(row.artifact_id)}`);
 }
 
+async function createCreatorToken(
+  request: Request,
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  const form = await request.formData();
+  const daysRaw = Number(form.get("expires_days") || 30);
+  const days =
+    Number.isFinite(daysRaw) && daysRaw > 0
+      ? Math.max(1, Math.min(90, Math.floor(daysRaw)))
+      : 30;
+  const now = nowSec();
+  const exp = now + days * 86400;
+  const label = String(form.get("label") || "")
+    .trim()
+    .slice(0, 80);
+  const token = await signCreatorToken(
+    {
+      typ: "creator",
+      sub: session.sub,
+      org_id: session.orgId,
+      email: session.email,
+      name: label || session.name || "Codex bearer token",
+      permissions: CREATOR_TOKEN_PERMISSIONS,
+      iat: now,
+      exp,
+    },
+    env,
+  );
+  return page(
+    "Creator Token",
+    `<header class="top">
+      <a class="brand" href="/">Artifact Use</a>
+      <nav><a href="/admin">Admin</a><a href="/logout">Sign out</a></nav>
+    </header>
+    <main class="admin token-page">
+      <section class="headline">
+        <div>
+          <p class="eyebrow">Codex bearer setup</p>
+          <h1>Creator token created</h1>
+          <p class="muted">This token can publish, list, manage access, create share links, and read stats for ${escapeHtml(session.orgId)} until ${escapeHtml(new Date(exp * 1000).toISOString())}.</p>
+        </div>
+      </section>
+      <section class="setup token-result">
+        <div>
+          <p class="eyebrow">Step 1</p>
+          <h2>Store the token</h2>
+          <p class="muted">Copy this into the shell, secret manager, or service environment that launches Codex. Do not commit it.</p>
+        </div>
+        <div class="setup-grid">
+          <label>Shell environment
+            <textarea readonly rows="5" onclick="this.select()">${escapeHtml(creatorTokenShell(env, token))}</textarea>
+          </label>
+          <label>Raw bearer token
+            <textarea readonly rows="4" onclick="this.select()">${escapeHtml(token)}</textarea>
+          </label>
+        </div>
+      </section>
+      <section class="setup token-result">
+        <div>
+          <p class="eyebrow">Step 2</p>
+          <h2>Point Codex at the env var</h2>
+          <p class="muted">Add this to <code>~/.codex/config.toml</code>, then start a fresh Codex process or open a new thread.</p>
+        </div>
+        <div class="setup-grid">
+          <label>Codex config
+            <textarea readonly rows="5" onclick="this.select()">${escapeHtml(codexBearerConfig(env))}</textarea>
+          </label>
+          <div class="empty small-empty">
+            <strong>Rotation</strong>
+            <span>Creator tokens are stateless. To rotate, create a replacement token and remove the old value from the environment or secret store.</span>
+          </div>
+        </div>
+      </section>
+    </main>`,
+  );
+}
+
 async function createPublisherInvite(
   request: Request,
   env: Env,
@@ -1650,6 +1767,7 @@ function page(title: string, body: string): Response {
 *{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font-family:Aptos,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;letter-spacing:0}a{color:inherit;text-decoration:none}.top{height:66px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 clamp(18px,4vw,48px);background:var(--paper);position:sticky;top:0;z-index:5}.brand{font-weight:800}.top nav{display:flex;gap:10px;align-items:center}.top nav a{padding:9px 10px;border-radius:6px;color:var(--muted)}.top nav a:hover{background:var(--field);color:var(--ink)}.button,button{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border:1px solid var(--accent);border-radius:6px;background:var(--accent);color:#fff;padding:0 14px;font:700 14px inherit;cursor:pointer}.button.ghost{background:transparent;color:var(--accent)}.button.small{min-height:34px;padding:0 11px}.button.danger{border-color:#b84a3a;color:#b84a3a}.home,.admin{max-width:1180px;margin:0 auto;padding:clamp(26px,5vw,56px) clamp(18px,4vw,34px)}.hero{min-height:calc(100vh - 150px);display:grid;grid-template-columns:minmax(0,1fr) 360px;gap:44px;align-items:center}.eyebrow{font-size:12px;font-weight:800;text-transform:uppercase;color:var(--accent);margin:0 0 14px}.hero h1,.headline h1{font-size:clamp(36px,6vw,74px);line-height:.96;margin:0;max-width:780px}.lead{font-size:20px;line-height:1.5;color:var(--muted);max-width:680px}.actions{display:flex;gap:12px;margin-top:26px}.status{border-left:3px solid var(--accent);padding:18px 0 18px 20px}.status span{display:block;width:10px;height:10px;border-radius:50%;background:var(--accent2);box-shadow:0 0 0 5px rgba(214,255,98,.28);margin-bottom:16px}.status strong,.status em,.status small{display:block}.status em{margin-top:8px;color:var(--muted);font-style:normal;line-height:1.5}.status small{margin-top:14px;color:var(--muted);word-break:break-all}.headline{display:flex;align-items:end;justify-content:space-between;gap:24px;border-bottom:1px solid var(--line);padding-bottom:26px}.headline h1{font-size:clamp(32px,4vw,54px)}.muted{color:var(--muted)}.metrics{display:grid;grid-template-columns:repeat(5,minmax(92px,1fr));border:1px solid var(--line);background:var(--panel);min-width:min(620px,100%)}.metrics div{padding:16px;border-right:1px solid var(--line)}.metrics div:last-child{border-right:0}.metrics strong{display:block;font-size:26px}.metrics span{display:block;color:var(--muted);font-size:12px;margin-top:4px}.route-panel{display:grid;grid-template-columns:280px minmax(0,1fr);gap:24px;padding:24px 0;border-bottom:1px solid var(--line)}.route-panel h2{margin:0 0 8px;font-size:24px}.prefix-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.prefix-item{border:1px solid var(--line);background:#fff;padding:11px;border-radius:6px;min-width:0}.prefix-item span{display:block;color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase;margin-bottom:6px}.prefix-item code,.path-block code,.meta-list code{font-family:"SFMono-Regular",Consolas,monospace;font-size:12px;word-break:break-all}.setup{display:grid;grid-template-columns:280px minmax(0,1fr);gap:24px;padding:24px 0;border-bottom:1px solid var(--line)}.setup h2{margin:0 0 8px;font-size:24px}.setup-grid{display:grid;gap:12px}label{display:block;font-size:12px;font-weight:800;text-transform:uppercase;color:var(--muted);margin-bottom:8px}.toolbar{padding:24px 0;border-bottom:1px solid var(--line)}.inline{display:grid;grid-template-columns:minmax(160px,260px) minmax(160px,1fr) auto;gap:10px}input,select,textarea{width:100%;min-height:38px;border:1px solid var(--line);border-radius:6px;background:#fff;padding:8px 10px;font:inherit;text-transform:none;color:var(--ink)}textarea{resize:vertical;font-family:"SFMono-Regular",Consolas,monospace;font-size:13px;line-height:1.45}.table{margin-top:22px}.table-head,.artifact-row{display:grid;grid-template-columns:minmax(220px,1.1fr) minmax(220px,1fr) 210px 155px 96px;gap:14px;align-items:center}.table-head{padding:0 12px 10px;color:var(--muted);font-size:12px;font-weight:800;text-transform:uppercase}.artifact-card{background:#fff;border:1px solid var(--line);margin-bottom:10px}.artifact-row{border:0;padding:12px;margin:0}.artifact-title strong,.artifact-title span,.path-block small,.views span{display:block}.artifact-title span,.path-block small,.views span{color:var(--muted);font-size:13px;margin-top:3px;word-break:break-all}.row-actions{display:flex;justify-content:flex-end}.access{display:grid;grid-template-columns:1fr auto;gap:8px}.artifact-detail{border-top:1px solid var(--line);padding:0 12px 14px}.artifact-detail summary{cursor:pointer;color:var(--accent);font-weight:800;padding:12px 0}.detail-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(220px,.75fr);gap:22px}.detail-grid h3,.activity h2{margin:14px 0 10px;font-size:12px;text-transform:uppercase;color:var(--muted)}.bars{height:70px;display:flex;gap:3px;align-items:flex-end;border-bottom:1px solid var(--line)}.bars span{flex:1;min-height:4px;background:var(--accent);border-radius:3px 3px 0 0}.mini{font-size:12px;color:var(--muted);margin:7px 0 0}.detail-list,.activity-feed{list-style:none;margin:0;padding:0}.detail-list li,.activity-feed li{display:flex;justify-content:space-between;gap:12px;border-bottom:1px solid #edf1f0;padding:8px 0;font-size:13px}.detail-list li small,.activity-feed li small{display:block;color:var(--muted);margin-top:3px;word-break:break-word}.detail-list time,.activity-feed time{color:var(--muted);white-space:nowrap}.links-list form{margin:0}.share-create{display:grid;grid-template-columns:minmax(120px,1fr) minmax(90px,.8fr) 70px auto;gap:8px;margin-top:10px}.meta-list{display:grid;gap:7px;margin:0}.meta-list div{display:grid;grid-template-columns:100px minmax(0,1fr);gap:10px}.meta-list dt{color:var(--muted);font-size:12px}.meta-list dd{margin:0;font-size:13px}.allowlist-form{display:grid;gap:8px}.activity{padding-top:24px}.empty{border:1px solid var(--line);background:#fff;padding:24px}.small-empty{padding:10px;font-size:13px}.empty strong,.empty span{display:block}.empty span{color:var(--muted);margin-top:6px}.pill{display:inline-flex;align-items:center;min-height:28px;border-radius:999px;background:var(--field);color:var(--muted);font-size:12px;padding:0 9px}.panel.narrow{max-width:520px;margin:14vh auto;padding:32px}.error{color:#a33434}@media(max-width:900px){.headline,.route-panel,.setup{align-items:start;grid-template-columns:1fr}.detail-grid,.prefix-grid{grid-template-columns:1fr}.table-head,.artifact-row{grid-template-columns:1fr}.table-head{display:none}.row-actions{justify-content:flex-start}.share-create{grid-template-columns:1fr}.metrics{grid-template-columns:repeat(2,minmax(0,1fr));width:100%;min-width:0}.metrics div{border-right:0;border-bottom:1px solid var(--line)}.metrics div:last-child{border-bottom:0}}@media(max-width:760px){.hero{grid-template-columns:1fr;min-height:auto}.headline{align-items:start;flex-direction:column}.setup{grid-template-columns:1fr}.inline{grid-template-columns:1fr}.access{grid-template-columns:1fr}.actions{flex-wrap:wrap}}
 @media(min-width:901px){.table-head,.artifact-row{grid-template-columns:minmax(180px,.8fr) minmax(280px,1.35fr) 210px 150px 88px}.share-create{grid-template-columns:minmax(120px,1fr) minmax(90px,1fr) 70px}.share-create button{grid-column:1/-1}}.share-create button{white-space:nowrap}
 .team-panel{display:grid;grid-template-columns:280px minmax(0,1fr);gap:24px;padding:24px 0;border-bottom:1px solid var(--line)}.team-panel h2{margin:0 0 8px;font-size:24px}.team-body{display:grid;gap:14px;align-content:start}.team-invite{display:grid;grid-template-columns:minmax(190px,1fr) 140px 110px auto;gap:10px;align-items:end}.team-grid{display:grid;grid-template-columns:1fr 1fr;gap:22px}.team-grid h3{margin:10px 0;font-size:12px;text-transform:uppercase;color:var(--muted)}.error-box{color:#8f2f26;border-color:#e3b7af;background:#fff8f6}.invite-list form{margin:0}@media(max-width:900px){.team-panel,.team-grid,.team-invite{grid-template-columns:1fr}}
+.token-create{display:grid;grid-template-columns:minmax(180px,1fr) 140px auto;gap:10px;align-items:end}.token-create label{margin:0}.token-result textarea{font-size:12px}.token-page .headline h1{font-size:clamp(30px,4vw,48px)}@media(max-width:900px){.token-create{grid-template-columns:1fr}}
 .super-head,.super-row{grid-template-columns:minmax(190px,.9fr) minmax(220px,1fr) minmax(240px,1.1fr) 150px 88px}.super-transfer{display:grid;grid-template-columns:minmax(190px,1fr) minmax(190px,1fr) auto;gap:10px;align-items:end}.super-transfer label{margin:0}@media(max-width:900px){.super-head,.super-row,.super-transfer{grid-template-columns:1fr}}
 </style></head><body>${body}</body></html>`,
     {

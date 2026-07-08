@@ -1,10 +1,17 @@
 import { createRemoteJWKSet, jwtVerify } from "jose";
-import type { Creator, Env, UploadSession, ViewerSession } from "./types";
+import type {
+  Creator,
+  CreatorToken,
+  Env,
+  UploadSession,
+  ViewerSession,
+} from "./types";
 import { bearerToken, json, nowSec } from "./util";
 import { stringClaim, workosApiMaybe } from "./workos";
 
 let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
 let jwksUrlCache = "";
+const CREATOR_TOKEN_PREFIX = "au_creator_";
 
 function getJwks(env: Env): ReturnType<typeof createRemoteJWKSet> {
   if (!jwksCache || jwksUrlCache !== env.WORKOS_JWKS_URL) {
@@ -44,6 +51,12 @@ export async function getCreator(
       ]),
       raw: { dev: true },
     };
+  }
+  if (token.startsWith(CREATOR_TOKEN_PREFIX)) {
+    const creator = await verifyCreatorToken(token, env);
+    if (!creator)
+      throw new Error("Artifact Use creator token is invalid or expired");
+    return creator;
   }
   const verified = await jwtVerify(token, getJwks(env), {
     issuer: env.WORKOS_ISSUER,
@@ -243,6 +256,41 @@ export async function signViewerSession(
   env: Env,
 ): Promise<string> {
   return signPayload(session, env);
+}
+
+export async function signCreatorToken(
+  session: CreatorToken,
+  env: Env,
+): Promise<string> {
+  return `${CREATOR_TOKEN_PREFIX}${await signPayload(session, env)}`;
+}
+
+export async function verifyCreatorToken(
+  raw: string,
+  env: Env,
+): Promise<Creator | null> {
+  if (!raw.startsWith(CREATOR_TOKEN_PREFIX)) return null;
+  const decoded = await verifyPayload<CreatorToken>(
+    raw.slice(CREATOR_TOKEN_PREFIX.length),
+    env,
+  );
+  if (!decoded || decoded.typ !== "creator") return null;
+  if (!decoded.sub || !decoded.org_id) return null;
+  if (!decoded.exp || decoded.exp < nowSec()) return null;
+  return {
+    sub: decoded.sub,
+    orgId: decoded.org_id,
+    email: decoded.email || null,
+    permissions: new Set(
+      Array.isArray(decoded.permissions) ? decoded.permissions : [],
+    ),
+    raw: {
+      creator_token: true,
+      name: decoded.name || null,
+      iat: decoded.iat,
+      exp: decoded.exp,
+    },
+  };
 }
 
 export async function verifyViewerSession(

@@ -89,11 +89,33 @@ Use the hosted HTTP MCP endpoint when the agent can authenticate through OAuth:
 }
 ```
 
-For non-OAuth clients, local CLI usage, or the bundled stdio MCP server:
+Codex fallback when OAuth refresh is unreliable:
+
+1. Sign in at `https://artifacts.iofold.com/admin`.
+2. In **Agent setup**, create a Codex token.
+3. Store the token in the environment that launches Codex:
 
 ```bash
 export ARTIFACT_USE_API_BASE=https://artifacts.iofold.com
-export ARTIFACT_USE_TOKEN=<workos-oauth-token>
+export ARTIFACT_USE_TOKEN='au_creator_...'
+```
+
+4. Add this to `~/.codex/config.toml`:
+
+```toml
+[mcp_servers.artifact-use]
+url = "https://artifacts.iofold.com/mcp"
+bearer_token_env_var = "ARTIFACT_USE_TOKEN"
+```
+
+Then start a fresh Codex process or open a new thread.
+
+For non-OAuth clients, local CLI usage, or the bundled stdio MCP server, use the
+same environment variables:
+
+```bash
+export ARTIFACT_USE_API_BASE=https://artifacts.iofold.com
+export ARTIFACT_USE_TOKEN=<artifact-use-creator-token>
 ```
 
 Publish a folder with the CLI:

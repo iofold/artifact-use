@@ -25,11 +25,12 @@ Consuming an artifact (no browser needed):
 
 Agent setup summary:
 1. Prefer HTTP MCP at ${base}/mcp. OAuth-capable clients should configure only the URL and use the MCP auth prompt.
-2. For non-OAuth clients, CLI, or local stdio MCP, set ARTIFACT_USE_API_BASE=${base} and ARTIFACT_USE_TOKEN=<workos-oauth-token>.
-3. Install or create a skill named artifact-use using the guidance in ${base}/llms-full.txt.
-4. Use artifact_publish for one HTML string or small inline files.
-5. Use artifact_upload_session, local stdio MCP, or CLI publish-folder for local folders and large/multi-file artifacts.
-6. Do not use Wrangler, Cloudflare API tokens, direct R2, or direct D1 for publishing artifacts.
+2. If Codex MCP OAuth refresh is unreliable, sign in at ${base}/admin, create a Codex token in Agent setup, export it as ARTIFACT_USE_TOKEN, and set bearer_token_env_var = "ARTIFACT_USE_TOKEN".
+3. For non-OAuth clients, CLI, or local stdio MCP, set ARTIFACT_USE_API_BASE=${base} and ARTIFACT_USE_TOKEN=<artifact-use-creator-token>.
+4. Install or create a skill named artifact-use using the guidance in ${base}/llms-full.txt.
+5. Use artifact_publish for one HTML string or small inline files.
+6. Use artifact_upload_session, local stdio MCP, or CLI publish-folder for local folders and large/multi-file artifacts.
+7. Do not use Wrangler, Cloudflare API tokens, direct R2, or direct D1 for publishing artifacts.
 `);
 }
 
@@ -91,11 +92,32 @@ codex mcp login artifact-use --scopes openid,profile,email,offline_access
 If logout cannot delete keyring-backed tokens, remove only the \`artifact-use\`
 records from \`~/.codex/.credentials.json\`, then log in and restart Codex.
 
-For non-OAuth clients, CLI, or local stdio MCP:
+Codex bearer fallback, when MCP OAuth refresh is unreliable:
+
+1. Sign in at ${base}/admin.
+2. In Agent setup, create a Codex token.
+3. Export the token before starting Codex:
 
 \`\`\`bash
 export ARTIFACT_USE_API_BASE=${base}
-export ARTIFACT_USE_TOKEN=<workos-oauth-token>
+export ARTIFACT_USE_TOKEN='au_creator_...'
+\`\`\`
+
+4. Add this to \`~/.codex/config.toml\`:
+
+\`\`\`toml
+[mcp_servers.artifact-use]
+url = "${base}/mcp"
+bearer_token_env_var = "ARTIFACT_USE_TOKEN"
+\`\`\`
+
+Then start a fresh Codex process or open a new thread.
+
+For non-OAuth clients, CLI, or local stdio MCP, use the same token:
+
+\`\`\`bash
+export ARTIFACT_USE_API_BASE=${base}
+export ARTIFACT_USE_TOKEN=<artifact-use-creator-token>
 \`\`\`
 
 ## 3. Skill setup
@@ -118,7 +140,8 @@ Artifact Use publishes static artifacts to ${base} without exposing Cloudflare c
 - Prefer hosted HTTP MCP at ${base}/mcp; OAuth-capable clients should authenticate through the MCP prompt.
 - For OAuth-capable clients, configure only the MCP URL. Do not add an Authorization header unless you are intentionally passing a fresh bearer token.
 - After codex mcp login artifact-use, restart the active Codex session before using mcp__artifact_use; Codex may keep the old HTTP MCP auth state in memory.
-- Use ARTIFACT_USE_TOKEN only for CLI, local stdio MCP, or non-OAuth clients.
+- If Codex MCP OAuth refresh is unreliable, sign in at /admin, create a Codex token in Agent setup, export it as ARTIFACT_USE_TOKEN, and set bearer_token_env_var = "ARTIFACT_USE_TOKEN" for the MCP server.
+- Use ARTIFACT_USE_TOKEN for the Codex bearer fallback, CLI, local stdio MCP, or non-OAuth clients.
 - Use artifact_publish for a single HTML string or small inline multi-file payloads.
 - Use artifact_upload_session, local stdio MCP with dir, or the CLI for local folders, large files, images, PDFs, or multi-file artifacts.
 - Use artifact_manage for list, stats, access changes, and share links. action: "list" returns artifact url_key values for exact management calls.

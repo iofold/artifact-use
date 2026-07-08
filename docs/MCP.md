@@ -32,12 +32,43 @@ codex mcp login artifact-use --scopes openid,profile,email,offline_access
 If logout cannot delete keyring-backed tokens, remove only the `artifact-use`
 records from `~/.codex/.credentials.json`, then log in and restart Codex.
 
-For CLI usage, local stdio MCP, or non-OAuth clients, pass a WorkOS bearer token explicitly:
+### Codex Bearer-Token Fallback
+
+Codex can bypass MCP OAuth entirely by reading a bearer token from an
+environment variable. Use this when Codex's OAuth refresh path keeps expiring or
+an active thread keeps stale MCP auth state.
+
+User journey:
+
+1. Sign in to Artifact Use in a browser.
+2. Open `/admin`.
+3. In **Agent setup**, click **Create Codex token**.
+4. Copy the generated shell export into the environment that launches Codex.
+5. Add the bearer-token MCP block to `~/.codex/config.toml`.
+6. Start a fresh Codex process or open a new thread.
+
+Shell environment:
 
 ```bash
 export ARTIFACT_USE_API_BASE=https://artifacts.iofold.com
-export ARTIFACT_USE_TOKEN=<workos-oauth-token>
+export ARTIFACT_USE_TOKEN='au_creator_...'
 ```
+
+Codex config:
+
+```toml
+[mcp_servers.artifact-use]
+url = "https://artifacts.iofold.com/mcp"
+bearer_token_env_var = "ARTIFACT_USE_TOKEN"
+```
+
+Do not paste the token itself into `config.toml`, source files, prompts, or
+published artifact HTML. Creator tokens are stateless and expire at the time
+shown on the admin page; rotate by minting a new token and replacing the
+environment variable.
+
+For CLI usage, local stdio MCP, or non-OAuth clients, pass the same creator
+token explicitly through `ARTIFACT_USE_TOKEN`.
 
 ## Codex
 

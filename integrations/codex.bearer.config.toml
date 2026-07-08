@@ -1,0 +1,3 @@
+[mcp_servers.artifact-use]
+url = "https://artifacts.iofold.com/mcp"
+bearer_token_env_var = "ARTIFACT_USE_TOKEN"
