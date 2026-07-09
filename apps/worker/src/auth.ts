@@ -11,7 +11,7 @@ import { stringClaim, workosApiMaybe } from "./workos";
 
 let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
 let jwksUrlCache = "";
-const CREATOR_TOKEN_PREFIX = "au_creator_";
+export const CREATOR_TOKEN_PREFIX = "au_creator_";
 
 function getJwks(env: Env): ReturnType<typeof createRemoteJWKSet> {
   if (!jwksCache || jwksUrlCache !== env.WORKOS_JWKS_URL) {

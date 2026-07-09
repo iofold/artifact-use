@@ -8,6 +8,7 @@ import type {
   PublishManifest,
 } from "./types";
 import {
+  CREATOR_TOKEN_PREFIX,
   authRequired,
   requirePermission,
   safeCreator,
@@ -358,7 +359,14 @@ async function publishActorForVersion(
   versionId: string,
 ): Promise<PublishActor | Response> {
   const token = bearerToken(request);
-  if (token && token.split(".").length === 2) {
+  // Creator tokens are also payload.sig shaped (au_creator_<payload>.<sig>),
+  // so route them by prefix before structural sniffing — otherwise they get
+  // misread as upload tokens and always fail verification.
+  if (
+    token &&
+    !token.startsWith(CREATOR_TOKEN_PREFIX) &&
+    token.split(".").length === 2
+  ) {
     const upload = await verifyUploadToken(token, env);
     if (!upload)
       return authRequired(
