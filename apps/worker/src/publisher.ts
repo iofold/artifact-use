@@ -168,6 +168,29 @@ function docsUrl(env: Env): string {
   return env.ARTIFACT_USE_DOCS_URL || GITHUB_URL;
 }
 
+// Landing-page showcase artifacts. Deployment-specific url_keys: replace with
+// your own published artifacts (or empty the list) on other deployments.
+const SHOWCASE = [
+  {
+    title: "Data Playground",
+    desc: "Paste CSV or JSON, get sortable tables, column stats, and charts. Your data stays in the tab; a share link carries it in the URL.",
+    tags: ["single file", "localStorage", "URL state", "zero deps"],
+    path: "/go/data-playground-925c11/",
+  },
+  {
+    title: "Fractal Lab",
+    desc: "A Mandelbrot explorer whose math runs in a 267-byte hand-written WebAssembly module — with an honest JS-vs-WASM benchmark.",
+    tags: ["WebAssembly", "canvas", "benchmark"],
+    path: "/go/fractal-lab-0ce938/",
+  },
+  {
+    title: "Product Pulse",
+    desc: "A multi-file dashboard — ES modules, JSON data files, dependency-free SVG charts, dark mode — that lists its own manifest via the machine API.",
+    tags: ["multi-file", "data viz", "self-describing"],
+    path: "/go/product-pulse-1676b8/",
+  },
+];
+
 export async function renderHome(
   request: Request,
   env: Env,
@@ -235,6 +258,25 @@ export async function renderHome(
         <div><strong>Agent-first API</strong><span>HTTP MCP with OAuth or bearer tokens, a JSON-first CLI, and machine descriptors for every artifact.</span></div>
         <div><strong>Your infrastructure</strong><span>MIT licensed; runs on your Cloudflare account with R2 and D1. Agents never hold Cloudflare credentials.</span></div>
         <div><strong>Team workspaces</strong><span>Invite teammates — everyone shares the same artifact list, stats, and feedback.</span></div>
+      </section>
+      <section class="showcase" aria-label="Live example artifacts">
+        <div class="show-head">
+          <div>
+            <p class="eyebrow">Live on this deployment</p>
+            <h2>See what artifacts can be.</h2>
+          </div>
+          <p class="muted">Three real artifacts, each built and published by an agent in a single message — and each one documents itself.</p>
+        </div>
+        <div class="show-grid">
+          ${SHOWCASE.map(
+            (item) => `<a class="show-card" href="${escapeHtml(item.path)}">
+              <strong>${escapeHtml(item.title)}</strong>
+              <span>${escapeHtml(item.desc)}</span>
+              <div>${item.tags.map((tag) => `<i>${escapeHtml(tag)}</i>`).join("")}</div>
+              <em>Open it →</em>
+            </a>`,
+          ).join("")}
+        </div>
       </section>
       <section class="agents" id="agents">
         <div>
@@ -1977,6 +2019,18 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-of
 .feat strong{display:block;font-size:15px;margin-bottom:5px}
 .feat strong::before{content:"-> ";font-family:var(--mono);color:var(--accent)}
 .feat span{font-size:13.5px;line-height:1.55;color:var(--muted)}
+.showcase{padding:6px 0 44px}
+.show-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:18px;flex-wrap:wrap}
+.show-head h2{font-size:clamp(24px,2.6vw,30px);margin:8px 0 0}
+.show-head .muted{max-width:44ch;font-size:14.5px;margin:0}
+.show-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+.show-card{display:flex;flex-direction:column;gap:9px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;transition:border-color .15s,transform .15s,box-shadow .15s}
+.show-card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 14px 28px -18px rgba(19,36,32,.4)}
+.show-card strong{font:600 17px var(--serif)}
+.show-card span{font-size:13.5px;line-height:1.55;color:var(--muted);flex:1}
+.show-card i{font:600 10.5px var(--mono);font-style:normal;text-transform:uppercase;letter-spacing:.06em;background:var(--line-soft);color:var(--muted);border-radius:999px;padding:2px 8px;margin:0 4px 4px 0;display:inline-block}
+.show-card em{font:600 12.5px var(--mono);font-style:normal;color:var(--accent)}
+.show-card:hover em{color:var(--accent-deep)}
 .agents{background:var(--dark);color:#e6efe8;border-radius:12px;padding:clamp(24px,4vw,40px);display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:clamp(22px,3.5vw,40px)}
 .agents .eyebrow{color:var(--lume)}
 .agents h2{font-size:clamp(24px,2.6vw,30px);margin:8px 0 12px;color:#fff}
@@ -2133,7 +2187,7 @@ details.manual .setup-grid{padding:2px 14px 16px}
 .team-grid h3{margin:10px 0;font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
 .error-box{color:#8f2f26;border-color:#e3b7af;background:#fff8f6}
 .invite-list form{margin:0}
-@media(max-width:940px){.hero{grid-template-columns:1fr;padding-top:34px}.steps,.feat{grid-template-columns:1fr}.steps section{border-right:0;border-bottom:1px solid var(--line)}.steps section:last-child{border-bottom:0}.agents{grid-template-columns:1fr}.headline{flex-direction:column;align-items:flex-start}.setup,.team-panel,.team-grid,.team-invite,.token-form,.setup-paths{grid-template-columns:1fr}.access,.share-create{grid-template-columns:1fr}.onboard ol{grid-template-columns:1fr}.metrics div{flex:1 1 33%;border-bottom:1px solid var(--line)}.art-head{display:none}.art-tr{grid-template-columns:minmax(0,1fr) 70px}.art-gate,.art-7d,.art-fb,.art-date{display:none}.art-toolbar input{max-width:none;width:100%}.sheet-stats{grid-template-columns:1fr 1fr}}
+@media(max-width:940px){.hero{grid-template-columns:1fr;padding-top:34px}.steps,.feat,.show-grid{grid-template-columns:1fr}.steps section{border-right:0;border-bottom:1px solid var(--line)}.steps section:last-child{border-bottom:0}.agents{grid-template-columns:1fr}.headline{flex-direction:column;align-items:flex-start}.setup,.team-panel,.team-grid,.team-invite,.token-form,.setup-paths{grid-template-columns:1fr}.access,.share-create{grid-template-columns:1fr}.onboard ol{grid-template-columns:1fr}.metrics div{flex:1 1 33%;border-bottom:1px solid var(--line)}.art-head{display:none}.art-tr{grid-template-columns:minmax(0,1fr) 70px}.art-gate,.art-7d,.art-fb,.art-date{display:none}.art-toolbar input{max-width:none;width:100%}.sheet-stats{grid-template-columns:1fr 1fr}}
 </style></head><body>${body}${COPY_SCRIPT}</body></html>`,
     { status: opts.status || 200, headers },
   );
