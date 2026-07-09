@@ -241,7 +241,26 @@ export async function renderHome(
         </div>
       </section>
       <section class="loop" aria-label="The feedback loop">
-        <div class="loop-band" aria-hidden="true"><div class="loop-track">${`PUBLISH&ensp;▸&ensp;REVIEW&ensp;▸&ensp;AGENT READS&ensp;▸&ensp;APPLIES&ensp;▸&ensp;V2 LIVE&ensp;▸&ensp;SAME LINK&ensp;⟳&ensp;`.repeat(6)}</div></div>
+        <div class="loop-flow" aria-hidden="true">
+          <svg viewBox="0 0 1140 230" preserveAspectRatio="xMidYMid meet">
+            <defs>
+              <linearGradient id="loopFadeG" x1="0" y1="0" x2="1" y2="0">
+                <stop offset="0" stop-color="#000"/>
+                <stop offset="0.07" stop-color="#fff"/>
+                <stop offset="0.93" stop-color="#fff"/>
+                <stop offset="1" stop-color="#000"/>
+              </linearGradient>
+              <mask id="loopFade">
+                <rect x="0" y="0" width="100%" height="100%" fill="url(#loopFadeG)"/>
+              </mask>
+            </defs>
+            <g mask="url(#loopFade)">
+            <path id="loopPath" d="M 8 158 C 170 70, 320 44, 465 74 C 585 99, 645 168, 588 196 C 538 220, 480 168, 525 118 C 585 52, 730 30, 866 48 C 985 64, 1055 92, 1134 74" fill="none" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="3 8" stroke-linecap="round"/>
+            <text id="loopMeasure" class="loop-ribbon" opacity="0" x="-9999" y="-9999"></text>
+            <text class="loop-ribbon"><textPath id="loopTP" href="#loopPath"></textPath></text>
+            </g>
+          </svg>
+        </div></div>
         <div class="loop-head">
           <div>
             <p class="eyebrow">The loop</p>
@@ -297,9 +316,43 @@ export async function renderHome(
       .agents pre { overflow-x: auto; }
       @media (max-width: 640px) {
         .top nav a:not(.button):not([href="/login"]) { display: none; }
+        .loop-ribbon { font-size: 14px; letter-spacing: .1em; }
       }
       </style>
       <script>
+      (function () {
+        var tp = document.getElementById("loopTP");
+        var meas = document.getElementById("loopMeasure");
+        if (tp && meas) {
+          var mq = matchMedia("(max-width: 640px)");
+          var fitPath = function () {
+            var svg = tp.closest("svg");
+            var path = document.getElementById("loopPath");
+            if (mq.matches) {
+              svg.setAttribute("viewBox", "0 0 560 252");
+              path.setAttribute("d", "M 6 148 C 88 64, 178 44, 258 72 C 348 102, 398 172, 344 206 C 292 238, 232 170, 284 112 C 338 54, 434 46, 554 74");
+            } else {
+              svg.setAttribute("viewBox", "0 0 1140 230");
+              path.setAttribute("d", "M 8 158 C 170 70, 320 44, 465 74 C 585 99, 645 168, 588 196 C 538 220, 480 168, 525 118 C 585 52, 730 30, 866 48 C 985 64, 1055 92, 1134 74");
+            }
+          };
+          fitPath();
+          mq.addEventListener("change", fitPath);
+          var phrase = "PUBLISH \u25B8 REVIEW \u25B8 AGENT READS \u25B8 APPLIES \u25B8 V2 LIVE \u25B8 SAME LINK \u27F3\u00A0\u00A0";
+          meas.textContent = phrase;
+          var L = Math.max(1, meas.getComputedTextLength());
+          tp.textContent = new Array(25).join(phrase);
+          if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
+            tp.setAttribute("startOffset", String(-L * 0.35));
+          } else {
+            var t0 = performance.now();
+            (function step(t) {
+              tp.setAttribute("startOffset", String(-(((t - t0) * 0.05) % L)));
+              requestAnimationFrame(step);
+            })(t0);
+          }
+        }
+      })();
       (function () {
         if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
         document.querySelectorAll("[data-hoverplay]").forEach(function (v) {
@@ -2055,10 +2108,9 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-of
 .feat strong::before{content:"-> ";font-family:var(--mono);color:var(--accent)}
 .feat span{font-size:13.5px;line-height:1.55;color:var(--muted)}
 .loop{padding:26px 0 10px}
-.loop-band{overflow:hidden;background:var(--dark);border:1px solid #24443c;border-radius:999px;padding:9px 0;margin-bottom:26px;box-shadow:0 14px 30px -18px rgba(19,36,32,.5)}
-.loop-track{display:inline-block;white-space:nowrap;font:700 12px var(--mono);letter-spacing:.22em;color:var(--lume);animation:loopscroll 40s linear infinite;will-change:transform}
-@keyframes loopscroll{to{transform:translateX(-50%)}}
-@media(prefers-reduced-motion:reduce){.loop-track{animation:none}}
+.loop-flow{margin:-4px 0 22px}
+.loop-flow svg{width:100%;height:auto;display:block;overflow:visible}
+.loop-ribbon{font:700 17px var(--mono);letter-spacing:.14em;fill:var(--accent-deep)}
 .loop-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:18px;flex-wrap:wrap}
 .loop-head>*{min-width:0;max-width:100%}
 .loop-head h2{font-size:clamp(26px,3vw,34px);margin:8px 0 0}
