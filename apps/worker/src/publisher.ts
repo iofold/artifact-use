@@ -222,7 +222,7 @@ export async function renderHome(
         <div>
           <p class="eyebrow rise">Review-ready artifact links</p>
           <h1 class="rise d1">Turn agent output into links people can open and review.</h1>
-          <p class="lead rise d2">Your coding agent publishes HTML tools, dashboards, PDFs, and whole static folders to one stable URL — with access gates, versioning, and comments built in. Feedback is machine-readable, so artifacts improve themselves: an agent reads the comments and ships v2 to the same link.</p>
+          <p class="lead rise d2">Your coding agent publishes HTML tools, dashboards, PDFs, and whole static folders to one stable URL — gates, versions, and comments built in. Feedback comes back machine-readable, so the next agent ships v2 to the same link.</p>
           <div class="actions rise d3">
             <a class="button" href="/signup">Start publishing</a>
             <a class="button ghost" href="/llms.txt">Connect your agent</a>
@@ -262,11 +262,9 @@ export async function renderHome(
           </svg>
         </div></div>
         <div class="loop-head">
-          <div>
-            <p class="eyebrow">The loop</p>
-            <h2>Ship v1. The loop ships v2.</h2>
-          </div>
-          <p class="muted">Artifacts aren't dead files. Colleagues comment right on the page, agents read that feedback over the API, apply it, and republish to the same link. Both reels below are real footage of real product actions — hover to play.</p>
+          <p class="eyebrow">The loop</p>
+          <h2>Ship v1. The loop ships v2.</h2>
+          <p class="muted">Artifacts aren't dead files. Colleagues comment right on the page, agents read that feedback over the API, apply it, and republish to the same link. Both reels below are real footage of real product actions.</p>
         </div>
         <figure class="story">
           <figcaption class="story-copy">
@@ -280,7 +278,7 @@ export async function renderHome(
               <li>The reviewers' link now serves v2 — comments resolved</li>
             </ul>
           </figcaption>
-          <div class="vid"><video data-hoverplay src="${MEDIA_BASE}agent-loop.mp4" poster="${MEDIA_BASE}agent-loop.jpg" muted loop playsinline preload="none"></video></div>
+          <div class="vid"><video data-autoplay src="${MEDIA_BASE}agent-loop.mp4" poster="${MEDIA_BASE}agent-loop.jpg" muted loop playsinline preload="none"></video></div>
         </figure>
         <figure class="story flip">
           <figcaption class="story-copy">
@@ -294,7 +292,7 @@ export async function renderHome(
               <li>Resolve and reopen right where the work happened</li>
             </ul>
           </figcaption>
-          <div class="vid"><video data-hoverplay src="${MEDIA_BASE}review-flow.mp4" poster="${MEDIA_BASE}review-flow.jpg" muted loop playsinline preload="none"></video></div>
+          <div class="vid"><video data-autoplay src="${MEDIA_BASE}review-flow.mp4" poster="${MEDIA_BASE}review-flow.jpg" muted loop playsinline preload="none"></video></div>
         </figure>
       </section>
       <section class="feat" aria-label="What you get">
@@ -350,10 +348,10 @@ export async function renderHome(
           <span class="fnum">04</span>
           <div class="fcopy"><strong>Agent-first API</strong><span>HTTP MCP with OAuth or bearer tokens, a JSON-first CLI, and machine descriptors for every artifact.</span></div>
           <div class="fviz" aria-hidden="true"><svg viewBox="0 0 220 96">
-      <rect x="8" y="8" width="204" height="54" rx="8" fill="var(--dark)"/>
-      <circle cx="20" cy="19" r="2.5" fill="var(--lume)"/><circle cx="29" cy="19" r="2.5" fill="#2c4b42"/><circle cx="38" cy="19" r="2.5" fill="#2c4b42"/>
-      <text class="dt" x="18" y="40" fill="#e6efe8">$ au publish ./dist</text>
-      <text class="dt" x="18" y="53" fill="var(--lume)">→ v4 live · same URL</text>
+      <rect class="db" x="8" y="8" width="204" height="54" rx="8"/>
+      <circle cx="20" cy="19" r="2.5" fill="var(--accent)"/><circle cx="29" cy="19" r="2.5" fill="var(--line)"/><circle cx="38" cy="19" r="2.5" fill="var(--line)"/>
+      <text class="dt" x="18" y="40" fill="var(--ink)">$ au publish ./dist</text>
+      <text class="dt" x="18" y="53" fill="var(--accent)">→ v4 live · same URL</text>
       <rect class="db" x="8" y="70" width="40" height="17" rx="8"/><text class="dl" x="28" y="81.5" text-anchor="middle">MCP</text>
       <rect class="db" x="54" y="70" width="40" height="17" rx="8"/><text class="dl" x="74" y="81.5" text-anchor="middle">CLI</text>
       <rect class="db" x="100" y="70" width="112" height="17" rx="8"/><text class="dl" x="156" y="81.5" text-anchor="middle">JSON descriptors</text>
@@ -388,7 +386,7 @@ export async function renderHome(
         </div>
         <div class="frow">
           <span class="fnum">07</span>
-          <div class="fcopy"><strong>Model- and harness-agnostic</strong><span>Your artifacts belong to you, not to any one agent. Switch between Claude Code, Codex, a terminal, an IDE extension, another subscription, open-source or private-cloud models and harnesses — the same stable links, versions, and feedback come with you. Anything that speaks HTTP can publish.</span></div>
+          <div class="fcopy"><strong>Model- and harness-agnostic</strong><span>Your artifacts belong to you, not to any one agent — switch models, harnesses, or subscriptions and your links, versions, and feedback come with you. Anything that speaks HTTP can publish.</span></div>
           <div class="fviz" aria-hidden="true"><svg viewBox="0 0 220 96">
       <rect class="db" x="2" y="6" width="68" height="17" rx="8"/><text class="dl" x="36" y="17.5" text-anchor="middle">claude code</text>
       <rect class="db" x="2" y="39" width="68" height="17" rx="8"/><text class="dl" x="36" y="50.5" text-anchor="middle">codex</text>
@@ -408,16 +406,14 @@ export async function renderHome(
       </section>
       <section class="showcase" aria-label="Live example artifacts">
         <div class="show-head">
-          <div>
-            <p class="eyebrow">Live on this deployment</p>
-            <h2>See what artifacts can be.</h2>
-          </div>
+          <p class="eyebrow">Live on this deployment</p>
+          <h2>See what artifacts can be.</h2>
           <p class="muted">Three real artifacts, each built and published by an agent in a single message — and each one documents itself.</p>
         </div>
         <div class="show-grid">
           ${SHOWCASE.map(
             (item) => `<a class="show-card" href="${escapeHtml(item.path)}">
-              <span class="vid"><video data-hoverplay src="${MEDIA_BASE}${item.video}.mp4" poster="${MEDIA_BASE}${item.video}.jpg" muted loop playsinline preload="none"></video></span>
+              <span class="vid"><video data-autoplay src="${MEDIA_BASE}${item.video}.mp4" poster="${MEDIA_BASE}${item.video}.jpg" muted loop playsinline preload="none"></video></span>
               <strong>${escapeHtml(item.title)}</strong>
               <span>${escapeHtml(item.desc)}</span>
               <div>${item.tags.map((tag) => `<i>${escapeHtml(tag)}</i>`).join("")}</div>
@@ -472,13 +468,19 @@ export async function renderHome(
         }
       })();
       (function () {
-        if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-        document.querySelectorAll("[data-hoverplay]").forEach(function (v) {
-          var card = v.closest(".story, .show-card");
-          if (!card) return;
-          card.addEventListener("mouseenter", function () { v.play().catch(function () {}); });
-          card.addEventListener("mouseleave", function () { v.pause(); });
-          card.addEventListener("touchstart", function () { v.paused ? v.play().catch(function () {}) : v.pause(); }, { passive: true });
+        var vids = document.querySelectorAll("[data-autoplay]");
+        if (!vids.length || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        var io = new IntersectionObserver(
+          function (entries) {
+            entries.forEach(function (e) {
+              if (e.intersectionRatio >= 0.35) e.target.play().catch(function () {});
+              else e.target.pause();
+            });
+          },
+          { threshold: [0, 0.35] },
+        );
+        vids.forEach(function (v) {
+          io.observe(v);
         });
       })();
       </script>
@@ -508,7 +510,7 @@ POST ${escapeHtml(base)}/api/v1/connect/poll
           <a href="/terms">Terms</a>
           <a href="/llms.txt">llms.txt</a>
           <a href="/llms-full.txt">Agent guide</a>
-          <code>MCP ${escapeHtml(base)}/mcp</code>
+          <a href="/mcp"><code>MCP endpoint</code></a>
         </nav>
       </footer>
     </main>`,
@@ -2197,10 +2199,11 @@ input,select,textarea{width:100%;min-height:38px;border:1px solid var(--line);bo
 textarea{resize:vertical;font:12.5px/1.55 var(--mono)}
 input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-offset:0;border-color:var(--accent)}
 .home{max-width:1120px;margin:0 auto;padding:0 clamp(18px,4vw,34px) 8px}
-.hero{display:grid;grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr);gap:clamp(28px,4vw,52px);align-items:center;padding:clamp(40px,7vh,76px) 0 clamp(40px,6vh,64px)}
+.hero{display:grid;grid-template-columns:minmax(0,1.04fr) minmax(0,.96fr);gap:clamp(28px,4vw,52px);align-items:start;padding:clamp(48px,7vh,84px) 0 clamp(44px,6vh,68px)}
+.hero .term{margin-top:34px}
 .hero h1{font-size:clamp(34px,4.4vw,54px);line-height:1.06;margin:12px 0 0}
 .lead{font-size:17.5px;line-height:1.65;color:var(--muted);max-width:54ch;margin:18px 0 0}
-.actions{display:flex;gap:12px;margin-top:28px;flex-wrap:wrap}
+.actions{display:flex;gap:12px;margin-top:36px;flex-wrap:wrap}
 .rise{animation:rise .6s cubic-bezier(.2,.7,.2,1) both}
 .d1{animation-delay:.06s}.d2{animation-delay:.14s}.d3{animation-delay:.22s}.d4{animation-delay:.32s}
 @keyframes rise{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
@@ -2219,13 +2222,14 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-of
 .step-n{display:block;font:600 12px var(--mono);color:var(--accent);letter-spacing:.12em;margin-bottom:12px}
 .steps h3{font-size:20px;margin:0 0 8px}
 .steps p{margin:0;font-size:14.5px;line-height:1.6;color:var(--muted)}
-.feat{margin:44px 0}
-.feat-head h2{font-size:clamp(24px,2.6vw,30px);margin:8px 0 14px}
-.frow{display:grid;grid-template-columns:52px minmax(0,1fr) 232px;gap:clamp(18px,3vw,44px);align-items:start;padding:18px 0;border-top:1px solid var(--line)}
+.feat{margin:104px 0 96px}
+.feat-head h2{font-size:clamp(24px,2.6vw,30px);margin:8px 0 0}
+.feat-head{margin-bottom:36px}
+.frow{display:grid;grid-template-columns:52px minmax(0,1fr) 232px;gap:clamp(18px,3vw,44px);align-items:center;padding:26px 0;border-top:1px solid var(--line)}
 .frow:last-of-type{border-bottom:1px solid var(--line)}
-.fnum{font:600 13px var(--mono);color:var(--accent);letter-spacing:.1em;padding-top:4px}
+.fnum{font:600 13px var(--mono);color:var(--accent);letter-spacing:.1em}
 .fcopy strong{display:block;font:600 16.5px var(--serif);margin-bottom:4px}
-.fcopy span{font-size:13.5px;line-height:1.55;color:var(--muted)}
+.fcopy span{display:block;font-size:13.5px;line-height:1.6;color:var(--muted);max-width:58ch}
 .fviz svg{width:100%;height:auto;display:block}
 .fviz .db{fill:var(--panel);stroke:var(--ink);stroke-width:1.2}
 .fviz .da{fill:var(--accent)}
@@ -2235,30 +2239,31 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-of
 .fviz .dlk{font:600 9px var(--mono);fill:var(--accent-deep)}
 .fviz .dw9{font:600 9px var(--mono);fill:#fff}
 .fviz .dt{font:600 9.5px var(--mono)}
-.loop{padding:26px 0 10px}
-.loop-flow{margin:-4px 0 22px}
+.loop{padding:56px 0 0}
+.loop-flow{margin:-4px 0 56px}
 .loop-flow svg{width:100%;height:auto;display:block;overflow:visible}
 .loop-ribbon{font:700 17px var(--mono);letter-spacing:.14em;fill:var(--accent-deep)}
-.loop-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:18px;flex-wrap:wrap}
+.loop-head{margin-bottom:44px}
 .loop-head>*{min-width:0;max-width:100%}
-.loop-head h2{font-size:clamp(26px,3vw,34px);margin:8px 0 0}
-.loop-head .muted{max-width:52ch;font-size:15px;margin:0}
-.story{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.25fr);gap:clamp(22px,4vw,52px);align-items:center;margin:0;padding:26px 0}
+.loop-head h2{font-size:clamp(26px,3vw,34px);margin:8px 0 12px}
+.loop-head .muted{max-width:60ch;font-size:15.5px;line-height:1.65;margin:0}
+.story{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.25fr);gap:clamp(26px,4.5vw,60px);align-items:center;margin:0;padding:40px 0}
+.story.flip{grid-template-columns:minmax(0,1.25fr) minmax(0,.9fr)}
 .story+.story{border-top:1px dashed var(--line)}
 .story .vid{border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 36px -22px rgba(19,36,32,.5);transition:border-color .15s,transform .15s}
 .story:hover .vid{border-color:var(--accent);transform:translateY(-2px)}
 .story.flip .story-copy{order:2}
 .story-copy h3{font:600 22px var(--serif);margin:6px 0 8px}
 .story-copy>p:not(.eyebrow){margin:0 0 14px;font-size:14.5px;line-height:1.6;color:var(--muted)}
-.story-steps{list-style:none;margin:0;padding:0;display:grid;gap:7px;counter-reset:ss}
-.story-steps li{counter-increment:ss;font:12.5px/1.5 var(--mono);color:var(--ink);display:flex;gap:10px;align-items:baseline}
+.story-steps{list-style:none;margin:0;padding:0;display:grid;gap:11px;counter-reset:ss}
+.story-steps li{counter-increment:ss;font:14px/1.55 var(--sans);color:var(--ink);display:flex;gap:12px;align-items:baseline}
 .story-steps li::before{content:counter(ss,decimal-leading-zero);font:600 10.5px var(--mono);color:var(--accent);min-width:18px}
 .vid{position:relative;display:block;aspect-ratio:16/9;background:var(--dark);overflow:hidden}
 .vid video{width:100%;height:100%;object-fit:cover;display:block}
-.showcase{padding:6px 0 44px}
-.show-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:18px;flex-wrap:wrap}
-.show-head h2{font-size:clamp(24px,2.6vw,30px);margin:8px 0 0}
-.show-head .muted{max-width:44ch;font-size:14.5px;margin:0}
+.showcase{padding:0 0 104px}
+.show-head{margin-bottom:36px}
+.show-head h2{font-size:clamp(24px,2.6vw,30px);margin:8px 0 12px}
+.show-head .muted{max-width:60ch;font-size:15px;line-height:1.65;margin:0}
 .show-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
 .show-card{display:flex;flex-direction:column;gap:9px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:0 0 18px;overflow:hidden;transition:border-color .15s,transform .15s,box-shadow .15s}
 .show-card>strong,.show-card>span,.show-card>div,.show-card>em{margin:0 18px}
@@ -2269,10 +2274,10 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-of
 .show-card i{font:600 10.5px var(--mono);font-style:normal;text-transform:uppercase;letter-spacing:.06em;background:var(--line-soft);color:var(--muted);border-radius:999px;padding:2px 8px;margin:0 4px 4px 0;display:inline-block}
 .show-card em{font:600 12.5px var(--mono);font-style:normal;color:var(--accent)}
 .show-card:hover em{color:var(--accent-deep)}
-.agents{background:var(--dark);color:#e6efe8;border-radius:12px;padding:clamp(24px,4vw,40px);display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:clamp(22px,3.5vw,40px)}
+.agents{background:var(--dark);color:#e6efe8;border-radius:12px;padding:clamp(30px,5vw,56px);display:grid;grid-template-columns:minmax(0,.85fr) minmax(0,1.15fr);gap:clamp(22px,3.5vw,40px)}
 .agents .eyebrow{color:var(--lume)}
 .agents h2{font-size:clamp(24px,2.6vw,30px);margin:8px 0 12px;color:#fff}
-.agents p{color:#9db3a9;font-size:15px;line-height:1.65;margin:0 0 10px}
+.agents p{color:#9db3a9;font-size:15px;line-height:1.7;margin:0 0 18px;max-width:52ch}
 .agents a{color:#8ce0cf;text-decoration:underline dotted}
 .codeblock{position:relative;background:var(--dark-2);border:1px solid rgba(232,240,233,.14);border-radius:8px;margin-top:12px}
 .codeblock pre{margin:0;padding:14px 16px;font:12.5px/1.6 var(--mono);color:#cfe3d8;overflow-x:auto}
@@ -2283,7 +2288,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-of
 .copy-lite:hover{color:var(--ink);border-color:var(--accent);background:#fff}
 .copy-lite.copied{color:var(--accent);border-color:var(--accent);background:#fff}
 .copywrap{position:relative}
-footer.site{border-top:1px solid var(--line);margin-top:56px;padding:26px 0 44px;display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:13.5px}
+footer.site{border-top:1px solid var(--line);margin-top:88px;padding:32px 0 52px;display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;color:var(--muted);font-size:13.5px}
 footer.site nav{display:flex;gap:18px;flex-wrap:wrap}
 footer.site a:hover{color:var(--ink)}
 footer.site code{font:12px var(--mono)}
@@ -2426,7 +2431,7 @@ details.manual .setup-grid{padding:2px 14px 16px}
 .error-box{color:#8f2f26;border-color:#e3b7af;background:#fff8f6}
 .invite-list form{margin:0}
 @media(max-width:640px){.top nav a:not(.button):not([href="/login"]){display:none}}
-@media(max-width:940px){.hero{grid-template-columns:1fr;padding-top:34px}.steps,.show-grid{grid-template-columns:1fr}.story{grid-template-columns:1fr;gap:16px}.story .vid{order:-1}.frow{grid-template-columns:32px minmax(0,1fr);row-gap:12px}.fviz{grid-column:2;max-width:280px}.loop-head{flex-direction:column;align-items:flex-start}.steps section{border-right:0;border-bottom:1px solid var(--line)}.steps section:last-child{border-bottom:0}.agents{grid-template-columns:1fr}.headline{flex-direction:column;align-items:flex-start}.setup,.team-panel,.team-grid,.team-invite,.token-form,.setup-paths{grid-template-columns:1fr}.access,.share-create{grid-template-columns:1fr}.onboard ol{grid-template-columns:1fr}.metrics div{flex:1 1 33%;border-bottom:1px solid var(--line)}.art-head{display:none}.art-tr{grid-template-columns:minmax(0,1fr) 70px}.art-gate,.art-7d,.art-fb,.art-date{display:none}.art-toolbar input{max-width:none;width:100%}.sheet-stats{grid-template-columns:1fr 1fr}}
+@media(max-width:940px){.hero{grid-template-columns:1fr;padding-top:34px}.steps,.show-grid{grid-template-columns:1fr}.story,.story.flip{grid-template-columns:1fr;gap:16px}.story .vid{order:-1}.hero .term{margin-top:0}.frow{grid-template-columns:32px minmax(0,1fr);row-gap:12px}.fviz{grid-column:2;max-width:280px}.loop-head{flex-direction:column;align-items:flex-start}.steps section{border-right:0;border-bottom:1px solid var(--line)}.steps section:last-child{border-bottom:0}.agents{grid-template-columns:1fr}.headline{flex-direction:column;align-items:flex-start}.setup,.team-panel,.team-grid,.team-invite,.token-form,.setup-paths{grid-template-columns:1fr}.access,.share-create{grid-template-columns:1fr}.onboard ol{grid-template-columns:1fr}.metrics div{flex:1 1 33%;border-bottom:1px solid var(--line)}.art-head{display:none}.art-tr{grid-template-columns:minmax(0,1fr) 70px}.art-gate,.art-7d,.art-fb,.art-date{display:none}.art-toolbar input{max-width:none;width:100%}.sheet-stats{grid-template-columns:1fr 1fr}}
 </style></head><body>${body}${COPY_SCRIPT}</body></html>`,
     { status: opts.status || 200, headers },
   );
