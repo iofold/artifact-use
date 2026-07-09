@@ -8,9 +8,16 @@ compatibility_date = "2026-06-01"
 account_id = "00000000000000000000000000000000"
 
 # Regenerate the injected feedback widget (src/widget/feedback.js ->
-# feedback.generated.ts) before bundling, on both `wrangler dev` and deploy.
+# feedback.generated.ts) and build the React admin SPA (apps/admin-ui ->
+# public/admin-app) before bundling, on both `wrangler dev` and deploy.
 [build]
-command = "node scripts/build-feedback-widget.mjs"
+command = "node scripts/build-feedback-widget.mjs && cd ../admin-ui && npm run build"
+
+# The admin SPA is served from Workers Static Assets; the worker gates /admin*
+# behind the publisher session and serves the shell.
+[assets]
+directory = "./public"
+binding = "ASSETS"
 
 # Replace these routes with your own zone/domain before deploying.
 [[routes]]
@@ -81,6 +88,12 @@ zone_name = "example.com"
 pattern = "artifacts.example.com/admin*"
 zone_name = "example.com"
 [[routes]]
+pattern = "artifacts.example.com/admin-app/*"
+zone_name = "example.com"
+[[routes]]
+pattern = "artifacts.example.com/api/admin*"
+zone_name = "example.com"
+[[routes]]
 pattern = "artifacts.example.com/connect*"
 zone_name = "example.com"
 
@@ -116,6 +129,9 @@ DEFAULT_FILE_COUNT_LIMIT = "200"
 HTTP_MCP_INLINE_FILE_LIMIT_BYTES = "2097152"
 ALLOW_DEBUG_CODES = "false"
 ARTIFACT_USE_SUPER_ADMIN_USER_IDS = ""
+# Optional: URL of a published docs artifact; "Read the docs" and the landing
+# Docs link target it. Empty falls back to the GitHub repository.
+ARTIFACT_USE_DOCS_URL = ""
 
 # Secrets:
 #   SESSION_SECRET

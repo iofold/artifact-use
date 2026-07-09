@@ -3,6 +3,7 @@ export type GateLevel = "public" | "email" | "verified_email" | "allowlist";
 export interface Env {
   DB: D1Database;
   BUCKET: R2Bucket;
+  ASSETS: Fetcher;
   SITE_BASE_URL: string;
   ARTIFACT_PUBLIC_PATH_PREFIX?: string;
   WORKOS_AUTHKIT_URL: string;
@@ -12,6 +13,7 @@ export interface Env {
   WORKOS_CLIENT_ID?: string;
   WORKOS_API_KEY?: string;
   ARTIFACT_USE_SUPER_ADMIN_USER_IDS?: string;
+  ARTIFACT_USE_DOCS_URL?: string;
   ARTIFACT_USE_AUTH_SCOPES?: string;
   ARTIFACT_USE_READ_SCOPES?: string;
   ARTIFACT_USE_WRITE_SCOPES?: string;

@@ -7,6 +7,8 @@ import { handleMcp } from "./mcp";
 import { handleConnectApi } from "./connect";
 import { handlePublish } from "./publish";
 import {
+  errorPage,
+  handleAdminUiApi,
   handleConnectPage,
   handlePublisherAdmin,
   handlePublisherAuth,
@@ -15,7 +17,7 @@ import {
   renderTermsOfService,
 } from "./publisher";
 import { handleAgentToken, handleComments, servePublic } from "./serve";
-import { error, json } from "./util";
+import { error, json, wantsHtml } from "./util";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -35,7 +37,12 @@ export default {
         null,
         cors ? { status: 204, headers: cors } : { status: 204 },
       );
-    const response = await route(request, env, path);
+    const response = await htmlErrorAdapter(
+      request,
+      env,
+      path,
+      await route(request, env, path),
+    );
     const headers = new Headers(response.headers);
     if (cors) for (const [k, v] of Object.entries(CORS)) headers.set(k, v);
     return new Response(response.body, {
@@ -45,6 +52,38 @@ export default {
     });
   },
 };
+
+// Agent-facing surfaces keep their JSON error envelopes even in a browser tab.
+const AGENT_PATHS = /^\/(api\/|mcp$|_au\/|\.well-known\/|llms)/;
+
+// JSON error envelopes are the right contract for agents, but a person in a
+// browser should get a designed page with a way home instead of raw JSON.
+async function htmlErrorAdapter(
+  request: Request,
+  env: Env,
+  path: string,
+  response: Response,
+): Promise<Response> {
+  if (response.status < 400) return response;
+  if (!wantsHtml(request)) return response;
+  if (AGENT_PATHS.test(path)) return response;
+  const contentType = response.headers.get("Content-Type") || "";
+  if (!contentType.includes("application/json")) return response;
+  let detail = "";
+  try {
+    const body = (await response.clone().json()) as {
+      error?: { message?: string };
+    };
+    detail = body.error?.message || "";
+  } catch {
+    // keep the generic copy
+  }
+  const pretty = errorPage(env, response.status, detail);
+  // Keep cookie mutations (e.g. auth-failure cleanup) from the original.
+  for (const value of response.headers.getSetCookie())
+    pretty.headers.append("Set-Cookie", value);
+  return pretty;
+}
 
 function corsHeaders(path: string): typeof CORS | null {
   if (
@@ -63,6 +102,25 @@ async function route(
   path: string,
 ): Promise<Response> {
   try {
+    // `await` is load-bearing: `return dispatch(...)` would hand the promise
+    // straight through and rejected handlers would skip this catch, escaping
+    // as raw 1101 worker exceptions.
+    return await dispatch(request, env, path);
+  } catch (e) {
+    return error(
+      500,
+      "internal_error",
+      e instanceof Error ? e.message : "internal error",
+    );
+  }
+}
+
+async function dispatch(
+  request: Request,
+  env: Env,
+  path: string,
+): Promise<Response> {
+  {
     if (path === "/.well-known/oauth-protected-resource") {
       return json({
         resource: oauthResource(env),
@@ -98,6 +156,8 @@ async function route(
     if (path.startsWith("/api/v1/publish/"))
       return handlePublish(request, env, path);
     if (path.startsWith("/api/v1/")) return handleAdminApi(request, env, path);
+    if (path.startsWith("/api/admin/"))
+      return handleAdminUiApi(request, env, path);
     if (path.startsWith("/_au/gate/"))
       return handleGateRoute(request, env, path);
     if (path === "/_au/comments") return handleComments(request, env, path);
@@ -105,12 +165,6 @@ async function route(
     if (request.method !== "GET" && request.method !== "HEAD")
       return error(405, "method_not_allowed", "method not allowed");
     return servePublic(request, env, path);
-  } catch (e) {
-    return error(
-      500,
-      "internal_error",
-      e instanceof Error ? e.message : "internal error",
-    );
   }
 }
 

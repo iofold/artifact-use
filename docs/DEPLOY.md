@@ -69,6 +69,17 @@ Configure the OAuth/MCP audience to match your Worker route:
 https://artifacts.example.com/mcp
 ```
 
+For MCP clients to authenticate with OAuth, enable both of these in the
+AuthKit environment (Dashboard → Applications → Configuration; both are off
+by default in new environments):
+
+- **Dynamic Client Registration** — MCP clients that register themselves
+  (RFC 7591). Without it, clients fail with "does not support dynamic client
+  registration".
+- **Client ID Metadata Documents** — clients that identify with a URL-based
+  client ID, e.g. Claude Code (`https://claude.ai/oauth/claude-code-client-metadata`).
+  Without it, the authorize request dies on the AuthKit error page.
+
 The Worker validates bearer tokens through JWKS for MCP requests. The publisher
 web admin also calls the WorkOS API at runtime for organization creation,
 membership checks, and team invitations.

@@ -106,9 +106,10 @@ type AdminDailyView = {
   n: number;
 };
 
+// Org-wide activity powers the chart, the 7d column, and the recent feed.
+// Share links and comments are only needed for the one artifact whose sheet
+// is open, so they are fetched per-artifact instead of org-wide.
 type AdminMaps = {
-  shares: Map<string, AdminShareLink[]>;
-  comments: Map<string, AdminComment[]>;
   recent: Map<string, AdminRecentView[]>;
   daily: Map<string, AdminDailyView[]>;
 };
@@ -161,12 +162,18 @@ type WorkosTeam = {
 
 const GITHUB_URL = "https://github.com/iofold/artifact-use";
 
+// Docs live as a published artifact when the deployment sets
+// ARTIFACT_USE_DOCS_URL (dogfooding); the repo README is the fallback.
+function docsUrl(env: Env): string {
+  return env.ARTIFACT_USE_DOCS_URL || GITHUB_URL;
+}
+
 export async function renderHome(
   request: Request,
   env: Env,
 ): Promise<Response> {
   const session = await getPublisherSession(request, env);
-  if (session) return renderAdmin(request, env, session);
+  if (session) return redirect("/admin");
   const base = siteBaseUrl(env);
   const prefix = artifactPathPrefix(env) || "";
   return page(
@@ -174,6 +181,7 @@ export async function renderHome(
     `<header class="top">
       <a class="brand" href="/">Artifact Use</a>
       <nav>
+        ${env.ARTIFACT_USE_DOCS_URL ? `<a href="${escapeHtml(env.ARTIFACT_USE_DOCS_URL)}">Docs</a>` : ""}
         <a href="${GITHUB_URL}">GitHub</a>
         <a href="/llms.txt">For agents</a>
         <a href="/login">Sign in</a>
@@ -247,6 +255,7 @@ POST ${escapeHtml(base)}/api/v1/connect/poll
       <footer class="site">
         <span>Artifact Use · MIT licensed</span>
         <nav>
+          ${env.ARTIFACT_USE_DOCS_URL ? `<a href="${escapeHtml(env.ARTIFACT_USE_DOCS_URL)}">Docs</a>` : ""}
           <a href="${GITHUB_URL}">GitHub</a>
           <a href="/privacy">Privacy</a>
           <a href="/terms">Terms</a>
@@ -315,10 +324,14 @@ export async function handlePublisherAdmin(
     if (!wantsHtml(request)) return adminGateJson(env);
     return redirect("/login");
   }
-  if (path === "/admin" && request.method === "GET")
-    return renderAdmin(request, env, session);
-  if (path === "/admin/super" && request.method === "GET")
-    return renderSuperAdmin(request, env, session);
+  if (
+    request.method === "GET" &&
+    (path === "/admin" ||
+      path === "/admin/connect" ||
+      path === "/admin/team" ||
+      path === "/admin/super")
+  )
+    return spaShell(request, env);
   if (path === "/admin/super/transfer" && request.method === "POST")
     return transferArtifactOwner(request, env, session);
   if (path === "/admin/artifact/access" && request.method === "POST")
@@ -327,11 +340,6 @@ export async function handlePublisherAdmin(
     return createAdminShareLink(request, env, session);
   if (path === "/admin/artifact/share-link/revoke" && request.method === "POST")
     return revokeAdminShareLink(request, env, session);
-  if (
-    (path === "/admin/agent-prompt" || path === "/admin/creator-token") &&
-    request.method === "POST"
-  )
-    return createAgentPrompt(request, env, session);
   if (path === "/admin/agent-token/revoke" && request.method === "POST")
     return revokeAgentToken(request, env, session);
   if (path === "/admin/team/invite" && request.method === "POST")
@@ -341,6 +349,329 @@ export async function handlePublisherAdmin(
   if (path === "/admin/me" && request.method === "GET")
     return json({ publisher: publicSession(session) });
   return error(404, "not_found", "publisher admin route not found");
+}
+
+// The admin UI is a React SPA served from Workers Static Assets; the worker
+// only gates it behind the publisher session and serves the shell for every
+// client-side route.
+async function spaShell(request: Request, env: Env): Promise<Response> {
+  const shellUrl = new URL("/admin-app/index.html", request.url);
+  const asset = await env.ASSETS.fetch(new Request(shellUrl.toString()));
+  const headers = new Headers(asset.headers);
+  headers.set("Cache-Control", "private, no-store");
+  headers.set("X-Robots-Tag", "noindex, nofollow");
+  return new Response(asset.body, { status: asset.status, headers });
+}
+
+// JSON reads for the SPA. Writes reuse the existing form-POST endpoints above
+// (same session cookie); the SPA only needs data in a fetchable shape.
+export async function handleAdminUiApi(
+  request: Request,
+  env: Env,
+  path: string,
+): Promise<Response> {
+  const session = await getPublisherSession(request, env);
+  if (!session)
+    return error(401, "session_required", "sign in at /login to continue");
+  if (path === "/api/admin/overview" && request.method === "GET")
+    return adminOverviewJson(env, session);
+  if (path === "/api/admin/artifact-detail" && request.method === "GET") {
+    const id = new URL(request.url).searchParams.get("id") || "";
+    if (!id.startsWith("art_"))
+      return error(400, "artifact_id_required", "artifact id is required");
+    const artifact = await env.DB.prepare(
+      "SELECT id, url_key FROM artifacts WHERE id = ? AND org_id = ?",
+    )
+      .bind(id, session.orgId)
+      .first<{ id: string; url_key: string }>();
+    if (!artifact)
+      return error(404, "artifact_not_found", "artifact not found");
+    const detail = await artifactDetailData(env, session.orgId, id);
+    const baseUrl = publicArtifactUrl(env, artifact.url_key);
+    return json({
+      shares: detail.shares.map((link) => ({
+        id: link.id,
+        recipient_email: link.recipient_email || null,
+        recipient_label: link.recipient_label || null,
+        view_count: Number(link.view_count || 0),
+        state: link.revoked_at
+          ? "revoked"
+          : link.expires_at && link.expires_at < nowSec()
+            ? "expired"
+            : "active",
+        url: `${baseUrl}?v=${link.id}`,
+      })),
+      comments: detail.comments
+        .filter((comment) => !comment.parent_comment_id)
+        .slice(0, 50)
+        .map((comment) => ({
+          id: comment.id,
+          email: comment.email,
+          body: comment.body,
+          created_at: comment.created_at,
+          resolved_at: comment.resolved_at || null,
+        })),
+    });
+  }
+  if (path === "/api/admin/connect" && request.method === "GET")
+    return adminConnectJson(env, session);
+  if (path === "/api/admin/team" && request.method === "GET")
+    return adminTeamJson(env, session);
+  if (path === "/api/admin/agent-prompt" && request.method === "POST")
+    return adminMintPromptJson(request, env, session);
+  if (path === "/api/admin/super" && request.method === "GET")
+    return adminSuperJson(env, session);
+  return error(404, "not_found", "admin api route not found");
+}
+
+async function adminSuperJson(
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  if (!isSuperAdmin(session, env))
+    return error(403, "forbidden", "super admin access is not configured");
+  const since30 = nowSec() - 30 * 86400;
+  const [artifacts, dailyRows, eventRows] = await Promise.all([
+    artifactStatsRows(env, { orderBy: "a.updated_at DESC", limit: 500 }),
+    env.DB.prepare(
+      `SELECT date(ts, 'unixepoch') AS day, COUNT(*) AS n
+       FROM views WHERE ts >= ? GROUP BY day ORDER BY day ASC`,
+    )
+      .bind(since30)
+      .all<{ day: string; n: number }>(),
+    env.DB.prepare(
+      `SELECT e.*, a.title AS artifact_title, a.url_key AS artifact_url_key
+       FROM super_admin_events e
+       LEFT JOIN artifacts a ON a.id = e.artifact_id
+       ORDER BY e.created_at DESC LIMIT 30`,
+    ).all<{
+      id: string;
+      actor_user_id: string;
+      artifact_id: string;
+      action: string;
+      from_org_id: string | null;
+      to_org_id: string | null;
+      to_user_id: string | null;
+      created_at: number;
+      artifact_title: string | null;
+      artifact_url_key: string | null;
+    }>(),
+  ]);
+  return json({
+    me: { sub: session.sub, email: session.email },
+    site: siteJson(env),
+    artifacts: artifacts.map((artifact) => ({
+      id: artifact.id,
+      slug: artifact.slug,
+      url_key: artifact.url_key,
+      title: artifact.title,
+      gate_level: artifact.gate_level,
+      org_id: artifact.org_id,
+      created_by: artifact.created_by,
+      path: publicArtifactPath(env, artifact.url_key),
+      url: publicArtifactUrl(env, artifact.url_key),
+      total_views: Number(artifact.total_views || 0),
+      share_links: Number(artifact.share_links || 0),
+      comment_count: Number(artifact.comment_count || 0),
+      file_count: Number(artifact.file_count || 0),
+      total_size: Number(artifact.total_size || 0),
+      completed_at: artifact.completed_at || null,
+      updated_at: Number(artifact.updated_at || 0),
+    })),
+    daily: dailyRows.results || [],
+    events: (eventRows.results || []).map((event) => ({
+      id: event.id,
+      action: event.action,
+      artifact_id: event.artifact_id,
+      artifact_title: event.artifact_title,
+      actor_user_id: event.actor_user_id,
+      from_org_id: event.from_org_id,
+      to_org_id: event.to_org_id,
+      to_user_id: event.to_user_id,
+      created_at: event.created_at,
+    })),
+  });
+}
+
+function siteJson(env: Env): Record<string, string> {
+  const base = siteBaseUrl(env);
+  return {
+    base,
+    prefix: artifactPathPrefix(env) || "",
+    docsUrl: docsUrl(env),
+    mcpUrl: `${base}/mcp`,
+  };
+}
+
+async function adminOverviewJson(
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  const since30 = nowSec() - 30 * 86400;
+  const [artifacts, maps, views7d, uniqueRow] = await Promise.all([
+    artifactStatsRows(env, {
+      orgId: session.orgId,
+      orderBy: "total_views DESC, a.updated_at DESC",
+    }),
+    adminMaps(env, session.orgId),
+    viewsSince(env, session.orgId, nowSec() - 7 * 86400),
+    env.DB.prepare(
+      `SELECT COUNT(DISTINCT v.email) AS n
+       FROM views v JOIN artifacts a ON a.id = v.artifact_id
+       WHERE a.org_id = ?`,
+    )
+      .bind(session.orgId)
+      .first<{ n: number }>(),
+  ]);
+  const daily: { artifact_id: string; day: string; n: number }[] = [];
+  for (const rows of maps.daily.values())
+    for (const row of rows)
+      if (row.day >= new Date(since30 * 1000).toISOString().slice(0, 10))
+        daily.push({
+          artifact_id: row.artifact_id,
+          day: row.day,
+          n: Number(row.n || 0),
+        });
+  const recent = Array.from(maps.recent.values())
+    .flat()
+    .sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0))
+    .slice(0, 30)
+    .map((view) => ({
+      artifact_id: view.artifact_id,
+      title: view.title || null,
+      url_key: view.url_key || null,
+      slug: view.slug || null,
+      email: view.email,
+      ts: Number(view.ts || 0),
+    }));
+  return json({
+    me: {
+      sub: session.sub,
+      orgId: session.orgId,
+      email: session.email,
+      name: session.name,
+      superAdmin: isSuperAdmin(session, env),
+      teamAdmin: isTeamAdmin(session),
+    },
+    site: siteJson(env),
+    totals: {
+      views: artifacts.reduce(
+        (sum, row) => sum + Number(row.total_views || 0),
+        0,
+      ),
+      viewers: Number(uniqueRow?.n || 0),
+      views7d,
+      feedback: artifacts.reduce(
+        (sum, row) => sum + Number(row.comment_count || 0),
+        0,
+      ),
+    },
+    artifacts: artifacts.map((artifact) => ({
+      id: artifact.id,
+      slug: artifact.slug,
+      url_key: artifact.url_key,
+      title: artifact.title,
+      gate_level: artifact.gate_level,
+      path: publicArtifactPath(env, artifact.url_key),
+      url: publicArtifactUrl(env, artifact.url_key),
+      total_views: Number(artifact.total_views || 0),
+      unique_viewers: Number(artifact.unique_viewers || 0),
+      last_view_ts: artifact.last_view_ts || null,
+      share_links: Number(artifact.share_links || 0),
+      comment_count: Number(artifact.comment_count || 0),
+      open_comments: Number(artifact.open_comments || 0),
+      file_count: Number(artifact.file_count || 0),
+      total_size: Number(artifact.total_size || 0),
+      completed_at: artifact.completed_at || null,
+      updated_at: Number(artifact.updated_at || 0),
+      allowlist_lines: allowlistLines(artifact.allowlist_json),
+    })),
+    daily,
+    recent,
+  });
+}
+
+async function adminConnectJson(
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  const [tokens, quick] = await Promise.all([
+    listAgentTokens(env, session.orgId),
+    quickConnectPrompt(env, session),
+  ]);
+  const base = siteBaseUrl(env);
+  return json({
+    site: siteJson(env),
+    quick,
+    tokens,
+    claudeAdd: `claude mcp add --transport http artifact-use ${base}/mcp`,
+    mcpConfig: mcpConfig(env),
+    codexConfig: codexBearerConfig(env),
+  });
+}
+
+async function adminTeamJson(
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  const team = await adminTeam(env, session);
+  const canManage = isTeamAdmin(session);
+  return json({
+    orgId: session.orgId,
+    canManage,
+    canEdit: canManage && isWorkosOrgId(session.orgId) && !team.error,
+    error: team.error,
+    members: team.members.map((member) => {
+      const user = member.user || {};
+      return {
+        id: member.id || member.user_id || "",
+        email: user.email || member.user_id || "",
+        name:
+          user.name ||
+          [user.first_name, user.last_name].filter(Boolean).join(" ") ||
+          "",
+        role: roleLabel(member),
+        status: member.status || "",
+      };
+    }),
+    invitations: team.invitations
+      .filter((invite) => invite.state === "pending" && !invite.revoked_at)
+      .map((invite) => ({
+        id: invite.id,
+        email: invite.email,
+        role: invite.role_slug || "member",
+        state: invite.state || "pending",
+        expiresAt: dateLabelFromIso(invite.expires_at),
+      })),
+  });
+}
+
+async function adminMintPromptJson(
+  request: Request,
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  const body = (await request.json().catch(() => ({}))) as {
+    label?: unknown;
+    expires_days?: unknown;
+  };
+  const label = String(body.label || "")
+    .trim()
+    .slice(0, 80);
+  const days = Number(body.expires_days || 30);
+  const minted = await mintCreatorToken(env, {
+    sub: session.sub,
+    orgId: session.orgId,
+    email: session.email,
+    label: label || null,
+    source: "admin",
+    expiresDays: Number.isFinite(days) ? days : 30,
+  });
+  return json({
+    prompt: agentSetupPrompt(env, minted.token, minted.expiresAt),
+    expiresAt: minted.expiresAt,
+    label: label || "Agent token",
+  });
 }
 
 function adminGateJson(env: Env): Response {
@@ -410,14 +741,44 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
   }
   const code = url.searchParams.get("code") || "";
   const state = url.searchParams.get("state") || "";
-  if (!code) return error(400, "code_required", "code is required");
+  if (!code)
+    return authFailure(error(400, "code_required", "code is required"));
   if (!state || state !== readCookie(request, STATE_COOKIE))
-    return error(400, "invalid_state", "sign in state is invalid");
+    return authFailure(
+      error(
+        400,
+        "invalid_state",
+        "This sign-in link was already used or has expired. Signing in again gets you a fresh one.",
+      ),
+    );
   if (!env.WORKOS_CLIENT_ID || !env.WORKOS_API_KEY)
     return error(500, "workos_not_configured", "WorkOS auth is not configured");
 
   const invitationToken = readCookie(request, INVITE_COOKIE);
-  const auth = await exchangeCode(request, env, code, invitationToken);
+  // Codes are single-use and short-lived: refreshes and double-clicks land
+  // here with a dead code. Show a retry page, not a raw error.
+  let auth: Record<string, unknown>;
+  try {
+    auth = await exchangeCode(request, env, code, invitationToken);
+  } catch (e) {
+    const message =
+      e instanceof WorkosApiError
+        ? "The sign-in code or invitation was already used or has expired."
+        : e instanceof Error
+          ? e.message
+          : "Sign in could not be completed.";
+    return authFailure(
+      page(
+        "Sign in failed",
+        `<main class="panel narrow">
+        <p class="eyebrow">Sign in</p>
+        <h1>That didn't go through.</h1>
+        <p class="muted">${escapeHtml(message)} This usually happens when a sign-in link is opened twice — starting over fixes it.</p>
+        <div class="actions"><a class="button" href="/login">Sign in again</a><a class="button ghost" href="/">Go to homepage</a></div>
+      </main>`,
+      ),
+    );
+  }
   const user = (auth.user || {}) as Record<string, unknown>;
   const userId = stringClaim(user.id) || stringClaim(auth.user_id);
   const email = stringClaim(user.email) || stringClaim(auth.email);
@@ -628,119 +989,6 @@ async function migratePublisherDataToOrg(
   }
 }
 
-async function renderAdmin(
-  request: Request,
-  env: Env,
-  session: PublisherSession,
-): Promise<Response> {
-  const openId = new URL(request.url).searchParams.get("open") || "";
-  const superAdmin = isSuperAdmin(session, env);
-  const artifacts = await artifactStatsRows(env, {
-    orgId: session.orgId,
-    orderBy: "total_views DESC, a.updated_at DESC",
-  });
-  const maps = await adminMaps(env, session.orgId);
-  const team = await adminTeam(env, session);
-  const tokens = await listAgentTokens(env, session.orgId);
-  const hasArtifacts = artifacts.length > 0;
-
-  // Metrics only mean something once there is something to measure; a new
-  // workspace gets the onboarding card instead of a row of zeros.
-  let metricsHtml = "";
-  if (hasArtifacts) {
-    const totalViews = artifacts.reduce(
-      (sum, row) => sum + Number(row.total_views || 0),
-      0,
-    );
-    const totalComments = artifacts.reduce(
-      (sum, row) => sum + Number(row.comment_count || 0),
-      0,
-    );
-    const views7d = await viewsSince(env, session.orgId, nowSec() - 7 * 86400);
-    const uniqueRow = await env.DB.prepare(
-      `SELECT COUNT(DISTINCT v.email) AS n
-       FROM views v JOIN artifacts a ON a.id = v.artifact_id
-       WHERE a.org_id = ?`,
-    )
-      .bind(session.orgId)
-      .first<{ n: number }>();
-    metricsHtml = `<div class="metrics">
-      <div><strong>${artifacts.length}</strong><span>Artifacts</span></div>
-      <div><strong>${formatNumber(totalViews)}</strong><span>Views</span></div>
-      <div><strong>${formatNumber(Number(uniqueRow?.n || 0))}</strong><span>Viewers</span></div>
-      <div><strong>${formatNumber(views7d)}</strong><span>Views · 7d</span></div>
-      <div><strong>${formatNumber(totalComments)}</strong><span>Feedback</span></div>
-    </div>`;
-  }
-  const recent = Array.from(maps.recent.values())
-    .flat()
-    .sort((a, b) => Number(b.ts || 0) - Number(a.ts || 0))
-    .slice(0, 18);
-
-  const artifactsHtml = hasArtifacts
-    ? `<section class="table" aria-label="Artifacts">
-        <div class="table-head"><span>Artifact</span><span>Public path</span><span>Access</span><span>Stats</span><span></span></div>
-        ${artifacts
-          .map((artifact) =>
-            artifactRow(
-              env,
-              artifact,
-              {
-                shares: maps.shares.get(artifact.id) || [],
-                comments: maps.comments.get(artifact.id) || [],
-                recent: maps.recent.get(artifact.id) || [],
-                daily: maps.daily.get(artifact.id) || [],
-              },
-              openId === artifact.id,
-            ),
-          )
-          .join("")}
-      </section>`
-    : `<div class="onboard">
-        <p class="eyebrow">First artifact</p>
-        <h2>Connect an agent and publish something.</h2>
-        <ol>
-          <li><strong>Connect an agent</strong>Generate a one-paste prompt below — it carries a scoped publish token, so any agent can publish here immediately.</li>
-          <li><strong>Ask for an artifact</strong>"Publish this prototype with an email gate." The agent gets back a stable link under ${escapeHtml(artifactPathPrefix(env) || "/")}/.</li>
-          <li><strong>Share and review</strong>Send the link around; views and comments land back here and in your agent's API.</li>
-        </ol>
-        <div class="actions">
-          <a class="button" href="#agent-setup">Connect an agent</a>
-          <a class="button ghost" href="${GITHUB_URL}">Read the docs</a>
-        </div>
-      </div>`;
-
-  return page(
-    "Artifact Use admin",
-    `<header class="top">
-      <a class="brand" href="/">Artifact Use</a>
-      <nav>${superAdmin ? `<a href="/admin/super">Super Admin</a>` : ""}<a href="#agent-setup">Connect an agent</a><a href="/logout">Sign out</a></nav>
-    </header>
-    <main class="admin">
-      <section class="headline">
-        <div>
-          <p class="eyebrow">Publisher admin</p>
-          <h1>Artifacts</h1>
-          <p class="muted">${escapeHtml(session.email || session.name || session.sub)}</p>
-        </div>
-        ${metricsHtml}
-      </section>
-      ${artifactsHtml}
-      ${agentSetupSection(env, tokens)}
-      ${teamSection(session, team)}
-      ${
-        recent.length
-          ? `<section class="activity">
-              <p class="eyebrow">Recent activity</p>
-              <h2>Latest views</h2>
-              <ul class="activity-feed">${recent.map(recentViewItem).join("")}</ul>
-            </section>`
-          : ""
-      }
-    </main>`,
-  );
-}
-
 type AgentTokenRow = {
   id: string;
   label: string | null;
@@ -763,64 +1011,47 @@ async function listAgentTokens(
   return rows.results || [];
 }
 
-function agentSetupSection(env: Env, tokens: AgentTokenRow[]): string {
-  const base = siteBaseUrl(env);
-  return `<section class="setup" id="agent-setup">
-    <div>
-      <p class="eyebrow">Agent setup</p>
-      <h2>Connect an agent</h2>
-      <p class="muted">Generate a prompt with a scoped publish token baked in and paste it to any agent — it handles the rest. OAuth-capable MCP clients can skip tokens: give them the MCP URL and sign in when prompted.</p>
-      <p class="muted">Agent asked you to approve a code? <a href="/connect"><strong>Approve it here →</strong></a></p>
-    </div>
-    <div class="setup-grid">
-      <form method="post" action="/admin/agent-prompt" class="token-form">
-        <div>
-          <label for="ap-label">Agent label</label>
-          <input id="ap-label" name="label" placeholder="codex on my-laptop">
-        </div>
-        <div>
-          <label for="ap-days">Expires in days</label>
-          <input id="ap-days" name="expires_days" inputmode="numeric" placeholder="30">
-        </div>
-        <button type="submit">Generate agent prompt</button>
-      </form>
-      ${tokenListHtml(tokens)}
-      <details class="manual">
-        <summary>Manual setup — MCP URL and configs</summary>
-        <div class="setup-grid">
-          <div>
-            <label for="mcp-url">MCP URL</label>
-            <div class="copywrap"><button class="copy-lite" type="button" data-copy="mcp-url">Copy</button><input id="mcp-url" readonly value="${escapeHtml(base)}/mcp"></div>
-          </div>
-          <div>
-            <label for="mcp-json">OAuth MCP config (Claude Code, MCP clients)</label>
-            <div class="copywrap"><button class="copy-lite" type="button" data-copy="mcp-json">Copy</button><textarea id="mcp-json" readonly rows="8">${escapeHtml(mcpConfig(env))}</textarea></div>
-          </div>
-          <div>
-            <label for="mcp-toml">Codex bearer config (~/.codex/config.toml)</label>
-            <div class="copywrap"><button class="copy-lite" type="button" data-copy="mcp-toml">Copy</button><textarea id="mcp-toml" readonly rows="4">${escapeHtml(codexBearerConfig(env))}</textarea></div>
-          </div>
-          <p class="mini">Bearer tokens live in <code>ARTIFACT_USE_TOKEN</code> — never in config files, source, or published HTML.</p>
-        </div>
-      </details>
-    </div>
-  </section>`;
-}
+type QuickPrompt = { prompt: string; expiresAt: number };
 
-function tokenListHtml(tokens: AgentTokenRow[]): string {
-  if (!tokens.length)
-    return `<p class="mini">No active agent tokens yet. Generate a prompt above, or approve an agent's connect code at <a href="/connect">/connect</a>.</p>`;
-  return `<ul class="token-list">${tokens
-    .map(
-      (token) => `<li>
-      <span><strong>${escapeHtml(token.label || "Agent token")}</strong><small>${escapeHtml(token.source)} · created ${dateLabel(token.created_at)} · expires ${dateLabel(token.expires_at)}</small></span>
-      <form method="post" action="/admin/agent-token/revoke">
-        <input type="hidden" name="id" value="${escapeHtml(token.id)}">
-        <button class="button small danger" type="submit">Revoke</button>
-      </form>
-    </li>`,
-    )
-    .join("")}</ul>`;
+// The connect page always has a ready-to-paste prompt. The minted token's raw
+// value is parked on its registry row so reloads re-display the same prompt
+// instead of minting a token per view; revoking the "Quick connect" token
+// rotates it on the next load.
+async function quickConnectPrompt(
+  env: Env,
+  session: PublisherSession,
+): Promise<QuickPrompt | null> {
+  // Reuse the parked prompt while its token has comfortable life left.
+  const parked = await env.DB.prepare(
+    `SELECT parked_token, expires_at FROM creator_tokens
+     WHERE org_id = ? AND source = 'quick' AND revoked_at IS NULL
+       AND parked_token IS NOT NULL AND expires_at > ?
+     ORDER BY created_at DESC LIMIT 1`,
+  )
+    .bind(session.orgId, nowSec() + 86400)
+    .first<{ parked_token: string; expires_at: number }>();
+  if (parked)
+    return {
+      prompt: agentSetupPrompt(env, parked.parked_token, parked.expires_at),
+      expiresAt: parked.expires_at,
+    };
+  const minted = await mintCreatorToken(env, {
+    sub: session.sub,
+    orgId: session.orgId,
+    email: session.email,
+    label: "Quick connect",
+    source: "quick",
+    expiresDays: 30,
+  });
+  await env.DB.prepare(
+    "UPDATE creator_tokens SET parked_token = ? WHERE id = ?",
+  )
+    .bind(minted.token, minted.id)
+    .run();
+  return {
+    prompt: agentSetupPrompt(env, minted.token, minted.expiresAt),
+    expiresAt: minted.expiresAt,
+  };
 }
 
 async function adminTeam(
@@ -875,97 +1106,6 @@ async function adminTeam(
   }
 }
 
-function teamSection(session: PublisherSession, team: WorkosTeam): string {
-  const canManageTeam = isTeamAdmin(session);
-  const canEditTeam =
-    canManageTeam && isWorkosOrgId(session.orgId) && !team.error;
-  const pending = team.invitations.filter(
-    (invite) => invite.state === "pending" && !invite.revoked_at,
-  );
-  return `<section class="team-panel" id="team">
-    <div>
-      <p class="eyebrow">Team</p>
-      <h2>Publisher access</h2>
-      <p class="muted">Teammates you invite see the same artifacts, stats, and feedback as you.</p>
-      <p class="mini">Workspace ID <code>${escapeHtml(session.orgId)}</code></p>
-    </div>
-    <div class="team-body">
-      ${
-        canEditTeam
-          ? `<form method="post" action="/admin/team/invite" class="team-invite">
-              <label>Email
-                <input name="email" type="email" placeholder="teammate@example.com" required>
-              </label>
-              <label>Role
-                <select name="role_slug">
-                  ${TEAM_ROLE_OPTIONS.map((role) => `<option value="${role}">${role}</option>`).join("")}
-                </select>
-              </label>
-              <label>Expires
-                <input name="expires_days" inputmode="numeric" placeholder="14">
-              </label>
-              <button type="submit">Invite user</button>
-            </form>`
-          : canManageTeam
-            ? ""
-            : `<div class="empty small-empty"><strong>Invite access is admin-only.</strong><span>Ask an organization admin to invite or remove team members.</span></div>`
-      }
-      ${
-        team.error
-          ? `<div class="empty small-empty error-box">${escapeHtml(team.error)}</div>`
-          : `<div class="team-grid">
-        <section>
-          <h3>Members</h3>
-          ${
-            team.members.length
-              ? `<ul class="detail-list">${team.members.map(memberItem).join("")}</ul>`
-              : `<div class="empty small-empty">No WorkOS members found.</div>`
-          }
-        </section>
-        <section>
-          <h3>Pending invites</h3>
-          ${
-            pending.length
-              ? `<ul class="detail-list invite-list">${pending.map((invite) => invitationItem(invite, canEditTeam)).join("")}</ul>`
-              : `<div class="empty small-empty">No pending invitations.</div>`
-          }
-        </section>
-      </div>`
-      }
-    </div>
-  </section>`;
-}
-
-function memberItem(member: WorkosMembership): string {
-  const user = member.user || {};
-  const name =
-    user.name ||
-    [user.first_name, user.last_name].filter(Boolean).join(" ") ||
-    user.email ||
-    member.user_id;
-  return `<li>
-    <span><strong>${escapeHtml(name)}</strong><small>${escapeHtml(user.email || member.user_id)} · ${escapeHtml(member.status)}</small></span>
-    <span class="pill">${escapeHtml(roleLabel(member))}</span>
-  </li>`;
-}
-
-function invitationItem(
-  invite: WorkosInvitation,
-  canManageTeam: boolean,
-): string {
-  return `<li>
-    <span><strong>${escapeHtml(invite.email)}</strong><small>${escapeHtml(invite.role_slug || "member")} · expires ${escapeHtml(dateLabelFromIso(invite.expires_at))}</small></span>
-    ${
-      canManageTeam
-        ? `<form method="post" action="/admin/team/invite/revoke">
-            <input type="hidden" name="id" value="${escapeHtml(invite.id)}">
-            <button class="button small ghost danger" type="submit">Revoke</button>
-          </form>`
-        : `<time>${escapeHtml(invite.state)}</time>`
-    }
-  </li>`;
-}
-
 function roleLabel(member: WorkosMembership): string {
   const roles = [
     ...(member.roles || []).map((role) => role.slug).filter(Boolean),
@@ -976,28 +1116,7 @@ function roleLabel(member: WorkosMembership): string {
 
 async function adminMaps(env: Env, orgId: string): Promise<AdminMaps> {
   const since30 = nowSec() - 30 * 86400;
-  const [shareRows, commentRows, recentRows, dailyRows] = await Promise.all([
-    env.DB.prepare(
-      `SELECT sl.*, a.id AS artifact_id, COUNT(v.id) AS view_count
-       FROM share_links sl
-       JOIN artifacts a ON a.id = sl.artifact_id
-       LEFT JOIN views v ON v.share_link_id = sl.id
-       WHERE a.org_id = ?
-       GROUP BY sl.id
-       ORDER BY sl.created_at DESC`,
-    )
-      .bind(orgId)
-      .all<AdminShareLink>(),
-    env.DB.prepare(
-      `SELECT c.*
-       FROM comments c
-       JOIN artifacts a ON a.id = c.artifact_id
-       WHERE a.org_id = ? AND c.deleted_at IS NULL
-       ORDER BY c.created_at DESC
-       LIMIT 300`,
-    )
-      .bind(orgId)
-      .all<AdminComment>(),
+  const [recentRows, dailyRows] = await Promise.all([
     env.DB.prepare(
       `SELECT v.artifact_id, a.slug, a.url_key, a.title, v.email, v.verified, v.ts, v.referrer
        FROM views v
@@ -1021,10 +1140,42 @@ async function adminMaps(env: Env, orgId: string): Promise<AdminMaps> {
   ]);
 
   return {
-    shares: groupBy(shareRows.results || [], "artifact_id"),
-    comments: groupBy(commentRows.results || [], "artifact_id"),
     recent: groupBy(recentRows.results || [], "artifact_id"),
     daily: groupBy(dailyRows.results || [], "artifact_id"),
+  };
+}
+
+// Sheet-only data, scoped to the single open artifact.
+async function artifactDetailData(
+  env: Env,
+  orgId: string,
+  artifactId: string,
+): Promise<{ shares: AdminShareLink[]; comments: AdminComment[] }> {
+  const [shareRows, commentRows] = await Promise.all([
+    env.DB.prepare(
+      `SELECT sl.*, a.id AS artifact_id, COUNT(v.id) AS view_count
+       FROM share_links sl
+       JOIN artifacts a ON a.id = sl.artifact_id
+       LEFT JOIN views v ON v.share_link_id = sl.id
+       WHERE a.org_id = ? AND a.id = ?
+       GROUP BY sl.id
+       ORDER BY sl.created_at DESC`,
+    )
+      .bind(orgId, artifactId)
+      .all<AdminShareLink>(),
+    env.DB.prepare(
+      `SELECT c.*
+       FROM comments c
+       WHERE c.artifact_id = ? AND c.deleted_at IS NULL
+       ORDER BY c.created_at DESC
+       LIMIT 100`,
+    )
+      .bind(artifactId)
+      .all<AdminComment>(),
+  ]);
+  return {
+    shares: shareRows.results || [],
+    comments: commentRows.results || [],
   };
 }
 
@@ -1076,106 +1227,6 @@ async function viewsSince(
     .bind(orgId, since)
     .first<{ n: number }>();
   return Number(row?.n || 0);
-}
-
-async function renderSuperAdmin(
-  request: Request,
-  env: Env,
-  session: PublisherSession,
-): Promise<Response> {
-  if (!isSuperAdmin(session, env))
-    return error(403, "forbidden", "super admin access is not configured");
-  const url = new URL(request.url);
-  const openId = url.searchParams.get("open") || "";
-  const artifacts = await artifactStatsRows(env, {
-    orderBy: "a.updated_at DESC",
-    limit: 500,
-  });
-  const orgs = new Set(artifacts.map((artifact) => artifact.org_id));
-  const totalViews = artifacts.reduce(
-    (sum, artifact) => sum + Number(artifact.total_views || 0),
-    0,
-  );
-  return page(
-    "Super Admin",
-    `<header class="top">
-      <a class="brand" href="/">Artifact Use</a>
-      <nav><a href="/admin">Admin</a><a href="/admin/super">Super Admin</a><a href="/logout">Sign out</a></nav>
-    </header>
-    <main class="admin">
-      <section class="headline">
-        <div>
-          <p class="eyebrow">Super admin</p>
-          <h1>All artifacts</h1>
-          <p class="muted">${escapeHtml(session.email || session.sub)} · configured by ARTIFACT_USE_SUPER_ADMIN_USER_IDS</p>
-        </div>
-        <div class="metrics">
-          <div><strong>${artifacts.length}</strong><span>Artifacts</span></div>
-          <div><strong>${orgs.size}</strong><span>Orgs</span></div>
-          <div><strong>${totalViews}</strong><span>Views</span></div>
-          <div><strong>${artifacts.filter((artifact) => artifact.gate_level !== "public").length}</strong><span>Gated</span></div>
-          <div><strong>${artifacts.reduce((sum, artifact) => sum + Number(artifact.comment_count || 0), 0)}</strong><span>Feedback</span></div>
-        </div>
-      </section>
-      <section class="table">
-        <div class="table-head super-head"><span>Artifact</span><span>Owner</span><span>Public URL</span><span>Stats</span><span>Move</span></div>
-        ${
-          artifacts.length
-            ? artifacts
-                .map((artifact) =>
-                  superArtifactRow(env, artifact, openId === artifact.id),
-                )
-                .join("")
-            : `<div class="empty"><strong>No artifacts found.</strong></div>`
-        }
-      </section>
-    </main>`,
-  );
-}
-
-function superArtifactRow(
-  env: Env,
-  artifact: ArtifactRow,
-  open: boolean,
-): string {
-  const url = publicArtifactUrl(env, artifact.url_key);
-  return `<article class="artifact-card" id="artifact-${escapeHtml(artifact.id)}">
-    <div class="artifact-row super-row">
-      <div class="artifact-title">
-        <strong>${escapeHtml(artifact.title)}</strong>
-        <span>${escapeHtml(artifact.id)} · ${escapeHtml(artifact.slug)}</span>
-      </div>
-      <div class="path-block">
-        <code>${escapeHtml(artifact.org_id)}</code>
-        <small>created_by ${escapeHtml(artifact.created_by)}</small>
-      </div>
-      <div class="path-block">
-        <code>${escapeHtml(artifact.url_key)}</code>
-        <small>${escapeHtml(url)}</small>
-      </div>
-      <div class="views">
-        <strong>${formatNumber(artifact.total_views)}</strong>
-        <span>${formatNumber(artifact.share_links)} links · ${formatNumber(artifact.comment_count)} feedback</span>
-      </div>
-      <div class="row-actions">
-        <a class="button small ghost" href="${escapeHtml(url)}">Open</a>
-      </div>
-    </div>
-    <details class="artifact-detail"${open ? " open" : ""}>
-      <summary>Move ownership</summary>
-      <form method="post" action="/admin/super/transfer" class="super-transfer">
-        <input type="hidden" name="artifact_id" value="${escapeHtml(artifact.id)}">
-        <label>Target WorkOS org
-          <input name="target_org_id" placeholder="org_..." required>
-        </label>
-        <label>Target WorkOS user
-          <input name="target_user_id" placeholder="user_..." required>
-        </label>
-        <button type="submit">Move artifact</button>
-      </form>
-      <p class="mini">Moving updates artifacts, versions, share links, and created_by to the target user. The public URL key stays ${escapeHtml(artifact.url_key)}.</p>
-    </details>
-  </article>`;
 }
 
 async function transferArtifactOwner(
@@ -1341,170 +1392,6 @@ function codexBearerConfig(env: Env): string {
   ].join("\n");
 }
 
-function creatorTokenShell(env: Env, token: string): string {
-  return [
-    `export ARTIFACT_USE_API_BASE=${env.SITE_BASE_URL}`,
-    `export ARTIFACT_USE_TOKEN='${token}'`,
-    "",
-    "# Then start a fresh Codex process or open a new Codex thread.",
-  ].join("\n");
-}
-
-function artifactRow(
-  env: Env,
-  artifact: ArtifactRow,
-  detail: {
-    shares: AdminShareLink[];
-    comments: AdminComment[];
-    recent: AdminRecentView[];
-    daily: AdminDailyView[];
-  },
-  open: boolean,
-): string {
-  const url = publicArtifactUrl(env, artifact.url_key);
-  const path = publicArtifactPath(env, artifact.url_key);
-  const comments = detail.comments.filter(
-    (comment) => !comment.parent_comment_id,
-  );
-  return `<article class="artifact-card" id="artifact-${escapeHtml(artifact.id)}">
-    <div class="artifact-row">
-      <div class="artifact-title">
-        <strong>${escapeHtml(artifact.title)}</strong>
-        <span>${escapeHtml(artifact.url_key)}</span>
-      </div>
-      <div class="path-block">
-        <code>${escapeHtml(path)}</code>
-        <small>${escapeHtml(url)}</small>
-      </div>
-      <form method="post" action="/admin/artifact/access" class="access">
-        <input type="hidden" name="artifact_key" value="${escapeHtml(artifact.url_key)}">
-        <select name="gate_level">
-          ${["public", "email", "verified_email", "allowlist"].map((level) => `<option value="${level}"${artifact.gate_level === level ? " selected" : ""}>${level}</option>`).join("")}
-        </select>
-        <button type="submit">Update</button>
-      </form>
-      <div class="views">
-        <strong>${formatNumber(artifact.total_views)}</strong>
-        <span>${formatNumber(artifact.unique_viewers)} unique · ${formatNumber(artifact.comment_count)} feedback</span>
-      </div>
-      <div class="row-actions">
-        <a class="button small ghost" href="${escapeHtml(url)}">Open</a>
-      </div>
-    </div>
-    <details class="artifact-detail"${open ? " open" : ""}>
-      <summary>Stats, links, feedback</summary>
-      <div class="detail-grid">
-        <section>
-          <h3>Views · last 30 days</h3>
-          ${barsHtml(detail.daily)}
-          <p class="mini">${formatNumber(artifact.total_views)} total · ${formatNumber(artifact.unique_viewers)} unique · last ${ago(artifact.last_view_ts)}</p>
-          <h3>Recent viewers</h3>
-          ${detail.recent.length ? `<ul class="detail-list">${detail.recent.slice(0, 8).map(recentViewItem).join("")}</ul>` : `<div class="empty small-empty">No views yet.</div>`}
-        </section>
-        <section>
-          <h3>Share links</h3>
-          ${shareLinksHtml(env, artifact, detail.shares)}
-          ${shareLinkForm(artifact)}
-          <h3>Feedback</h3>
-          ${comments.length ? `<ul class="detail-list">${comments.slice(0, 8).map(commentItem).join("")}</ul>` : `<div class="empty small-empty">No feedback yet.</div>`}
-        </section>
-        <section>
-          <h3>Artifact details</h3>
-          <dl class="meta-list">
-            <div><dt>Public prefix</dt><dd><code>${escapeHtml(artifactPathPrefix(env) || "/")}</code></dd></div>
-            <div><dt>Access</dt><dd>${escapeHtml(artifact.gate_level)}</dd></div>
-            <div><dt>Open feedback</dt><dd>${formatNumber(artifact.open_comments)}</dd></div>
-            <div><dt>Share links</dt><dd>${formatNumber(artifact.share_links)}</dd></div>
-            <div><dt>Files</dt><dd>${formatNumber(artifact.file_count || 0)}</dd></div>
-            <div><dt>Size</dt><dd>${formatBytes(artifact.total_size || 0)}</dd></div>
-            <div><dt>Published</dt><dd>${dateLabel(artifact.completed_at)}</dd></div>
-          </dl>
-          <h3>Allowlist</h3>
-          ${allowlistForm(artifact)}
-        </section>
-      </div>
-    </details>
-  </article>`;
-}
-
-function barsHtml(daily: AdminDailyView[]): string {
-  if (!daily.length)
-    return `<div class="empty small-empty">No views in this window.</div>`;
-  const max = Math.max(1, ...daily.map((row) => Number(row.n || 0)));
-  return `<div class="bars">${daily
-    .map((row) => {
-      const height = Math.max(4, Math.round((Number(row.n || 0) / max) * 100));
-      return `<span style="height:${height}%" title="${escapeHtml(row.day)} · ${formatNumber(row.n)} views"></span>`;
-    })
-    .join("")}</div>`;
-}
-
-function recentViewItem(view: AdminRecentView): string {
-  return `<li>
-    <span><strong>${escapeHtml(view.email)}</strong><small>${escapeHtml(view.title || view.url_key || view.slug)}</small></span>
-    <time>${ago(view.ts)}</time>
-  </li>`;
-}
-
-function shareLinksHtml(
-  env: Env,
-  artifact: ArtifactRow,
-  links: AdminShareLink[],
-): string {
-  if (!links.length)
-    return `<div class="empty small-empty">No share links.</div>`;
-  return `<ul class="detail-list links-list">${links
-    .slice(0, 8)
-    .map((link) => {
-      const label =
-        link.recipient_label || link.recipient_email || "Unlabeled link";
-      const state = link.revoked_at
-        ? "revoked"
-        : link.expires_at && link.expires_at < nowSec()
-          ? "expired"
-          : "active";
-      const url = `${publicArtifactUrl(env, artifact.url_key)}?v=${link.id}`;
-      return `<li>
-        <span><strong>${escapeHtml(label)}</strong><small>${formatNumber(link.view_count)} views · ${escapeHtml(state)} · ${escapeHtml(url)}</small></span>
-        ${
-          link.revoked_at
-            ? `<span class="pill">Revoked</span>`
-            : `<form method="post" action="/admin/artifact/share-link/revoke">
-                <input type="hidden" name="id" value="${escapeHtml(link.id)}">
-                <button class="button small ghost danger" type="submit">Revoke</button>
-              </form>`
-        }
-      </li>`;
-    })
-    .join("")}</ul>`;
-}
-
-function shareLinkForm(artifact: ArtifactRow): string {
-  return `<form method="post" action="/admin/artifact/share-link" class="share-create">
-    <input type="hidden" name="artifact_key" value="${escapeHtml(artifact.url_key)}">
-    <input name="recipient_email" type="email" placeholder="email">
-    <input name="recipient_label" placeholder="label">
-    <input name="expires_days" inputmode="numeric" placeholder="days">
-    <button type="submit">Create link</button>
-  </form>`;
-}
-
-function commentItem(comment: AdminComment): string {
-  return `<li>
-    <span><strong>${escapeHtml(comment.email)}</strong><small>${escapeHtml(comment.body)}</small></span>
-    <time>${comment.resolved_at ? "resolved" : ago(comment.created_at)}</time>
-  </li>`;
-}
-
-function allowlistForm(artifact: ArtifactRow): string {
-  return `<form method="post" action="/admin/artifact/access" class="allowlist-form">
-    <input type="hidden" name="artifact_key" value="${escapeHtml(artifact.url_key)}">
-    <input type="hidden" name="gate_level" value="allowlist">
-    <textarea name="allowlist_lines" rows="5" placeholder="acme.com&#10;jane@acme.com">${escapeHtml(allowlistLines(artifact.allowlist_json))}</textarea>
-    <button type="submit">Save allowlist</button>
-  </form>`;
-}
-
 function allowlistLines(value: string | null): string {
   if (!value) return "";
   try {
@@ -1531,37 +1418,6 @@ function parseAllowlist(value: FormDataEntryValue | null): string | undefined {
     else domains.push(line.replace(/^@/, "").toLowerCase());
   }
   return JSON.stringify({ domains, emails });
-}
-
-function formatNumber(value: unknown): string {
-  return new Intl.NumberFormat("en-US").format(Number(value || 0));
-}
-
-function formatBytes(value: number): string {
-  if (!value) return "0 B";
-  const units = ["B", "KB", "MB", "GB"];
-  let n = value;
-  let unit = 0;
-  while (n >= 1024 && unit < units.length - 1) {
-    n /= 1024;
-    unit += 1;
-  }
-  return `${n >= 10 || unit === 0 ? Math.round(n) : n.toFixed(1)} ${units[unit]}`;
-}
-
-function ago(ts: number | null | undefined): string {
-  if (!ts) return "never";
-  let seconds = nowSec() - Number(ts);
-  if (seconds < 0) seconds = 0;
-  if (seconds < 60) return `${seconds}s ago`;
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
-  if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
-  return `${Math.floor(seconds / 86400)}d ago`;
-}
-
-function dateLabel(ts: number | null | undefined): string {
-  if (!ts) return "not published";
-  return new Date(Number(ts) * 1000).toISOString().slice(0, 10);
 }
 
 function dateLabelFromIso(value: string | null | undefined): string {
@@ -1639,75 +1495,6 @@ async function revokeAdminShareLink(
   return redirect(`/admin?open=${encodeURIComponent(row.artifact_id)}`);
 }
 
-async function createAgentPrompt(
-  request: Request,
-  env: Env,
-  session: PublisherSession,
-): Promise<Response> {
-  const form = await request.formData();
-  const label =
-    String(form.get("label") || "")
-      .trim()
-      .slice(0, 80) || null;
-  const days = Number(form.get("expires_days") || 30);
-  const minted = await mintCreatorToken(env, {
-    sub: session.sub,
-    orgId: session.orgId,
-    email: session.email,
-    label,
-    source: "admin",
-    expiresDays: Number.isFinite(days) ? days : 30,
-  });
-  const prompt = agentSetupPrompt(env, minted.token, minted.expiresAt);
-  return page(
-    "Agent connect prompt",
-    `<header class="top">
-      <a class="brand" href="/">Artifact Use</a>
-      <nav><a href="/admin">Back to admin</a><a href="/logout">Sign out</a></nav>
-    </header>
-    <main class="admin">
-      <section class="headline">
-        <div>
-          <p class="eyebrow">Agent setup</p>
-          <h1>Paste this to your agent.</h1>
-          <p class="muted">One message is the whole setup: token, endpoints, and instructions. It is shown once — generate another anytime, revoke this one from the admin.</p>
-        </div>
-      </section>
-      <section class="setup prompt-block">
-        <div>
-          <p class="eyebrow">One-paste prompt</p>
-          <h2>${escapeHtml(label || "Agent token")}</h2>
-          <p class="muted">Valid until ${dateLabel(minted.expiresAt)}. Scope: publish, read, manage access, and stats — this workspace only.</p>
-        </div>
-        <div class="setup-grid">
-          <div class="copywrap">
-            <button class="copy-lite" type="button" data-copy="agent-prompt">Copy</button>
-            <textarea id="agent-prompt" readonly rows="18">${escapeHtml(prompt)}</textarea>
-          </div>
-          <details class="manual">
-            <summary>Just the pieces — token, env, Codex config</summary>
-            <div class="setup-grid">
-              <div>
-                <label for="raw-token">Bearer token</label>
-                <div class="copywrap"><button class="copy-lite" type="button" data-copy="raw-token">Copy</button><textarea id="raw-token" readonly rows="4">${escapeHtml(minted.token)}</textarea></div>
-              </div>
-              <div>
-                <label for="raw-env">Shell environment</label>
-                <div class="copywrap"><button class="copy-lite" type="button" data-copy="raw-env">Copy</button><textarea id="raw-env" readonly rows="4">${escapeHtml(creatorTokenShell(env, minted.token))}</textarea></div>
-              </div>
-              <div>
-                <label for="raw-toml">Codex config (~/.codex/config.toml)</label>
-                <div class="copywrap"><button class="copy-lite" type="button" data-copy="raw-toml">Copy</button><textarea id="raw-toml" readonly rows="4">${escapeHtml(codexBearerConfig(env))}</textarea></div>
-              </div>
-            </div>
-          </details>
-          <p class="mini">Keep the token in <code>ARTIFACT_USE_TOKEN</code> or a secret store — never in config files, source, or published HTML.</p>
-        </div>
-      </section>
-    </main>`,
-  );
-}
-
 async function revokeAgentToken(
   request: Request,
   env: Env,
@@ -1722,7 +1509,7 @@ async function revokeAgentToken(
   )
     .bind(nowSec(), id, session.orgId)
     .run();
-  return redirect("/admin#agent-setup");
+  return redirect("/admin/connect");
 }
 
 // Human side of the device-code style agent connect flow. GET shows what is
@@ -1852,7 +1639,7 @@ async function createPublisherInvite(
       return error(502, "workos_invite_failed", e.message);
     throw e;
   }
-  return redirect("/admin#team");
+  return redirect("/admin/team");
 }
 
 async function revokePublisherInvite(
@@ -1883,7 +1670,7 @@ async function revokePublisherInvite(
       return error(502, "workos_revoke_failed", e.message);
     throw e;
   }
-  return redirect("/admin#team");
+  return redirect("/admin/team");
 }
 
 function isTeamAdmin(session: PublisherSession): boolean {
@@ -2016,6 +1803,15 @@ function cookie(name: string, value: string, maxAge: number): string {
   return `${name}=${encodeURIComponent(value)}; Path=/; Max-Age=${maxAge}; Secure; HttpOnly; SameSite=Lax`;
 }
 
+// A failed sign-in must clear the auth cookies: a stale invitation token or
+// state cookie otherwise poisons every retry (dead invitation attached to the
+// next exchange → fails again → loop).
+function authFailure(response: Response): Response {
+  response.headers.append("Set-Cookie", expireCookie(STATE_COOKIE));
+  response.headers.append("Set-Cookie", expireCookie(INVITE_COOKIE));
+  return response;
+}
+
 function expireCookie(name: string): string {
   return `${name}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax`;
 }
@@ -2041,12 +1837,78 @@ const FAVICON =
 
 // One shared clipboard handler: any element with data-copy="<id>" copies the
 // value/text of that element and flips its own label briefly.
-const COPY_SCRIPT = `<script>addEventListener("click",function(e){var b=e.target.closest("[data-copy]");if(!b)return;var t=document.getElementById(b.getAttribute("data-copy"));if(!t)return;var v="value"in t&&t.value?t.value:t.textContent||"";navigator.clipboard.writeText(v).then(function(){var o=b.textContent;b.textContent="Copied";b.classList.add("copied");setTimeout(function(){b.textContent=o;b.classList.remove("copied")},1400)})});</script>`;
+const COPY_SCRIPT = `<script>addEventListener("click",function(e){var b=e.target.closest("[data-copy]");if(!b)return;var t=document.getElementById(b.getAttribute("data-copy"));if(!t)return;var v="value"in t&&t.value?t.value:t.textContent||"";navigator.clipboard.writeText(v).then(function(){var o=b.textContent;b.textContent="Copied";b.classList.add("copied");setTimeout(function(){b.textContent=o;b.classList.remove("copied")},1400)})});
+(function(){
+  function bar(){if(document.querySelector(".loadbar"))return;var b=document.createElement("div");b.className="loadbar";document.body.appendChild(b);}
+  addEventListener("click",function(e){
+    if(e.defaultPrevented||e.metaKey||e.ctrlKey||e.shiftKey||e.button!==0)return;
+    var a=e.target.closest("a[href]");
+    if(!a||a.target==="_blank"||a.closest("[data-copy]"))return;
+    var href=a.getAttribute("href")||"";
+    if(href.charAt(0)==="#")return;
+    try{if(new URL(a.href,location.href).origin!==location.origin)return}catch(_){return}
+    bar();
+  });
+  addEventListener("submit",function(){bar()});
+  addEventListener("pageshow",function(e){if(e.persisted)document.querySelectorAll(".loadbar,.skel-holder").forEach(function(n){n.remove()})});
+})();</script>`;
+
+// Branded full-page error for browsers. Agents keep the JSON envelopes; the
+// adapter in index.ts decides which one a response becomes.
+export function errorPage(env: Env, status: number, detail: string): Response {
+  const known: Record<number, { title: string; hint: string }> = {
+    401: {
+      title: "Sign in to continue",
+      hint: "This page needs a signed-in publisher session.",
+    },
+    403: {
+      title: "You don't have access",
+      hint: "This account isn't allowed to view this page.",
+    },
+    404: {
+      title: "Page not found",
+      hint: "The link may be mistyped, expired, or the artifact may have moved.",
+    },
+    405: { title: "That didn't work", hint: "" },
+  };
+  const kind =
+    known[status] ||
+    (status >= 500
+      ? {
+          title: "Something went wrong",
+          hint: "An unexpected error occurred on our side. Trying again usually helps.",
+        }
+      : { title: "That didn't work", hint: "" });
+  // Never surface internal 5xx details to browsers.
+  const message =
+    status >= 500 ? kind.hint : [detail, kind.hint].filter(Boolean).join(" — ");
+  return page(
+    kind.title,
+    `<header class="top">
+      <a class="brand" href="/">Artifact Use</a>
+      <nav><a href="/login">Sign in</a></nav>
+    </header>
+    <main class="panel narrow">
+      <p class="eyebrow">${status}</p>
+      <h1>${escapeHtml(kind.title)}.</h1>
+      <p class="muted">${escapeHtml(message || "Something about this request didn't add up.")}</p>
+      <div class="actions">
+        <a class="button" href="/">Go to homepage</a>
+        ${status === 401 || status === 403 ? `<a class="button ghost" href="/login">Sign in</a>` : `<a class="button ghost" href="${escapeHtml(docsUrl(env))}">Read the docs</a>`}
+      </div>
+    </main>`,
+    { status },
+  );
+}
 
 function page(
   title: string,
   body: string,
-  opts: { description?: string; robots?: "index" | "noindex" } = {},
+  opts: {
+    description?: string;
+    robots?: "index" | "noindex";
+    status?: number;
+  } = {},
 ): Response {
   const description = opts.description
     ? `<meta name="description" content="${escapeHtml(opts.description)}"><meta property="og:title" content="${escapeHtml(title)}"><meta property="og:description" content="${escapeHtml(opts.description)}">`
@@ -2065,8 +1927,8 @@ a{color:inherit;text-decoration:none}
 ::selection{background:var(--lume);color:var(--ink)}
 h1,h2,h3{font-family:var(--serif);font-weight:600;letter-spacing:-.01em}
 .top{height:64px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 clamp(18px,4vw,48px);background:var(--paper);position:sticky;top:0;z-index:5}
-.brand{font:700 17px var(--serif);display:inline-flex;align-items:center;gap:8px}
-.brand::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--lume);box-shadow:0 0 0 1.5px var(--accent)}
+.brand{font:700 17px var(--serif);display:inline-flex;align-items:center;gap:9px}
+.brand::before{content:"";width:20px;height:20px;border-radius:5.5px;flex:none;background:url("${FAVICON}") center/contain no-repeat;box-shadow:0 1px 4px rgba(19,36,32,.25)}
 .top nav{display:flex;gap:6px;align-items:center}
 .top nav a{padding:8px 11px;border-radius:5px;color:var(--muted);font-size:14.5px}
 .top nav a:hover{background:var(--line-soft);color:var(--ink)}
@@ -2157,6 +2019,21 @@ footer.site code{font:12px var(--mono)}
 .setup h2,.team-panel h2{margin:0 0 8px;font-size:23px}
 .setup-grid{display:grid;gap:14px}
 .token-form{display:grid;grid-template-columns:minmax(170px,1fr) 130px auto;gap:10px;align-items:end;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+.connect-strip{display:flex;justify-content:space-between;align-items:center;gap:18px;flex-wrap:wrap;border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:13px 16px;margin-top:24px}
+.connect-strip strong{display:block;font-size:14.5px;margin-bottom:2px}
+.connect-strip .muted{font-size:13px}
+.connect-strip code{font:12px var(--mono)}
+.strip-actions{display:flex;gap:8px;flex-wrap:wrap;white-space:nowrap}
+.quick-prompt{border:1px dashed var(--accent);background:var(--panel);border-radius:8px;padding:14px}
+.quick-prompt label{margin:0 0 8px;color:var(--accent);font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.1em}
+.quick-prompt textarea{min-height:200px}
+.quick-prompt .mini{margin-bottom:0}
+.setup-paths{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.path-card{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px}
+.path-head{margin:0 0 8px;font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--accent)}
+.path-for{color:var(--muted);letter-spacing:.04em;text-transform:none;font-weight:500;margin-left:6px}
+.path-card .mini{margin:8px 0 0}
+.path-card .copywrap{margin-top:8px}
 .token-form label{margin:0 0 6px}
 .token-list{list-style:none;margin:6px 0 0;padding:0}
 .token-list li{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid var(--line-soft);padding:8px 2px;font-size:13.5px}
@@ -2165,21 +2042,57 @@ footer.site code{font:12px var(--mono)}
 details.manual{border:1px solid var(--line);border-radius:8px;background:var(--panel)}
 details.manual summary{cursor:pointer;padding:12px 14px;font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--accent)}
 details.manual .setup-grid{padding:2px 14px 16px}
-.table{margin-top:26px}
-.table-head,.artifact-row{display:grid;grid-template-columns:minmax(180px,.8fr) minmax(280px,1.35fr) 210px 150px 88px;gap:14px;align-items:center}
-.table-head{padding:0 12px 10px;color:var(--muted);font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.1em}
-.artifact-card{background:var(--panel);border:1px solid var(--line);border-radius:8px;margin-bottom:10px}
-.artifact-row{padding:12px}
-.artifact-title strong,.artifact-title span,.path-block small,.views span{display:block}
-.artifact-title span,.path-block small,.views span{color:var(--muted);font-size:12.5px;margin-top:3px;word-break:break-all}
-.path-block code,.meta-list code{font:12px var(--mono);word-break:break-all}
-.views strong{font-variant-numeric:tabular-nums}
-.row-actions{display:flex;justify-content:flex-end}
+.activity-viz{margin-top:22px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px 18px 12px}
+.viz-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+.viz-head .eyebrow{margin:0}
+.viz-head .muted{font-size:13px;font-variant-numeric:tabular-nums}
+.chart{height:96px;display:flex;gap:2px;align-items:flex-end;margin-top:12px;border-bottom:1px solid var(--line)}
+.chart span{flex:1;min-height:2px;background:var(--accent);border-radius:2px 2px 0 0;opacity:.85}
+.chart span:hover{background:var(--accent-deep);opacity:1}
+.chart span.zero{background:var(--line-soft)}
+.chart-axis{display:flex;justify-content:space-between;color:var(--muted);font:10.5px var(--mono);margin-top:6px}
+.art-toolbar{display:flex;justify-content:space-between;align-items:center;gap:14px;margin:28px 0 10px;flex-wrap:wrap}
+.art-toolbar h2{margin:0;font-size:23px;display:flex;align-items:center;gap:10px}
+.art-toolbar input{max-width:260px;min-height:34px;font-size:13.5px}
+.art-table{background:var(--panel);border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.art-head,.art-tr{display:grid;grid-template-columns:minmax(220px,1.7fr) 110px 74px 60px 110px 96px;gap:12px;align-items:center;padding:8px 14px}
+.art-head{color:var(--muted);font:600 10.5px var(--mono);text-transform:uppercase;letter-spacing:.1em;border-bottom:1px solid var(--line);padding-top:11px;padding-bottom:11px}
+.art-tr{border-bottom:1px solid var(--line-soft);font-size:13.5px;color:var(--ink)}
+.art-tr[hidden]{display:none}
+.art-tr:last-of-type{border-bottom:0}
+.art-tr:hover{background:rgba(11,93,82,.05)}
+.art-tr.active{background:rgba(11,93,82,.09)}
+.art-name strong{display:block;font-size:14px;font-weight:600}
+.art-name small{display:block;color:var(--muted);font:11.5px var(--mono);margin-top:2px;word-break:break-all}
+.num{font-variant-numeric:tabular-nums;text-align:right}
+.num em{font-style:normal;color:var(--danger);font-size:11.5px}
+.art-date{color:var(--muted);font-size:12px;text-align:right;white-space:nowrap}
+.art-none{padding:12px 14px}
 .access{display:grid;grid-template-columns:1fr auto;gap:8px}
-.artifact-detail{border-top:1px solid var(--line-soft);padding:0 12px 14px}
-.artifact-detail summary{cursor:pointer;color:var(--accent);font:600 12px var(--mono);text-transform:uppercase;letter-spacing:.08em;padding:12px 0}
-.detail-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(220px,.75fr);gap:22px}
-.detail-grid h3{margin:14px 0 10px;font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+.setup-page{padding:4px 0 34px}
+.loadbar{position:fixed;top:0;left:0;height:3px;width:0;background:var(--lume);box-shadow:0 0 8px var(--lume);z-index:60;animation:loadgrow 1.6s cubic-bezier(.2,.6,.3,1) forwards}
+@keyframes loadgrow{10%{width:24%}45%{width:62%}100%{width:88%}}
+.skel{background:linear-gradient(100deg,var(--line-soft) 35%,var(--panel) 50%,var(--line-soft) 65%);background-size:200% 100%;animation:shimmer 1.1s linear infinite;border-radius:6px}
+@keyframes shimmer{to{background-position:-200% 0}}
+.button:active,button:active{transform:translateY(1px)}
+.art-tr:active{background:rgba(11,93,82,.12)}
+.sheet-scrim{position:fixed;inset:0;background:rgba(19,36,32,.38);z-index:19;cursor:default}
+.sheet{position:fixed;top:0;right:0;bottom:0;width:min(540px,94vw);background:var(--paper);border-left:1px solid var(--line);z-index:20;display:flex;flex-direction:column;box-shadow:-28px 0 56px -28px rgba(19,36,32,.5);animation:sheetin .2s ease-out}
+@keyframes sheetin{from{transform:translateX(28px);opacity:.5}to{transform:none;opacity:1}}
+.sheet-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;padding:18px 20px;border-bottom:1px solid var(--line);background:var(--panel)}
+.sheet-head h2{margin:0 0 5px;font-size:20px}
+.sheet-head code{font:12px var(--mono);color:var(--muted);word-break:break-all}
+.sheet-close{flex:none;color:var(--muted);padding:5px 11px;border:1px solid var(--line);border-radius:5px;background:var(--paper);font-size:14px}
+.sheet-close:hover{color:var(--ink);background:var(--line-soft)}
+.sheet-body{overflow-y:auto;padding:16px 20px 34px}
+.sheet-body h3{margin:22px 0 10px;font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
+.sheet-actions{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap}
+.sheet-actions .access{flex:1;min-width:220px}
+.sheet-actions .access select,.sheet-actions .access button{min-height:32px;font-size:13px}
+.sheet-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:14px}
+.sheet-stats div{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:9px 11px}
+.sheet-stats strong{display:block;font:600 17px/1.2 var(--serif);font-variant-numeric:tabular-nums}
+.sheet-stats span{font:600 9.5px var(--mono);text-transform:uppercase;letter-spacing:.09em;color:var(--muted)}
 .bars{height:70px;display:flex;gap:3px;align-items:flex-end;border-bottom:1px solid var(--line)}
 .bars span{flex:1;min-height:4px;background:var(--accent);border-radius:2px 2px 0 0}
 .bars span:hover{background:var(--accent-deep)}
@@ -2220,11 +2133,8 @@ details.manual .setup-grid{padding:2px 14px 16px}
 .team-grid h3{margin:10px 0;font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
 .error-box{color:#8f2f26;border-color:#e3b7af;background:#fff8f6}
 .invite-list form{margin:0}
-.super-head,.super-row{grid-template-columns:minmax(190px,.9fr) minmax(220px,1fr) minmax(240px,1.1fr) 150px 88px}
-.super-transfer{display:grid;grid-template-columns:minmax(190px,1fr) minmax(190px,1fr) auto;gap:10px;align-items:end}
-.super-transfer label{margin:0 0 6px}
-@media(max-width:940px){.hero{grid-template-columns:1fr;padding-top:34px}.steps,.feat{grid-template-columns:1fr}.steps section{border-right:0;border-bottom:1px solid var(--line)}.steps section:last-child{border-bottom:0}.agents{grid-template-columns:1fr}.headline{flex-direction:column;align-items:flex-start}.setup,.team-panel,.team-grid,.team-invite,.token-form,.super-transfer{grid-template-columns:1fr}.detail-grid{grid-template-columns:1fr}.table-head{display:none}.artifact-row,.super-head,.super-row{grid-template-columns:1fr}.row-actions{justify-content:flex-start}.access,.share-create{grid-template-columns:1fr}.onboard ol{grid-template-columns:1fr}.metrics div{flex:1 1 33%;border-bottom:1px solid var(--line)}}
+@media(max-width:940px){.hero{grid-template-columns:1fr;padding-top:34px}.steps,.feat{grid-template-columns:1fr}.steps section{border-right:0;border-bottom:1px solid var(--line)}.steps section:last-child{border-bottom:0}.agents{grid-template-columns:1fr}.headline{flex-direction:column;align-items:flex-start}.setup,.team-panel,.team-grid,.team-invite,.token-form,.setup-paths{grid-template-columns:1fr}.access,.share-create{grid-template-columns:1fr}.onboard ol{grid-template-columns:1fr}.metrics div{flex:1 1 33%;border-bottom:1px solid var(--line)}.art-head{display:none}.art-tr{grid-template-columns:minmax(0,1fr) 70px}.art-gate,.art-7d,.art-fb,.art-date{display:none}.art-toolbar input{max-width:none;width:100%}.sheet-stats{grid-template-columns:1fr 1fr}}
 </style></head><body>${body}${COPY_SCRIPT}</body></html>`,
-    { headers },
+    { status: opts.status || 200, headers },
   );
 }

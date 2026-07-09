@@ -1,0 +1,954 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Artifact Use — Documentation</title>
+    <meta
+      name="description"
+      content="Documentation for Artifact Use: publish agent output as stable, gated, reviewable links. Connect agents over MCP, CLI, or HTTP."
+    />
+    <style>
+      :root {
+        --ink: #1c1a17;
+        --muted: #6d675e;
+        --bg: #faf8f4;
+        --panel: #fffdf9;
+        --line: #e2dcd2;
+        --line-soft: #ece7de;
+        --accent: #b4540a;
+        --accent-deep: #8a3f06;
+        --ok: #2e6e3e;
+        --serif: Georgia, "Times New Roman", serif;
+        --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        --sans:
+          -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
+          Arial, sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      html {
+        scroll-behavior: smooth;
+        scroll-padding-top: 74px;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 15.5px/1.65 var(--sans);
+      }
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+      code {
+        font: 13px var(--mono);
+        background: var(--line-soft);
+        border-radius: 4px;
+        padding: 1px 5px;
+        word-break: break-word;
+      }
+      pre {
+        background: #211d18;
+        color: #f1ece2;
+        border-radius: 8px;
+        padding: 16px 18px;
+        overflow-x: auto;
+        font: 12.5px/1.7 var(--mono);
+        position: relative;
+      }
+      pre code {
+        background: none;
+        padding: 0;
+        color: inherit;
+        font: inherit;
+      }
+      pre .c {
+        color: #9a917f;
+      }
+      pre .k {
+        color: #eab06c;
+      }
+      pre .u {
+        color: #8fc7a6;
+      }
+      h1,
+      h2,
+      h3 {
+        font-family: var(--serif);
+        line-height: 1.2;
+        font-weight: 600;
+      }
+      h1 {
+        font-size: clamp(30px, 4.5vw, 40px);
+        margin: 8px 0 12px;
+      }
+      h2 {
+        font-size: 25px;
+        margin: 0 0 14px;
+        padding-top: 38px;
+        border-top: 1px solid var(--line);
+      }
+      h3 {
+        font-size: 18px;
+        margin: 26px 0 8px;
+      }
+      p {
+        margin: 0 0 12px;
+      }
+      ul,
+      ol {
+        margin: 0 0 14px;
+        padding-left: 22px;
+      }
+      li {
+        margin-bottom: 6px;
+      }
+      .eyebrow {
+        font: 600 11px var(--mono);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin: 0 0 6px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .lead {
+        font-size: 17.5px;
+        color: var(--muted);
+        max-width: 60ch;
+      }
+      header.top {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 14px;
+        padding: 14px clamp(18px, 4vw, 42px);
+        background: color-mix(in srgb, var(--bg) 88%, transparent);
+        backdrop-filter: blur(6px);
+        border-bottom: 1px solid var(--line);
+      }
+      .brand {
+        font-family: var(--serif);
+        font-weight: 700;
+        font-size: 18px;
+        color: var(--ink);
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+      }
+      .brand::before {
+        content: "";
+        width: 20px;
+        height: 20px;
+        border-radius: 5.5px;
+        flex: none;
+        background: url("data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Crect%20width='32'%20height='32'%20rx='7'%20fill='%230b5d52'/%3E%3Ccircle%20cx='22'%20cy='10.5'%20r='5'%20fill='%23d8ff4a'/%3E%3Crect%20x='7'%20y='17'%20width='12'%20height='2.6'%20rx='1.3'%20fill='%23fffdf7'/%3E%3Crect%20x='7'%20y='22'%20width='17'%20height='2.6'%20rx='1.3'%20fill='%23fffdf7'/%3E%3C/svg%3E")
+          center/contain no-repeat;
+        box-shadow: 0 1px 4px rgba(28, 26, 23, 0.25);
+      }
+      header.top nav {
+        display: flex;
+        gap: 18px;
+        align-items: center;
+        font-size: 14px;
+        flex-wrap: wrap;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 230px minmax(0, 1fr);
+        gap: clamp(24px, 4vw, 54px);
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 34px clamp(18px, 4vw, 42px) 90px;
+      }
+      aside.toc {
+        position: sticky;
+        top: 74px;
+        align-self: start;
+        font-size: 13.5px;
+        max-height: calc(100vh - 100px);
+        overflow-y: auto;
+      }
+      aside.toc p {
+        font: 600 11px var(--mono);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 10px;
+      }
+      aside.toc ul {
+        list-style: none;
+        margin: 0 0 18px;
+        padding: 0;
+      }
+      aside.toc li {
+        margin: 0;
+      }
+      aside.toc a {
+        display: block;
+        color: var(--muted);
+        padding: 4px 10px;
+        border-left: 2px solid var(--line-soft);
+      }
+      aside.toc a:hover {
+        color: var(--accent);
+        border-left-color: var(--accent);
+        text-decoration: none;
+      }
+      main {
+        min-width: 0;
+      }
+      .hero-card {
+        border: 1px dashed var(--accent);
+        background: var(--panel);
+        border-radius: 10px;
+        padding: 20px 22px;
+        margin: 22px 0 8px;
+      }
+      .hero-card strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin: 0 0 16px;
+        font-size: 14px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 9px 12px;
+        border-bottom: 1px solid var(--line-soft);
+        vertical-align: top;
+      }
+      th {
+        font: 600 11px var(--mono);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--muted);
+      }
+      td code {
+        white-space: nowrap;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 16px 18px;
+        margin: 0 0 14px;
+      }
+      .card h3 {
+        margin-top: 0;
+      }
+      .grid2 {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 14px;
+      }
+      .grid2 > * {
+        min-width: 0;
+      }
+      .paths {
+        align-items: start;
+        margin: 18px 0 14px;
+      }
+      .paths .card {
+        margin: 0;
+        height: 100%;
+      }
+      .paths h3 {
+        margin: 10px 0 8px;
+      }
+      .badge {
+        display: inline-block;
+        font: 600 10.5px var(--mono);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: #fff;
+        background: var(--accent);
+        border-radius: 4px;
+        padding: 3px 8px;
+        margin: 0;
+      }
+      .badge.b {
+        background: var(--ink);
+      }
+      .paths pre {
+        font-size: 11.5px;
+      }
+      .steps {
+        list-style: none;
+        counter-reset: s;
+        padding: 0;
+        margin: 18px 0;
+      }
+      .steps li {
+        counter-increment: s;
+        position: relative;
+        padding: 0 0 18px 44px;
+        margin: 0;
+      }
+      .steps li::before {
+        content: "0" counter(s);
+        position: absolute;
+        left: 0;
+        top: 2px;
+        font: 600 12px var(--mono);
+        letter-spacing: 0.1em;
+        color: var(--accent);
+      }
+      .steps li::after {
+        content: "";
+        position: absolute;
+        left: 11px;
+        top: 24px;
+        bottom: 2px;
+        width: 1px;
+        background: var(--line);
+      }
+      .steps li:last-child::after {
+        display: none;
+      }
+      .pill {
+        display: inline-block;
+        border-radius: 999px;
+        background: var(--line-soft);
+        color: var(--muted);
+        font: 600 10.5px var(--mono);
+        letter-spacing: 0.06em;
+        padding: 3px 10px;
+        margin-right: 6px;
+        text-transform: uppercase;
+      }
+      .note {
+        border-left: 3px solid var(--accent);
+        background: var(--panel);
+        padding: 10px 14px;
+        border-radius: 0 6px 6px 0;
+        margin: 0 0 14px;
+        font-size: 14px;
+      }
+      footer.site {
+        border-top: 1px solid var(--line);
+        margin-top: 60px;
+        padding-top: 18px;
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        flex-wrap: wrap;
+        color: var(--muted);
+        font-size: 13.5px;
+      }
+      @media (max-width: 860px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        aside.toc {
+          position: static;
+          max-height: none;
+          border: 1px solid var(--line);
+          border-radius: 8px;
+          padding: 14px;
+          background: var(--panel);
+        }
+        .grid2 {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="top">
+      <a class="brand" href="https://artifacts.iofold.com/">Artifact Use</a>
+      <nav>
+        <a href="#quickstart">Quickstart</a>
+        <a href="#connect">Connect an agent</a>
+        <a href="#publish">Publish</a>
+        <a href="#gates">Access</a>
+        <a href="https://github.com/iofold/artifact-use">GitHub</a>
+        <a href="https://artifacts.iofold.com/admin">Admin</a>
+      </nav>
+    </header>
+
+    <div class="layout">
+      <aside class="toc" aria-label="Contents">
+        <p>Contents</p>
+        <ul>
+          <li><a href="#overview">Overview</a></li>
+          <li><a href="#quickstart">Quickstart</a></li>
+          <li><a href="#connect">Connect an agent</a></li>
+          <li><a href="#publish">Publishing</a></li>
+          <li><a href="#urls">URLs &amp; versions</a></li>
+          <li><a href="#gates">Access gates</a></li>
+          <li><a href="#share">Share links</a></li>
+          <li><a href="#feedback">Feedback &amp; comments</a></li>
+          <li><a href="#agents-reading">Agents reading artifacts</a></li>
+          <li><a href="#api">HTTP API</a></li>
+          <li><a href="#tokens">Tokens &amp; security</a></li>
+          <li><a href="#limits">Limits</a></li>
+          <li><a href="#self-host">Self-hosting</a></li>
+          <li><a href="#faq">FAQ</a></li>
+        </ul>
+      </aside>
+
+      <main>
+        <p class="eyebrow">Documentation</p>
+        <h1>Artifact Use</h1>
+        <p class="lead">
+          Your coding agent publishes HTML tools, dashboards, PDFs, and whole
+          static folders to one stable URL — with access gates, versioning, and
+          comments built in. This page is the product manual for both the humans
+          and the agents involved.
+        </p>
+
+        <div class="hero-card">
+          <strong>In a hurry?</strong>
+          <span class="muted"
+            >Sign in at
+            <a href="https://artifacts.iofold.com/admin"
+              >artifacts.iofold.com/admin</a
+            >, copy the ready-made connect prompt, and paste it to any agent.
+            That one paste is the entire setup.</span
+          >
+        </div>
+
+        <h2 id="overview">Overview</h2>
+        <p>
+          Artifact Use turns agent output into links people can open and review:
+        </p>
+        <ol>
+          <li>
+            <strong>Agents publish</strong> over MCP, CLI, or plain HTTP —
+            single HTML files or complete folders with images, data, and PDFs.
+            Versions are immutable and promoted atomically.
+          </li>
+          <li>
+            <strong>People review</strong> at one stable link behind an email,
+            verified-email, or allowlist gate, and comment directly on the
+            artifact.
+          </li>
+          <li>
+            <strong>Work loops back</strong> — views and feedback are readable
+            through the same API, so the next agent iteration starts where the
+            review ended.
+          </li>
+        </ol>
+        <p>
+          Everything is machine-readable. Agents can start at
+          <a href="https://artifacts.iofold.com/llms.txt">/llms.txt</a>
+          (summary) or
+          <a href="https://artifacts.iofold.com/llms-full.txt"
+            >/llms-full.txt</a
+          >
+          (full agent guide).
+        </p>
+
+        <h2 id="quickstart">Quickstart</h2>
+        <ol class="steps">
+          <li>
+            <strong>Sign in</strong> at
+            <a href="https://artifacts.iofold.com/login"
+              >artifacts.iofold.com/login</a
+            >
+            — email code, password, or Google. Your first sign-in creates a
+            workspace.
+          </li>
+          <li>
+            <strong>Copy the connect prompt.</strong> When your workspace hasn't
+            published recently, the admin shows a ready one-paste prompt under
+            <em>Agent setup</em>. It carries a scoped publish token, endpoints,
+            and instructions.
+          </li>
+          <li>
+            <strong>Paste it to your agent</strong> — Claude Code, Codex, or
+            anything that can call HTTP. The agent verifies itself and knows how
+            to publish.
+          </li>
+          <li>
+            <strong>Ask for an artifact.</strong> "Publish this prototype with
+            an email gate." The agent replies with a stable link under
+            <code>/go/…</code>.
+          </li>
+          <li>
+            <strong>Share the link.</strong> Views and comments land back in
+            your admin and in your agent's API.
+          </li>
+        </ol>
+
+        <h2 id="connect">Connect an agent</h2>
+        <p>
+          Two paths — pick by what your agent supports. Both end with the same
+          capability: publish and manage artifacts in your workspace.
+        </p>
+
+        <div class="grid2 paths">
+          <div class="card path-a">
+            <p class="badge">Path A · OAuth</p>
+            <h3>Claude Code &amp; MCP-proper clients</h3>
+            <p>
+              The smoothest path when the agent supports MCP OAuth: no tokens to
+              copy, the agent signs in as you in the browser.
+            </p>
+            <pre><code>claude mcp add --transport http \
+  artifact-use https://artifacts.iofold.com/mcp
+<span class="c"># then /mcp in Claude Code → Authenticate</span></code></pre>
+            <p>Other OAuth-capable MCP clients need only the config:</p>
+            <pre><code>{
+  "mcpServers": {
+    "artifact-use": { "type": "http",
+      "url": "https://artifacts.iofold.com/mcp" }
+  }
+}</code></pre>
+          </div>
+          <div class="card path-b">
+            <p class="badge b">Path B · Bearer token</p>
+            <h3>Codex &amp; agents with weak OAuth</h3>
+            <p>
+              One paste is the whole setup: in
+              <a href="https://artifacts.iofold.com/admin#agent-setup"
+                >Admin → Agent setup</a
+              >, copy the ready prompt (30-day scoped token embedded) into the
+              agent chat. Revoke it anytime from the same page.
+            </p>
+            <p>
+              Codex specifically — export the token and point the MCP server at
+              it:
+            </p>
+            <pre><code><span class="c"># shell</span>
+export ARTIFACT_USE_API_BASE=https://artifacts.iofold.com
+export ARTIFACT_USE_TOKEN='au_creator_…'
+
+<span class="c"># ~/.codex/config.toml</span>
+[mcp_servers.artifact-use]
+url = "https://artifacts.iofold.com/mcp"
+bearer_token_env_var = "ARTIFACT_USE_TOKEN"</code></pre>
+          </div>
+        </div>
+
+        <div class="note">
+          <strong>Which path?</strong> Claude Code → Path A. Codex → Path B (its
+          MCP OAuth token refresh is unreliable). Anything else that can send an
+          HTTP header → Path B works everywhere. Either way, the agent verifies
+          itself with <code>GET /api/v1/me</code> and should read
+          <a href="https://artifacts.iofold.com/llms-full.txt"
+            >/llms-full.txt</a
+          >
+          once for publishing rules and limits.
+        </div>
+
+        <h3>
+          Agent-initiated: device connect
+          <span class="pill">no browser, no token yet</span>
+        </h3>
+        <p>
+          A tokenless agent can also start Path B itself — it requests a code,
+          you approve it, it polls for its token:
+        </p>
+        <pre><code><span class="c"># agent asks for a code</span>
+POST https://artifacts.iofold.com/api/v1/connect/start
+     {"agent_label": "codex on my-laptop"}
+<span class="c"># → { device_code, user_code, verification_url, expires_in }</span>
+
+<span class="c"># human approves the code (15-minute window)</span>
+<span class="u">https://artifacts.iofold.com/connect?code=ABCD-2345</span>
+
+<span class="c"># agent polls every 3s until approved</span>
+POST https://artifacts.iofold.com/api/v1/connect/poll
+     {"device_code": "dc_…"}
+<span class="c"># → { token, expires_at, prompt }  — delivered exactly once</span></code></pre>
+
+        <h2 id="publish">Publishing</h2>
+
+        <h3>MCP tools</h3>
+        <table>
+          <tr>
+            <th>Tool</th>
+            <th>Use for</th>
+          </tr>
+          <tr>
+            <td><code>artifact_publish</code></td>
+            <td>
+              One self-contained HTML string, or a small inline multi-file
+              payload.
+            </td>
+          </tr>
+          <tr>
+            <td><code>artifact_upload_session</code></td>
+            <td>
+              A 6-hour upload token for direct shell/curl upload of local files
+              — folders, large images, PDFs.
+            </td>
+          </tr>
+          <tr>
+            <td><code>artifact_manage</code></td>
+            <td>
+              List artifacts, read stats, change access, create share links.
+              <code>action: "list"</code> returns each artifact's
+              <code>url_key</code> for exact management calls.
+            </td>
+          </tr>
+        </table>
+
+        <h3>CLI</h3>
+        <pre><code><span class="c"># single HTML file</span>
+artifact-use publish-html --json '{
+  "artifact": "claims-demo",
+  "title": "Claims Demo",
+  "gate_level": "email",
+  "html": "&lt;!doctype html&gt;…"
+}'
+
+<span class="c"># a whole folder (add --dry-run first to validate)</span>
+artifact-use publish-folder --json '{
+  "artifact": "claims-demo",
+  "title": "Claims Demo",
+  "dir": "dist",
+  "gate_level": "email"
+}'</code></pre>
+
+        <h3>HTTP API</h3>
+        <pre><code><span class="c"># one-call HTML publish</span>
+POST /api/v1/publish/html
+     {"artifact": "claims-demo", "title": "Claims Demo",
+      "gate_level": "email", "html": "&lt;!doctype html&gt;…"}
+<span class="c"># → { ok, artifact, version_id, url }</span>
+
+<span class="c"># multi-file: open a draft, upload files, complete</span>
+POST /api/v1/publish/start          <span class="c"># → version_id, upload_base, limits</span>
+PUT  {upload_base}{path}            <span class="c"># one request per file</span>
+POST /api/v1/publish/{version_id}/complete   <span class="c"># manifest JSON</span></code></pre>
+        <p>
+          All publish calls take
+          <code>Authorization: Bearer &lt;token&gt;</code>. Republishing the
+          same <code>artifact</code> slug creates a new immutable version and
+          atomically promotes it — the public URL never changes.
+        </p>
+        <div class="note">
+          <strong>Never</strong> publish with Wrangler, Cloudflare API tokens,
+          direct R2, or direct D1. Agents get scoped bearer tokens precisely so
+          they never hold infrastructure credentials.
+        </div>
+
+        <h3>Authoring guidance</h3>
+        <ul>
+          <li>
+            Prefer one self-contained <code>index.html</code> — vanilla
+            HTML/CSS/JS, no build step, no framework unless asked.
+          </li>
+          <li>
+            Folders keep <code>index.html</code> as the entrypoint; use relative
+            asset paths (<code>./assets/…</code>), never leading-slash paths.
+          </li>
+          <li>
+            Avoid reserved path segments: <code>_au</code>, <code>_iof</code>,
+            leading <code>_</code>, <code>cdn-cgi</code>, <code>.</code>,
+            <code>..</code>.
+          </li>
+          <li>
+            Include loading, empty, and error states; check desktop and mobile
+            before sharing.
+          </li>
+          <li>Never place secrets or tokens in published HTML.</li>
+        </ul>
+
+        <h2 id="urls">URLs &amp; versions</h2>
+        <p>Every artifact gets one stable public URL:</p>
+        <pre><code>https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/</code></pre>
+        <ul>
+          <li>
+            The <code>{slug}-{code}</code> pair is the artifact's
+            <code>url_key</code> — use it in management and share-link calls.
+          </li>
+          <li>
+            Versions are immutable; each publish uploads a complete new version
+            and promotes it atomically. No half-updated artifacts, no cache
+            confusion.
+          </li>
+          <li>
+            Slugs are lower-case hyphen-case; the six-character code is assigned
+            at creation and survives every republish.
+          </li>
+        </ul>
+
+        <h2 id="gates">Access gates</h2>
+        <table>
+          <tr>
+            <th>Gate</th>
+            <th>Who gets in</th>
+            <th>Use when</th>
+          </tr>
+          <tr>
+            <td><code>public</code></td>
+            <td>Anyone with the link</td>
+            <td>Intentionally low-sensitivity pages — like this one.</td>
+          </tr>
+          <tr>
+            <td><code>email</code></td>
+            <td>Anyone who enters an email address</td>
+            <td>The default: light accountability, view attribution.</td>
+          </tr>
+          <tr>
+            <td><code>verified_email</code></td>
+            <td>Viewers who verify a one-time code sent to their inbox</td>
+            <td>Inbox control matters.</td>
+          </tr>
+          <tr>
+            <td><code>allowlist</code></td>
+            <td>Specific addresses and/or whole domains, verified</td>
+            <td>Restricted customer material.</td>
+          </tr>
+        </table>
+        <p>
+          Set the gate at publish time (<code>gate_level</code>) or later from
+          the admin / <code>artifact_manage</code>. Allowlists take addresses
+          (<code>a@b.com</code>) and domains (<code>b.com</code>).
+        </p>
+
+        <h2 id="share">Share links</h2>
+        <p>
+          Share links pre-authorize a recipient through the gate — useful for
+          sending a gated artifact to one person without editing an allowlist.
+          Create them from the admin's artifact row or from an agent:
+        </p>
+        <pre><code>artifact-use share --json '{
+  "artifact": "claims-demo-a1b2c3",
+  "recipient_email": "viewer@example.com",
+  "recipient_label": "Viewer",
+  "expires_days": 14
+}'</code></pre>
+        <p>Links can expire and can be revoked from the admin at any time.</p>
+
+        <h2 id="feedback">Feedback &amp; comments</h2>
+        <p>
+          Browser viewers get a lightweight feedback widget injected into gated
+          artifact pages: comments with element anchors, replies, and
+          resolve/reopen — on the artifact itself. Everything lands in the
+          publisher admin and is readable by agents through the API, so review
+          feedback flows straight into the next iteration.
+        </p>
+        <p>Agents can post comments too:</p>
+        <pre><code>POST {artifact-url}/_au/comments
+     {"artifact_key": "…", "body": "…", "page_path": "/", "target": null}</code></pre>
+
+        <h2 id="agents-reading">Agents reading artifacts</h2>
+        <p>Gated artifacts are still agent-accessible — no browser required:</p>
+        <ul>
+          <li>
+            Non-browser requests to a gated artifact get a
+            <strong>401 JSON</strong> body that spells out exactly how to
+            authenticate.
+          </li>
+          <li>
+            Machine descriptor (structure and file list):
+            <code>GET {artifact-url}_au/index.json</code>.
+          </li>
+          <li>
+            <code>email</code> gates self-serve via
+            <code>POST /_au/gate/email</code>; <code>verified_email</code>/<code
+              >allowlist</code
+            >
+            gates self-serve if the agent can read the inbox (<code
+              >/_au/gate/start</code
+            >
+            → code → <code>/_au/gate/verify</code>).
+          </li>
+          <li>
+            A human viewer can also delegate: "Hand to your agent" in the
+            feedback widget mints a viewer token (<code
+              >POST /_au/agent-token</code
+            >).
+          </li>
+        </ul>
+
+        <h2 id="api">HTTP API</h2>
+        <table>
+          <tr>
+            <th>Endpoint</th>
+            <th>What it does</th>
+          </tr>
+          <tr>
+            <td><code>GET /api/v1/me</code></td>
+            <td>
+              Verify a token; returns the acting identity and permissions.
+            </td>
+          </tr>
+          <tr>
+            <td><code>GET /api/v1/artifacts</code></td>
+            <td>
+              List workspace artifacts with stats, access, and share links.
+            </td>
+          </tr>
+          <tr>
+            <td><code>POST /api/v1/publish/html</code></td>
+            <td>One-call single-file publish.</td>
+          </tr>
+          <tr>
+            <td>
+              <code>POST /api/v1/publish/start · /files · /complete</code>
+            </td>
+            <td>Multi-file draft → upload → atomic promote.</td>
+          </tr>
+          <tr>
+            <td><code>POST /api/v1/publish/upload-session</code></td>
+            <td>6-hour scoped upload token for direct file transfer.</td>
+          </tr>
+          <tr>
+            <td><code>POST /api/v1/tokens</code></td>
+            <td>
+              Mint a creator token (WorkOS OAuth sessions only — tokens cannot
+              mint tokens).
+            </td>
+          </tr>
+          <tr>
+            <td><code>POST /api/v1/connect/start · /poll</code></td>
+            <td>Device-style agent connect (see above).</td>
+          </tr>
+        </table>
+        <p>
+          All endpoints speak JSON and take
+          <code>Authorization: Bearer &lt;token&gt;</code> — either an
+          <code>au_creator_…</code> token or a WorkOS OAuth access token. Errors
+          come back as <code>{"error": {"code", "message"}}</code>.
+        </p>
+
+        <h2 id="tokens">Tokens &amp; security</h2>
+        <ul>
+          <li>
+            Creator tokens (<code>au_creator_…</code>) are scoped to one
+            workspace: publish, read, manage access, view stats. They cannot
+            invite teammates or mint further tokens.
+          </li>
+          <li>
+            Every token is listed under
+            <a href="https://artifacts.iofold.com/admin#agent-setup"
+              >Admin → Agent setup</a
+            >
+            with its label, source, and expiry — revocation is immediate.
+          </li>
+          <li>
+            Tokens live in <code>ARTIFACT_USE_TOKEN</code> or a secret store —
+            never in committed files, source, or published HTML.
+          </li>
+          <li>
+            Agents never hold Cloudflare credentials; the platform holds R2/D1
+            access on their behalf.
+          </li>
+        </ul>
+
+        <h2 id="limits">Limits</h2>
+        <table>
+          <tr>
+            <th>Limit</th>
+            <th>Value</th>
+          </tr>
+          <tr>
+            <td>Package (per version)</td>
+            <td>95 MiB</td>
+          </tr>
+          <tr>
+            <td>Single file</td>
+            <td>75 MiB</td>
+          </tr>
+          <tr>
+            <td>File count</td>
+            <td>200</td>
+          </tr>
+          <tr>
+            <td>Entrypoint</td>
+            <td><code>index.html</code> by default</td>
+          </tr>
+          <tr>
+            <td>Inline MCP payloads</td>
+            <td>2 MiB per file — use upload sessions beyond that</td>
+          </tr>
+          <tr>
+            <td>Connect codes</td>
+            <td>15-minute approval window</td>
+          </tr>
+          <tr>
+            <td>Creator tokens</td>
+            <td>1–90 days (default 30)</td>
+          </tr>
+        </table>
+
+        <h2 id="self-host">Self-hosting</h2>
+        <p>
+          Artifact Use is MIT-licensed and runs on your own Cloudflare account:
+          Workers for the app, D1 for metadata, R2 for artifact storage,
+          WorkOS/AuthKit for publisher auth, and optionally Resend for
+          verified-email gates. The repo includes the worker, CLI, local stdio
+          MCP server, and deployment guide.
+        </p>
+        <pre><code>git clone https://github.com/iofold/artifact-use
+<span class="c"># then follow docs/DEPLOY.md: create D1 + R2, configure wrangler.toml,</span>
+<span class="c"># set WorkOS secrets, apply migrations, wrangler deploy</span></code></pre>
+
+        <h2 id="faq">FAQ</h2>
+        <div class="card">
+          <h3>Does republishing change the URL?</h3>
+          <p>
+            No. The <code>/go/{slug}-{code}/</code> URL is stable across every
+            republish; each publish just promotes a new immutable version.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Can several agents share one workspace?</h3>
+          <p>
+            Yes — mint a labeled token per agent so you can tell them apart and
+            revoke them independently. Teammates join via <em>Team</em> invites
+            in the admin and see the same artifacts, stats, and feedback.
+          </p>
+        </div>
+        <div class="card">
+          <h3>What do viewers see with an <code>email</code> gate?</h3>
+          <p>
+            A minimal interstitial asking for their address; after that, the
+            artifact. Views are attributed to that address in your admin.
+          </p>
+        </div>
+        <div class="card">
+          <h3>
+            Why did my agent get a 401 with instructions instead of the
+            artifact?
+          </h3>
+          <p>
+            That's the machine-readable gate. The JSON body describes the exact
+            self-serve path for the artifact's gate level — most agents can
+            follow it without help.
+          </p>
+        </div>
+        <div class="card">
+          <h3>Where do I report issues?</h3>
+          <p>
+            On
+            <a href="https://github.com/iofold/artifact-use/issues">GitHub</a> —
+            or leave a comment on any artifact; publishers see it immediately.
+          </p>
+        </div>
+
+        <footer class="site">
+          <span
+            >Artifact Use · MIT licensed · This page is itself a published
+            artifact.</span
+          >
+          <nav>
+            <a href="https://artifacts.iofold.com/">Home</a> ·
+            <a href="https://github.com/iofold/artifact-use">GitHub</a> ·
+            <a href="https://artifacts.iofold.com/llms.txt">llms.txt</a> ·
+            <a href="https://artifacts.iofold.com/llms-full.txt">Agent guide</a>
+          </nav>
+        </footer>
+      </main>
+    </div>
+  </body>
+</html>

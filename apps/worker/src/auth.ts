@@ -282,7 +282,7 @@ export async function mintCreatorToken(
     orgId: string;
     email: string | null;
     label: string | null;
-    source: "admin" | "api" | "connect";
+    source: "admin" | "api" | "connect" | "quick";
     expiresDays: number;
   },
 ): Promise<{ token: string; id: string; expiresAt: number }> {

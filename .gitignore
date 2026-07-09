@@ -18,3 +18,9 @@ apps/worker/src/widget/feedback.generated.ts
 # Local staging deploy config (real account/db ids)
 apps/worker/wrangler.staging.toml
 apps/worker/wrangler.prod.toml
+
+# Built admin SPA assets (from apps/admin-ui)
+apps/worker/public/
+
+# Local ops journal (internal IDs/notes; repo is public)
+docs/progress_log.ndjson
