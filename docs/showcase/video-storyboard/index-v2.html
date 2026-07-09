@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Showcase Reel — Storyboard &amp; Production Spec</title>
+    <style>
+      :root {
+        --paper: #f6f4ec;
+        --panel: #fffdf7;
+        --ink: #1f2723;
+        --muted: #68726c;
+        --line: #ddd7c6;
+        --line-soft: #eae6d8;
+        --accent: #0b5d52;
+        --accent-deep: #083f38;
+        --lume: #d8ff4a;
+        --danger: #a33d2e;
+        --serif: "Iowan Old Style", Palatino, Georgia, serif;
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        background-image: radial-gradient(
+          rgba(31, 39, 35, 0.03) 1px,
+          transparent 1px
+        );
+        background-size: 22px 22px;
+        color: var(--ink);
+        font: 15.5px/1.6 var(--sans);
+      }
+      main {
+        max-width: 1020px;
+        margin: 0 auto;
+        padding: 30px clamp(16px, 3vw, 32px) 80px;
+      }
+      h1 {
+        font: 600 30px var(--serif);
+        margin: 6px 0 6px;
+      }
+      h2 {
+        font: 600 21px var(--serif);
+        margin: 34px 0 12px;
+        padding-top: 20px;
+        border-top: 1px solid var(--line);
+      }
+      .eyebrow {
+        font: 600 11px var(--mono);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--accent);
+        margin: 0 0 6px;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .pill {
+        display: inline-block;
+        border-radius: 999px;
+        background: var(--line-soft);
+        color: var(--muted);
+        font: 600 10.5px var(--mono);
+        padding: 3px 10px;
+        margin-right: 6px;
+      }
+      .pill.v {
+        background: var(--accent);
+        color: #fff;
+      }
+      .badge {
+        display: inline-block;
+        font: 700 9.5px var(--mono);
+        letter-spacing: 0.08em;
+        border-radius: 4px;
+        padding: 2px 6px;
+        margin-left: 6px;
+        vertical-align: 1px;
+      }
+      .badge.new {
+        background: var(--lume);
+        color: var(--ink);
+      }
+      .badge.moved {
+        background: var(--accent);
+        color: #fff;
+      }
+      .badge.changed {
+        background: #8a6d3b;
+        color: #fff;
+      }
+      .changelog {
+        border: 1px dashed var(--accent);
+        background: var(--panel);
+        border-radius: 10px;
+        padding: 14px 18px;
+        margin: 16px 0;
+      }
+      .changelog li {
+        margin-bottom: 5px;
+      }
+      .changelog .ok {
+        color: var(--accent);
+        font-weight: 700;
+      }
+      .meta {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        align-items: center;
+        margin: 10px 0 0;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 16px 18px;
+        margin: 14px 0;
+      }
+      .reel {
+        display: grid;
+        grid-template-columns: 200px minmax(0, 1fr);
+        gap: 16px;
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 14px;
+        margin: 12px 0;
+      }
+      .reel img {
+        width: 100%;
+        border-radius: 6px;
+        border: 1px solid var(--line);
+        display: block;
+      }
+      .reel h3 {
+        margin: 0 0 4px;
+        font: 600 17px var(--serif);
+      }
+      .reel .muted {
+        font-size: 13px;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13.5px;
+        margin-top: 10px;
+      }
+      th,
+      td {
+        text-align: left;
+        padding: 7px 9px;
+        border-bottom: 1px solid var(--line-soft);
+        vertical-align: top;
+      }
+      th {
+        font: 600 10.5px var(--mono);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--muted);
+      }
+      td.t {
+        font: 600 12px var(--mono);
+        white-space: nowrap;
+        color: var(--accent);
+      }
+      td .cap {
+        font: 12px var(--mono);
+        color: var(--muted);
+        display: block;
+        margin-top: 2px;
+      }
+      .qs li {
+        margin-bottom: 8px;
+      }
+      code {
+        font: 12.5px var(--mono);
+        background: var(--line-soft);
+        padding: 1px 5px;
+        border-radius: 4px;
+      }
+      footer {
+        border-top: 1px solid var(--line);
+        margin-top: 40px;
+        padding-top: 14px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      footer a {
+        color: var(--accent);
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="eyebrow">Production spec · revised</p>
+      <h1>Showcase Reel — Storyboard</h1>
+      <p class="muted">
+        Three ~20s muted demo reels for the artifacts.iofold.com landing page,
+        recorded with the Xvfb capture rig (30fps raw, animated cursor, caption
+        chips, camera zooms). This document is the shooting plan —
+        <strong>leave feedback on anything</strong>: pacing, captions, zoom
+        choices, scene order.
+      </p>
+      <div class="meta">
+        <span class="pill v">v2 · feedback applied ✓</span>
+        <span class="pill">owner: yash</span>
+        <span class="pill">target: landing showcase cards</span>
+        <span class="pill">runtime: 3 × ≤22s</span>
+      </div>
+
+      <div class="changelog">
+        <p class="eyebrow" style="margin: 0 0 8px">
+          v2 — applied review feedback
+          <span class="ok">· 3 comments resolved</span>
+        </p>
+        <ul style="margin: 0; padding-left: 20px">
+          <li>
+            <strong>Reel 1:</strong> share-link moment moved from scene 5 to
+            scene 2 <span class="badge moved">MOVED</span>
+            <span class="muted">(yash)</span>
+          </li>
+          <li>
+            <strong>Reel 2:</strong> benchmark verdict hold extended 1.4s → 2.5s
+            <span class="badge changed">CHANGED</span>
+            <span class="muted">(mirian)</span>
+          </li>
+          <li>
+            <strong>All reels:</strong> end card added — logo, URL, "published
+            by an agent" credit <span class="badge new">NEW</span>
+            <span class="muted">(sam)</span>
+          </li>
+        </ul>
+      </div>
+
+      <h2 id="reel-dp">Reel 1 · Data Playground</h2>
+      <div class="reel">
+        <img src="./img/dp.jpg" alt="Data Playground key frame" />
+        <div>
+          <h3>"Paste → explore → share"</h3>
+          <p class="muted">
+            The local-first story: data never leaves the tab, everything is
+            instant, and the share link carries the dataset itself.
+          </p>
+          <table>
+            <tr>
+              <th>#</th>
+              <th>t</th>
+              <th>Action</th>
+              <th>Camera</th>
+            </tr>
+            <tr>
+              <td>1</td>
+              <td class="t">0–4s</td>
+              <td>
+                Load sample CSV<span class="cap"
+                  >"Paste any CSV or JSON — it never leaves your tab"</span
+                >
+              </td>
+              <td>wide</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td class="t">4–8s</td>
+              <td>
+                Copy share link <span class="badge moved">MOVED</span
+                ><span class="cap"
+                  >"Share it — the data travels in the URL"</span
+                >
+              </td>
+              <td>zoom 1.3× on share button</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td class="t">8–12s</td>
+              <td>
+                Column profile appears<span class="cap"
+                  >"Instant column profile — types inferred"</span
+                >
+              </td>
+              <td>zoom 1.32× on stats</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td class="t">12–16s</td>
+              <td>
+                Hover chart tooltips, switch to bars by region<span class="cap"
+                  >"Dependency-free SVG charts — hover for values"</span
+                >
+              </td>
+              <td>wide</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td class="t">16–20s</td>
+              <td>
+                Sort by revenue, type "NA" in filter<span class="cap"
+                  >"Sort and filter — live"</span
+                >
+              </td>
+              <td>zoom 1.35× on filter</td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td class="t">20–22s</td>
+              <td>
+                End card — logo, URL, agent credit
+                <span class="badge new">NEW</span>
+              </td>
+              <td>wide, settle</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
+      <h2 id="reel-fl">Reel 2 · Fractal Lab</h2>
+      <div class="reel">
+        <img src="./img/fl.jpg" alt="Fractal Lab key frame" />
+        <div>
+          <h3>"A 267-byte WASM kernel, honestly benchmarked"</h3>
+          <p class="muted">
+            The technical flex with an honest punchline — the benchmark verdict
+            is the money shot.
+          </p>
+          <table>
+            <tr>
+              <th>#</th>
+              <th>t</th>
+              <th>Action</th>
+              <th>Camera</th>
+            </tr>
+            <tr>
+              <td>1</td>
+              <td class="t">0–5s</td>
+              <td>
+                Open on full set<span class="cap"
+                  >"Every pixel computed by a 267-byte WASM kernel"</span
+                >
+              </td>
+              <td>wide</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td class="t">5–12s</td>
+              <td>
+                Six double-click dives into seahorse valley<span class="cap"
+                  >"Double-click to dive — ~110× zoom"</span
+                >
+              </td>
+              <td>wide (canvas zooms itself)</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td class="t">12–16s</td>
+              <td>Iterations → 700, palette → Ember</td>
+              <td>wide</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td class="t">16–21s</td>
+              <td>
+                Run benchmark, read verdict<span class="cap"
+                  >"JS vs WASM — benchmark it on your machine"</span
+                >
+              </td>
+              <td>
+                zoom 1.5× on bars · hold 2.5s
+                <span class="badge changed">CHANGED</span>
+              </td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td class="t">21–23s</td>
+              <td>
+                End card — logo, URL, agent credit
+                <span class="badge new">NEW</span>
+              </td>
+              <td>wide</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
+      <h2 id="reel-pp">Reel 3 · Product Pulse</h2>
+      <div class="reel">
+        <img src="./img/pp.jpg" alt="Product Pulse key frame" />
+        <div>
+          <h3>"A folder that documents itself"</h3>
+          <p class="muted">
+            Multi-file artifacts: modules, data, dark mode — closing on the live
+            self-manifest.
+          </p>
+          <table>
+            <tr>
+              <th>#</th>
+              <th>t</th>
+              <th>Action</th>
+              <th>Camera</th>
+            </tr>
+            <tr>
+              <td>1</td>
+              <td class="t">0–4s</td>
+              <td>
+                KPI row with deltas<span class="cap"
+                  >"A multi-file artifact — modules, data files, styles"</span
+                >
+              </td>
+              <td>zoom 1.28× on KPIs</td>
+            </tr>
+            <tr>
+              <td>2</td>
+              <td class="t">4–9s</td>
+              <td>Crosshair sweep across 90 days</td>
+              <td>wide</td>
+            </tr>
+            <tr>
+              <td>3</td>
+              <td class="t">9–13s</td>
+              <td>90d range + Feedback series toggle</td>
+              <td>wide</td>
+            </tr>
+            <tr>
+              <td>4</td>
+              <td class="t">13–16s</td>
+              <td>Dark mode flip</td>
+              <td>wide</td>
+            </tr>
+            <tr>
+              <td>5</td>
+              <td class="t">16–21s</td>
+              <td>
+                Scroll to the live file manifest<span class="cap"
+                  >"It even lists its own file manifest"</span
+                >
+              </td>
+              <td>zoom 1.35× on manifest</td>
+            </tr>
+            <tr>
+              <td>6</td>
+              <td class="t">21–23s</td>
+              <td>
+                End card — logo, URL, agent credit
+                <span class="badge new">NEW</span>
+              </td>
+              <td>wide · end here</td>
+            </tr>
+          </table>
+        </div>
+      </div>
+
+      <h2>Production notes</h2>
+      <div class="card">
+        <ul>
+          <li>
+            <strong>Rig:</strong> headed Chrome on Xvfb <code>:99</code>, ffmpeg
+            x11grab @30fps, magenta-calibrated crop <code>1280×716</code>. No
+            screencast, no frame interpolation.
+          </li>
+          <li>
+            <strong>Overlay:</strong> director.js — eased cursor, click ripples,
+            caption chips, CSS camera. Scrollbars suppressed.
+          </li>
+          <li>
+            <strong>Encode:</strong> x264 CRF 20 → faststart MP4, ~1&nbsp;MB per
+            reel. Posters at the key frame.
+          </li>
+          <li>
+            <strong>Delivery:</strong> hover-to-play cards on the landing
+            showcase; <code>preload="none"</code>; reduced-motion keeps posters.
+          </li>
+        </ul>
+      </div>
+
+      <h2>
+        Open questions
+        <span class="badge new" style="vertical-align: 6px">ALL RESOLVED</span>
+      </h2>
+      <div class="card">
+        <ul class="qs">
+          <li>
+            <s class="muted"
+              >Is the stats zoom in Reel 1 too subtle at 1.32×?</s
+            >
+            — kept at 1.32×, reads fine at 30fps.
+          </li>
+          <li>
+            <s class="muted"
+              >Reel 2: is 1.4s enough hold on the benchmark verdict?</s
+            >
+            — <strong>no; extended to 2.5s</strong> (mirian).
+          </li>
+          <li>
+            <s class="muted">Do the reels need an end card?</s> —
+            <strong>yes; added to all three</strong> (sam).
+          </li>
+          <li>
+            <s class="muted">Scene order in Reel 1 — share-link buried?</s> —
+            <strong>moved to scene 2</strong> (yash).
+          </li>
+        </ul>
+      </div>
+
+      <footer>
+        Storyboard is itself a published artifact — leave feedback with the
+        widget (bottom-right), or hand it to your agent. ·
+        <a href="https://artifacts.iofold.com/go/docs-6ec38b/"
+          >Artifact Use docs</a
+        >
+      </footer>
+    </main>
+  </body>
+</html>

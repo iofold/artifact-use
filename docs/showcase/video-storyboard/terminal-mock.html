@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Claude Code</title>
+    <style>
+      :root {
+        --bg: #101613;
+        --panel: #161d19;
+        --ink: #e8efe9;
+        --dim: #7d8f85;
+        --green: #4cc38a;
+        --lume: #d8ff4a;
+        --orange: #e5a05a;
+        --blue: #7fb4d9;
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--ink);
+        font: 14px/1.75 var(--mono);
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+      .term {
+        width: min(1060px, 94vw);
+        background: var(--panel);
+        border: 1px solid #263129;
+        border-radius: 12px;
+        box-shadow: 0 30px 80px -30px rgba(0, 0, 0, 0.7);
+        overflow: hidden;
+      }
+      .bar {
+        display: flex;
+        align-items: center;
+        gap: 7px;
+        padding: 12px 16px;
+        border-bottom: 1px solid #263129;
+        color: var(--dim);
+        font-size: 11.5px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+      .bar i {
+        width: 11px;
+        height: 11px;
+        border-radius: 50%;
+        background: #2c4b42;
+        display: inline-block;
+      }
+      .bar i:first-child {
+        background: var(--lume);
+      }
+      .bar span {
+        margin-left: auto;
+      }
+      .body {
+        padding: 18px 22px 24px;
+        min-height: 480px;
+      }
+      .line {
+        white-space: pre-wrap;
+        word-break: break-word;
+        opacity: 0;
+        transform: translateY(3px);
+        transition:
+          opacity 0.18s,
+          transform 0.18s;
+      }
+      .line.on {
+        opacity: 1;
+        transform: none;
+      }
+      .p {
+        color: var(--lume);
+        font-weight: 600;
+      }
+      .dim {
+        color: var(--dim);
+      }
+      .ok {
+        color: var(--green);
+      }
+      .tool {
+        color: var(--orange);
+      }
+      .url {
+        color: var(--blue);
+      }
+      .q {
+        color: var(--ink);
+        background: #1e2823;
+        border-left: 3px solid var(--lume);
+        display: block;
+        padding: 6px 12px;
+        margin: 4px 0;
+        border-radius: 0 6px 6px 0;
+      }
+      .caret {
+        display: inline-block;
+        width: 8px;
+        height: 16px;
+        background: var(--lume);
+        vertical-align: -2px;
+        animation: blink 1s steps(1) infinite;
+      }
+      @keyframes blink {
+        50% {
+          opacity: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="term">
+      <div class="bar">
+        <i></i><i></i><i></i> claude code — feedback loop
+        <span>~/artifact-use</span>
+      </div>
+      <div class="body" id="b"></div>
+    </div>
+    <script>
+      const LINES = [
+        [
+          400,
+          '<span class="p">❯</span> The storyboard artifact has review feedback — read it and apply it.',
+        ],
+        [900, ""],
+        [
+          700,
+          '<span class="tool">⏺ Fetch</span>(<span class="url">…/go/video-storyboard-ff3382/_au/index.json</span>)',
+        ],
+        [500, '  <span class="dim">⎿ 4 files · v1 · gate: public</span>'],
+        [
+          800,
+          '<span class="tool">⏺ Fetch</span>(<span class="url">…/_au/comments?artifact=video-storyboard</span>)',
+        ],
+        [500, '  <span class="dim">⎿ 3 open comments</span>'],
+        [
+          700,
+          '<span class="q">mirian — "hold the benchmark verdict longer… give it ~2.5s"</span>',
+        ],
+        [
+          600,
+          '<span class="q">sam — "all three reels need an end card: logo, URL, credit"</span>',
+        ],
+        [
+          600,
+          '<span class="q">yash — "the share-link moment is the wow — move it earlier"</span>',
+        ],
+        [900, ""],
+        [
+          800,
+          '<span class="dim">✻ Planning… 3 changes: reorder Reel 1, extend Reel 2 hold, add end cards</span>',
+        ],
+        [1100, '<span class="tool">⏺ Update</span>(storyboard/index.html)'],
+        [
+          500,
+          '  <span class="dim">⎿ Reel 1: share-link scene 5 → scene 2 · marked MOVED</span>',
+        ],
+        [
+          500,
+          '  <span class="dim">⎿ Reel 2: benchmark hold 1.4s → 2.5s · marked CHANGED</span>',
+        ],
+        [
+          500,
+          '  <span class="dim">⎿ All reels: end card scene appended · marked NEW  <span class="ok">+38 −9</span></span>',
+        ],
+        [
+          900,
+          '<span class="tool">⏺ artifact_publish</span>(artifact: "video-storyboard", files: […])',
+        ],
+        [
+          700,
+          '  <span class="dim">⎿ </span><span class="ok">v2 live — same URL ✓</span>',
+        ],
+        [
+          800,
+          '<span class="tool">⏺ Resolve</span>(comments: 3)  <span class="dim">⎿</span> <span class="ok">3 resolved ✓</span>',
+        ],
+        [900, ""],
+        [
+          600,
+          '<span class="ok">✓ Feedback applied.</span> Reviewers’ link now shows v2 — nothing to re-send. <span class="caret"></span>',
+        ],
+      ];
+      const b = document.getElementById("b");
+      let t = 600;
+      for (const [delay, html] of LINES) {
+        t += delay;
+        setTimeout(() => {
+          const div = document.createElement("div");
+          div.className = "line";
+          div.innerHTML = html || "&nbsp;";
+          b.appendChild(div);
+          requestAnimationFrame(() => div.classList.add("on"));
+        }, t);
+      }
+    </script>
+  </body>
+</html>
