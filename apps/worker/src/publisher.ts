@@ -483,6 +483,56 @@ export async function renderHome(
           io.observe(v);
         });
       })();
+      document.addEventListener("DOMContentLoaded", function () {
+        var dlg = document.querySelector(".vidmodal");
+        if (!dlg || typeof dlg.showModal !== "function") return;
+        var mv = dlg.querySelector("video");
+        var origin = null;
+        document.querySelectorAll(".story .vid").forEach(function (box) {
+          var v = box.querySelector("video");
+          box.setAttribute("role", "button");
+          box.setAttribute("tabindex", "0");
+          box.setAttribute("aria-label", "Watch this demo larger");
+          function open() {
+            origin = v;
+            var t = v.currentTime;
+            if (mv.getAttribute("src") !== v.getAttribute("src")) {
+              mv.poster = v.getAttribute("poster");
+              mv.src = v.getAttribute("src");
+              mv.addEventListener("loadedmetadata", function h() {
+                mv.removeEventListener("loadedmetadata", h);
+                try { mv.currentTime = t; } catch (e) {}
+              });
+            } else {
+              try { mv.currentTime = t; } catch (e) {}
+            }
+            v.pause();
+            dlg.showModal();
+            mv.play().catch(function () {});
+          }
+          box.addEventListener("click", open);
+          box.addEventListener("keydown", function (e) {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              open();
+            }
+          });
+        });
+        dlg.addEventListener("click", function (e) {
+          if (e.target === dlg) dlg.close();
+        });
+        dlg.querySelector("[data-vm-close]").addEventListener("click", function () {
+          dlg.close();
+        });
+        dlg.addEventListener("close", function () {
+          mv.pause();
+          if (origin) {
+            try { origin.currentTime = mv.currentTime; } catch (e) {}
+            origin.play().catch(function () {});
+            origin = null;
+          }
+        });
+      });
       </script>
       <section class="agents" id="agents">
         <div>
@@ -501,6 +551,10 @@ POST ${escapeHtml(base)}/api/v1/connect/poll
 <span class="t-dim"># -> bearer token + ready-to-run setup prompt</span></pre></div>
         </div>
       </section>
+      <dialog class="vidmodal" aria-label="Demo video, enlarged">
+        <button class="vm-close" data-vm-close aria-label="Close">&times;</button>
+        <video muted loop playsinline></video>
+      </dialog>
       <footer class="site">
         <span>Artifact Use · MIT licensed</span>
         <nav>
@@ -2258,6 +2312,12 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-of
 .story-steps{list-style:none;margin:0;padding:0;display:grid;gap:11px;counter-reset:ss}
 .story-steps li{counter-increment:ss;font:14px/1.55 var(--sans);color:var(--ink);display:flex;gap:12px;align-items:baseline}
 .story-steps li::before{content:counter(ss,decimal-leading-zero);font:600 10.5px var(--mono);color:var(--accent);min-width:18px}
+.story .vid{cursor:zoom-in}
+.vidmodal{border:0;padding:0;background:transparent;width:min(1120px,94vw,152vh);overflow:visible}
+.vidmodal::backdrop{background:rgba(13,27,24,.74);backdrop-filter:blur(5px)}
+.vidmodal video{width:100%;aspect-ratio:16/9;display:block;border-radius:14px;background:var(--dark);box-shadow:0 48px 110px -34px rgba(0,0,0,.65)}
+.vm-close{position:absolute;top:-14px;right:-14px;z-index:1;width:34px;height:34px;border-radius:50%;border:1px solid rgba(232,240,233,.25);background:var(--dark);color:#e6efe8;font:400 19px/1 var(--sans);cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.4)}
+.vm-close:hover{background:#1d3a33}
 .vid{position:relative;display:block;aspect-ratio:16/9;background:var(--dark);overflow:hidden}
 .vid video{width:100%;height:100%;object-fit:cover;display:block}
 .showcase{padding:0 0 104px}
