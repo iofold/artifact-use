@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Product Pulse — a multi-file artifact</title>
+    <link rel="stylesheet" href="./assets/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1><small>Artifact Use showcase</small>Product Pulse</h1>
+      <div class="row">
+        <div class="row" id="ranges">
+          <button data-days="7">7d</button>
+          <button data-days="30" class="on">30d</button>
+          <button data-days="90">90d</button>
+        </div>
+        <button id="theme">◐ Theme</button>
+      </div>
+    </header>
+    <main>
+      <div class="kpis" id="kpis"></div>
+
+      <section class="card">
+        <div
+          class="row"
+          style="justify-content: space-between; margin-bottom: 8px"
+        >
+          <p class="mini-t" style="margin: 0">Daily activity</p>
+          <div class="legend" id="legend"></div>
+        </div>
+        <div class="chartwrap"><div id="line"></div></div>
+      </section>
+
+      <div class="grid2">
+        <section class="card">
+          <p class="mini-t">Publishes by access gate</p>
+          <div id="donut"></div>
+          <p class="mini-t" style="margin-top: 18px">Publish channel</p>
+          <div id="bars"></div>
+        </section>
+        <section class="card">
+          <p class="mini-t">Top artifacts · last 90 days</p>
+          <table id="top">
+            <thead>
+              <tr>
+                <th>Artifact</th>
+                <th>Gate</th>
+                <th style="text-align: right">Views</th>
+                <th style="text-align: right">Feedback</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </section>
+      </div>
+
+      <details class="about" open>
+        <summary>About this artifact — it is its own documentation</summary>
+        <p>
+          Unlike a single-file tool, this dashboard is a
+          <strong>folder</strong>: an entrypoint, a stylesheet, a chart library,
+          and two JSON datasets, published together as one immutable version
+          behind one stable URL. The page below lists its own files — fetched
+          live from the platform's machine descriptor
+          (<code>_au/index.json</code>), the same endpoint agents use to read
+          any artifact programmatically.
+        </p>
+        <ul>
+          <li>
+            <strong>Multi-file publishing:</strong> relative imports (<code
+              >./lib/charts.js</code
+            >
+            as an ES module, <code>./assets/style.css</code>,
+            <code>fetch("./data/…")</code>) just work.
+          </li>
+          <li>
+            <strong>Data viz:</strong> multi-series line chart with crosshair
+            tooltips, donut, and bar lists — ~150 lines of dependency-free SVG.
+          </li>
+          <li>
+            <strong>localStorage:</strong> the theme toggle (◐) persists; range
+            and series choices are per-visit state.
+          </li>
+          <li>
+            <strong>Machine-readable:</strong> everything an agent needs to
+            inspect this artifact is one GET away.
+          </li>
+        </ul>
+        <p>
+          <span class="pill">multi-file</span
+          ><span class="pill">ES modules</span><span class="pill">fetch</span
+          ><span class="pill">SVG viz</span><span class="pill">dark mode</span
+          ><span class="pill">self-describing</span>
+        </p>
+        <p class="mini-t" style="margin-top: 14px">
+          This artifact's own manifest (live from <code>_au/index.json</code>)
+        </p>
+        <ul class="files" id="files">
+          <li class="muted">Fetching manifest…</li>
+        </ul>
+        <footer>
+          Built and published by an agent · data is synthetic ·
+          <a href="https://artifacts.iofold.com/go/docs-6ec38b/"
+            >Artifact Use docs</a
+          >
+        </footer>
+      </details>
+    </main>
+    <div class="tip" id="tip"></div>
+
+    <script type="module">
+      import { lineChart, donut, barList } from "./lib/charts.js";
+      const $ = (id) => document.getElementById(id);
+
+      // theme
+      const savedTheme = localStorage.getItem("pulse.theme");
+      if (savedTheme) document.documentElement.dataset.theme = savedTheme;
+      $("theme").onclick = () => {
+        const next =
+          document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+        document.documentElement.dataset.theme = next;
+        localStorage.setItem("pulse.theme", next);
+        render();
+      };
+
+      const [daily, breakdown] = await Promise.all([
+        fetch("./data/daily.json").then((r) => r.json()),
+        fetch("./data/breakdown.json").then((r) => r.json()),
+      ]);
+
+      const SERIES = [
+        { key: "visits", label: "Visits", color: "var(--accent)" },
+        { key: "publishes", label: "Publishes", color: "var(--s2)" },
+        { key: "signups", label: "Signups", color: "var(--s3)" },
+        { key: "feedback", label: "Feedback", color: "var(--s4)" },
+      ];
+      let rangeDays = 30;
+      const hidden = new Set(["feedback"]);
+
+      function slice() {
+        return daily.slice(-rangeDays);
+      }
+      const sum = (rows, k) => rows.reduce((a, r) => a + r[k], 0);
+
+      function renderKpis() {
+        const cur = slice();
+        const prev = daily.slice(-rangeDays * 2, -rangeDays);
+        const el = $("kpis");
+        el.innerHTML = "";
+        for (const s of SERIES) {
+          const now = sum(cur, s.key);
+          const before = sum(prev, s.key) || 1;
+          const delta = ((now - before) / before) * 100;
+          el.insertAdjacentHTML(
+            "beforeend",
+            `<div class="kpi"><b>${now.toLocaleString()}</b><span>${s.label} · ${rangeDays}d</span>
+       <span class="delta ${delta >= 0 ? "up" : "down"}">${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta).toFixed(0)}% vs prior ${rangeDays}d</span></div>`,
+          );
+        }
+      }
+      function renderLegend() {
+        const el = $("legend");
+        el.innerHTML = "";
+        for (const s of SERIES) {
+          const b = document.createElement("button");
+          b.className = hidden.has(s.key) ? "off" : "";
+          b.innerHTML = `<i style="background:${s.color}"></i>${s.label}`;
+          b.onclick = () => {
+            hidden.has(s.key) ? hidden.delete(s.key) : hidden.add(s.key);
+            render();
+          };
+          el.appendChild(b);
+        }
+      }
+      function render() {
+        const rows = slice();
+        renderKpis();
+        renderLegend();
+        lineChart(
+          $("line"),
+          rows.map((r) => r.date),
+          SERIES.map((s) => ({
+            ...s,
+            values: rows.map((r) => r[s.key]),
+            hidden: hidden.has(s.key),
+          })),
+        );
+        donut($("donut"), breakdown.gates, [
+          "var(--accent)",
+          "var(--s2)",
+          "var(--s3)",
+          "var(--s4)",
+        ]);
+        barList($("bars"), breakdown.sources, "var(--accent)");
+        $("top").querySelector("tbody").innerHTML = breakdown.topArtifacts
+          .map(
+            (
+              a,
+            ) => `<tr><td>${a.title}</td><td><span class="pill">${a.gate}</span></td>
+      <td class="num">${a.views.toLocaleString()}</td><td class="num">${a.feedback}</td></tr>`,
+          )
+          .join("");
+      }
+      $("ranges")
+        .querySelectorAll("button")
+        .forEach(
+          (b) =>
+            (b.onclick = () => {
+              rangeDays = +b.dataset.days;
+              $("ranges")
+                .querySelectorAll("button")
+                .forEach((x) => x.classList.toggle("on", x === b));
+              render();
+            }),
+        );
+      addEventListener("resize", () => render());
+      render();
+
+      // Self-description: fetch this artifact's machine descriptor. Falls back
+      // gracefully when previewed from a local file server.
+      fetch("./_au/index.json", { headers: { accept: "application/json" } })
+        .then((r) =>
+          r.ok ? r.json() : Promise.reject(new Error(String(r.status))),
+        )
+        .then((m) => {
+          const files = m.files || m.manifest?.files || [];
+          $("files").innerHTML =
+            files
+              .map(
+                (f) =>
+                  `<li>${f.path || f.name} <span>· ${f.content_type || ""} · ${(f.size / 1024).toFixed(1)} KB</span></li>`,
+              )
+              .join("") ||
+            "<li class='muted'>Descriptor loaded, no file list exposed.</li>";
+        })
+        .catch(() => {
+          $("files").innerHTML =
+            "<li class='muted'>Manifest available once published on Artifact Use (this looks like a local preview).</li>";
+        });
+    </script>
+  </body>
+</html>

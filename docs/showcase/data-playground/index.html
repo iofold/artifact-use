@@ -1,0 +1,859 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Data Playground — paste, explore, chart</title>
+    <style>
+      :root {
+        --paper: #f6f4ec;
+        --panel: #fffdf7;
+        --ink: #1f2723;
+        --muted: #68726c;
+        --line: #ddd7c6;
+        --line-soft: #eae6d8;
+        --accent: #0b5d52;
+        --accent-deep: #083f38;
+        --lume: #d8ff4a;
+        --danger: #a33d2e;
+        --serif: "Iowan Old Style", Palatino, Georgia, serif;
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        background-image: radial-gradient(
+          rgba(31, 39, 35, 0.03) 1px,
+          transparent 1px
+        );
+        background-size: 22px 22px;
+        color: var(--ink);
+        font: 15px/1.5 var(--sans);
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding: 14px clamp(16px, 3vw, 32px);
+        border-bottom: 1px solid var(--line);
+      }
+      h1 {
+        font: 600 20px var(--serif);
+        margin: 0;
+      }
+      h1 small {
+        font: 600 11px var(--mono);
+        color: var(--accent);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        display: block;
+        margin-bottom: 2px;
+      }
+      main {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 18px clamp(16px, 3vw, 32px) 60px;
+        display: grid;
+        gap: 16px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px 16px;
+      }
+      button {
+        border: 1px solid var(--accent-deep);
+        border-radius: 5px;
+        background: var(--accent);
+        color: #fff;
+        padding: 7px 13px;
+        font: 600 13px var(--sans);
+        cursor: pointer;
+      }
+      button:hover {
+        background: var(--accent-deep);
+      }
+      button.ghost {
+        background: transparent;
+        color: var(--accent);
+        border-color: var(--accent);
+      }
+      button.ghost:hover {
+        background: rgba(11, 93, 82, 0.08);
+      }
+      button.mini {
+        padding: 4px 9px;
+        font-size: 12px;
+      }
+      textarea {
+        width: 100%;
+        min-height: 110px;
+        border: 1px dashed var(--accent);
+        border-radius: 6px;
+        background: #fff;
+        padding: 10px;
+        font: 12.5px/1.5 var(--mono);
+        resize: vertical;
+      }
+      textarea:focus,
+      select:focus,
+      input:focus {
+        outline: 2px solid var(--lume);
+      }
+      select,
+      input[type="text"] {
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: #fff;
+        padding: 6px 9px;
+        font: 13.5px var(--sans);
+        min-height: 32px;
+      }
+      .row {
+        display: flex;
+        gap: 10px;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .row .grow {
+        flex: 1;
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .mini-t {
+        font: 600 10.5px var(--mono);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 8px;
+      }
+      .drop {
+        outline: 3px dashed var(--lume);
+        outline-offset: -3px;
+      }
+      .stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+        gap: 8px;
+      }
+      .stat {
+        border: 1px solid var(--line-soft);
+        border-radius: 6px;
+        padding: 8px 10px;
+        background: #fff;
+      }
+      .stat b {
+        display: block;
+        font: 600 13px var(--sans);
+      }
+      .stat span {
+        font: 11.5px var(--mono);
+        color: var(--muted);
+        display: block;
+        margin-top: 3px;
+        word-break: break-word;
+      }
+      .tablewrap {
+        overflow: auto;
+        max-height: 420px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        background: #fff;
+      }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 13px;
+      }
+      th,
+      td {
+        padding: 6px 10px;
+        border-bottom: 1px solid var(--line-soft);
+        text-align: left;
+        white-space: nowrap;
+        max-width: 320px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      th {
+        position: sticky;
+        top: 0;
+        background: var(--panel);
+        cursor: pointer;
+        font: 600 11px var(--mono);
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: var(--accent);
+        user-select: none;
+      }
+      th .dir {
+        color: var(--ink);
+      }
+      td.num {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      .chartwrap {
+        overflow-x: auto;
+      }
+      svg text {
+        font: 10.5px var(--mono);
+        fill: var(--muted);
+      }
+      .tip {
+        position: fixed;
+        background: #132420;
+        color: #f1ece2;
+        font: 11.5px var(--mono);
+        padding: 5px 9px;
+        border-radius: 5px;
+        pointer-events: none;
+        z-index: 10;
+        white-space: nowrap;
+        display: none;
+      }
+      .tip b {
+        color: var(--lume);
+      }
+      footer {
+        border-top: 1px solid var(--line);
+        margin-top: 8px;
+        padding-top: 14px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      footer a {
+        color: var(--accent);
+      }
+      details.about {
+        border: 1px dashed var(--accent);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 0 14px;
+      }
+      details.about summary {
+        cursor: pointer;
+        padding: 11px 0;
+        font: 600 11.5px var(--mono);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      details.about li {
+        margin-bottom: 5px;
+      }
+      .pill {
+        display: inline-block;
+        border-radius: 999px;
+        background: var(--line-soft);
+        color: var(--muted);
+        font: 600 10.5px var(--mono);
+        padding: 2px 9px;
+        margin: 0 4px 4px 0;
+      }
+      @media (max-width: 700px) {
+        th,
+        td {
+          max-width: 170px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1><small>Artifact Use showcase</small>Data Playground</h1>
+      <div class="row">
+        <button class="ghost mini" id="btn-sample">Load sample</button>
+        <button class="ghost mini" id="btn-share">Copy share link</button>
+        <button class="ghost mini" id="btn-reset">Reset</button>
+      </div>
+    </header>
+    <main>
+      <section class="card" id="input-card">
+        <p class="mini-t">Input — paste CSV or JSON, or drop a file anywhere</p>
+        <textarea
+          id="raw"
+          placeholder="Paste CSV or a JSON array of objects here… or drag a .csv/.json file onto the page."
+          spellcheck="false"
+        ></textarea>
+        <div class="row" style="margin-top: 8px">
+          <input type="file" id="file" accept=".csv,.json,.txt" hidden />
+          <button class="mini" id="btn-parse">Explore it</button>
+          <button
+            class="ghost mini"
+            onclick="document.getElementById('file').click()"
+          >
+            Open file…
+          </button>
+          <span class="muted" id="status"
+            >Nothing loaded yet — your data never leaves this tab.</span
+          >
+        </div>
+      </section>
+
+      <section class="card" id="stats-card" hidden>
+        <p class="mini-t">Column profile</p>
+        <div class="stats" id="stats"></div>
+      </section>
+
+      <section class="card" id="chart-card" hidden>
+        <div class="row" style="margin-bottom: 8px">
+          <p class="mini-t" style="margin: 0" class="grow">Chart</p>
+          <label class="muted" style="font-size: 12.5px"
+            >X
+            <select id="sel-x"></select
+          ></label>
+          <label class="muted" style="font-size: 12.5px"
+            >Y
+            <select id="sel-y"></select
+          ></label>
+          <label class="muted" style="font-size: 12.5px"
+            >Type
+            <select id="sel-kind">
+              <option value="auto">auto</option>
+              <option value="bar">bar</option>
+              <option value="line">line</option>
+            </select></label
+          >
+        </div>
+        <div class="chartwrap" id="chart"></div>
+      </section>
+
+      <section class="card" id="table-card" hidden>
+        <div class="row" style="margin-bottom: 8px">
+          <p class="mini-t" style="margin: 0">
+            Rows <span class="muted" id="rowcount"></span>
+          </p>
+          <input
+            type="text"
+            id="filter"
+            class="grow"
+            placeholder="Filter rows…"
+          />
+          <button class="ghost mini" id="btn-csv">CSV</button>
+          <button class="ghost mini" id="btn-json">JSON</button>
+          <button class="ghost mini" id="btn-md">Copy Markdown</button>
+        </div>
+        <div class="tablewrap"><table id="table"></table></div>
+      </section>
+
+      <details class="about" open>
+        <summary>About this artifact — it is its own documentation</summary>
+        <p>
+          This is a <strong>single self-contained HTML file</strong> — no build
+          step, no framework, no CDN, no server round-trips — published to
+          <a href="https://artifacts.iofold.com">Artifact Use</a> by a coding
+          agent in one message. What it demonstrates:
+        </p>
+        <ul>
+          <li>
+            <strong>Local-first:</strong> parsing, stats, charts, and exports
+            all run in your browser. Data never leaves the tab.
+          </li>
+          <li>
+            <strong>localStorage:</strong> your dataset and chart choices
+            survive a reload — try it.
+          </li>
+          <li>
+            <strong>URL state:</strong> "Copy share link" packs small datasets
+            into the URL hash, so a link <em>is</em> the document.
+          </li>
+          <li>
+            <strong>File APIs:</strong> drag-and-drop or open a local
+            .csv/.json.
+          </li>
+          <li>
+            <strong>Hand-rolled SVG charts</strong> with hover tooltips — view
+            source, it's readable.
+          </li>
+        </ul>
+        <p>
+          <span class="pill">zero dependencies</span
+          ><span class="pill">localStorage</span
+          ><span class="pill">URL state</span
+          ><span class="pill">drag &amp; drop</span
+          ><span class="pill">SVG viz</span><span class="pill">CSV + JSON</span>
+        </p>
+        <footer>
+          Built and published by an agent ·
+          <a href="https://artifacts.iofold.com/go/docs-6ec38b/"
+            >Artifact Use docs</a
+          >
+          · publish your own with one paste
+        </footer>
+      </details>
+    </main>
+    <div class="tip" id="tip"></div>
+
+    <script>
+      "use strict";
+      const $ = (id) => document.getElementById(id);
+      const state = { rows: [], cols: [], sortCol: null, sortDir: 1 };
+
+      // ---------- parsing ----------
+      function parseCSV(text) {
+        const rows = [];
+        let row = [],
+          field = "",
+          inQ = false;
+        for (let i = 0; i < text.length; i++) {
+          const c = text[i];
+          if (inQ) {
+            if (c === '"') {
+              if (text[i + 1] === '"') {
+                field += '"';
+                i++;
+              } else inQ = false;
+            } else field += c;
+          } else if (c === '"') inQ = true;
+          else if (c === ",") {
+            row.push(field);
+            field = "";
+          } else if (c === "\n" || c === "\r") {
+            if (c === "\r" && text[i + 1] === "\n") i++;
+            row.push(field);
+            field = "";
+            if (row.length > 1 || row[0] !== "") rows.push(row);
+            row = [];
+          } else field += c;
+        }
+        if (field !== "" || row.length) {
+          row.push(field);
+          rows.push(row);
+        }
+        if (!rows.length) return [];
+        const head = rows[0].map((h, i) => (h || "col" + (i + 1)).trim());
+        return rows
+          .slice(1)
+          .map((r) => Object.fromEntries(head.map((h, i) => [h, r[i] ?? ""])));
+      }
+      function coerce(rows) {
+        if (!rows.length) return { rows: [], cols: [] };
+        const cols = Object.keys(rows[0]).map((name) => ({
+          name,
+          kind: "string",
+        }));
+        for (const col of cols) {
+          const vals = rows
+            .map((r) => r[col.name])
+            .filter((v) => v !== "" && v != null);
+          if (
+            vals.length &&
+            vals.every(
+              (v) => v !== "" && !isNaN(Number(String(v).replace(/,/g, ""))),
+            )
+          )
+            col.kind = "number";
+          else if (vals.length && vals.every((v) => !isNaN(Date.parse(v))))
+            col.kind = "date";
+        }
+        const out = rows.map((r) => {
+          const o = {};
+          for (const col of cols) {
+            const v = r[col.name];
+            o[col.name] =
+              col.kind === "number" && v !== "" && v != null
+                ? Number(String(v).replace(/,/g, ""))
+                : v;
+          }
+          return o;
+        });
+        return { rows: out, cols };
+      }
+      function load(text, silent) {
+        text = (text || "").trim();
+        if (!text) return;
+        let rows;
+        try {
+          if (text[0] === "[" || text[0] === "{") {
+            const parsed = JSON.parse(text);
+            rows = Array.isArray(parsed) ? parsed : parsed.data || [parsed];
+            rows = rows.map((r) =>
+              typeof r === "object" && r ? r : { value: r },
+            );
+          } else rows = parseCSV(text);
+        } catch (e) {
+          $("status").textContent = "Could not parse: " + e.message;
+          return;
+        }
+        const c = coerce(rows);
+        if (!c.rows.length) {
+          $("status").textContent = "Parsed zero rows.";
+          return;
+        }
+        state.rows = c.rows;
+        state.cols = c.cols;
+        state.sortCol = null;
+        try {
+          localStorage.setItem("dp.raw", text.length < 400000 ? text : "");
+        } catch {}
+        $("status").textContent =
+          `${c.rows.length.toLocaleString()} rows · ${c.cols.length} columns · saved locally`;
+        if (!silent) $("raw").value = text;
+        renderAll();
+      }
+
+      // ---------- stats ----------
+      function renderStats() {
+        const el = $("stats");
+        el.innerHTML = "";
+        for (const col of state.cols) {
+          const vals = state.rows
+            .map((r) => r[col.name])
+            .filter((v) => v !== "" && v != null);
+          let detail;
+          if (col.kind === "number") {
+            const nums = vals.map(Number).filter((n) => !isNaN(n));
+            const sum = nums.reduce((a, b) => a + b, 0);
+            detail = `min ${fmt(Math.min(...nums))} · max ${fmt(Math.max(...nums))} · mean ${fmt(sum / (nums.length || 1))}`;
+          } else {
+            const distinct = new Set(vals.map(String));
+            const top = [...distinct].slice(0, 2).join(", ");
+            detail = `${distinct.size} distinct · e.g. ${top.slice(0, 40)}`;
+          }
+          const div = document.createElement("div");
+          div.className = "stat";
+          div.innerHTML = `<b>${esc(col.name)} <span style="color:var(--accent)">· ${col.kind}</span></b><span>${esc(detail)}</span>`;
+          el.appendChild(div);
+        }
+        $("stats-card").hidden = false;
+      }
+      const fmt = (n) =>
+        Math.abs(n) >= 1000
+          ? n.toLocaleString(undefined, { maximumFractionDigits: 0 })
+          : +n.toFixed(2) + "";
+      const esc = (s) =>
+        String(s).replace(
+          /[&<>"]/g,
+          (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c],
+        );
+
+      // ---------- table ----------
+      function renderTable() {
+        const q = $("filter").value.trim().toLowerCase();
+        let rows = state.rows;
+        if (q)
+          rows = rows.filter((r) =>
+            Object.values(r).some((v) => String(v).toLowerCase().includes(q)),
+          );
+        if (state.sortCol) {
+          const { sortCol, sortDir } = state;
+          rows = [...rows].sort(
+            (a, b) =>
+              (a[sortCol] > b[sortCol] ? 1 : a[sortCol] < b[sortCol] ? -1 : 0) *
+              sortDir,
+          );
+        }
+        $("rowcount").textContent =
+          `· showing ${Math.min(rows.length, 500).toLocaleString()} of ${rows.length.toLocaleString()}`;
+        const t = $("table");
+        t.innerHTML =
+          "<thead><tr>" +
+          state.cols
+            .map(
+              (c) =>
+                `<th data-col="${esc(c.name)}">${esc(c.name)}${state.sortCol === c.name ? ` <span class="dir">${state.sortDir > 0 ? "▲" : "▼"}</span>` : ""}</th>`,
+            )
+            .join("") +
+          "</tr></thead>" +
+          "<tbody>" +
+          rows
+            .slice(0, 500)
+            .map(
+              (r) =>
+                "<tr>" +
+                state.cols
+                  .map(
+                    (c) =>
+                      `<td class="${c.kind === "number" ? "num" : ""}">${esc(r[c.name] ?? "")}</td>`,
+                  )
+                  .join("") +
+                "</tr>",
+            )
+            .join("") +
+          "</tbody>";
+        t.querySelectorAll("th").forEach(
+          (th) =>
+            (th.onclick = () => {
+              const col = th.dataset.col;
+              state.sortDir = state.sortCol === col ? -state.sortDir : 1;
+              state.sortCol = col;
+              renderTable();
+            }),
+        );
+        $("table-card").hidden = false;
+        return rows;
+      }
+
+      // ---------- chart ----------
+      function renderChartControls() {
+        const x = $("sel-x"),
+          y = $("sel-y");
+        x.innerHTML = state.cols
+          .map((c) => `<option>${esc(c.name)}</option>`)
+          .join("");
+        y.innerHTML = state.cols
+          .filter((c) => c.kind === "number")
+          .map((c) => `<option>${esc(c.name)}</option>`)
+          .join("");
+        const saved = JSON.parse(localStorage.getItem("dp.cfg") || "{}");
+        if (saved.x && state.cols.some((c) => c.name === saved.x))
+          x.value = saved.x;
+        if (saved.y && state.cols.some((c) => c.name === saved.y))
+          y.value = saved.y;
+        if (saved.kind) $("sel-kind").value = saved.kind;
+      }
+      function renderChart() {
+        const xName = $("sel-x").value,
+          yName = $("sel-y").value;
+        const host = $("chart");
+        if (!xName || !yName) {
+          host.innerHTML =
+            '<p class="muted">Add a numeric column to chart.</p>';
+          $("chart-card").hidden = false;
+          return;
+        }
+        localStorage.setItem(
+          "dp.cfg",
+          JSON.stringify({ x: xName, y: yName, kind: $("sel-kind").value }),
+        );
+        const xCol = state.cols.find((c) => c.name === xName);
+        let kind = $("sel-kind").value;
+        if (kind === "auto") kind = xCol.kind === "string" ? "bar" : "line";
+        let points;
+        if (kind === "bar") {
+          const agg = new Map();
+          for (const r of state.rows) {
+            const k = String(r[xName] ?? "—");
+            agg.set(k, (agg.get(k) || 0) + (Number(r[yName]) || 0));
+          }
+          points = [...agg.entries()].sort((a, b) => b[1] - a[1]).slice(0, 30);
+        } else {
+          // Aggregate duplicate x values (sum) so grouped datasets chart cleanly.
+          const agg = new Map();
+          for (const r of state.rows) {
+            const k = r[xName];
+            agg.set(k, (agg.get(k) || 0) + (Number(r[yName]) || 0));
+          }
+          points = [...agg.entries()]
+            .sort((a, b) =>
+              xCol.kind === "date"
+                ? Date.parse(a[0]) - Date.parse(b[0])
+                : a[0] - b[0],
+            )
+            .slice(0, 2000);
+        }
+        const W = Math.max(
+            560,
+            Math.min(1080, points.length * (kind === "bar" ? 34 : 2) + 120),
+          ),
+          H = 260,
+          P = { l: 56, r: 12, t: 12, b: 42 };
+        const maxV = Math.max(1, ...points.map((p) => p[1]));
+        const sx = (i) =>
+          P.l +
+          (i / Math.max(1, points.length - (kind === "bar" ? 0 : 1))) *
+            (W - P.l - P.r);
+        const sy = (v) => H - P.b - (v / maxV) * (H - P.t - P.b);
+        let inner = `<line x1="${P.l}" y1="${H - P.b}" x2="${W - P.r}" y2="${H - P.b}" stroke="var(--line)"/>`;
+        for (const frac of [0.5, 1]) {
+          inner += `<line x1="${P.l}" y1="${sy(maxV * frac)}" x2="${W - P.r}" y2="${sy(maxV * frac)}" stroke="var(--line-soft)" stroke-dasharray="3 3"/><text x="${P.l - 6}" y="${sy(maxV * frac) + 3}" text-anchor="end">${fmt(maxV * frac)}</text>`;
+        }
+        if (kind === "bar") {
+          const bw = Math.max(6, (W - P.l - P.r) / points.length - 6);
+          points.forEach((p, i) => {
+            inner += `<rect data-i="${i}" x="${sx(i) + 3}" y="${sy(p[1])}" width="${bw}" height="${H - P.b - sy(p[1])}" rx="2" fill="var(--accent)" opacity=".88"/>`;
+            if (points.length <= 16 || i % Math.ceil(points.length / 12) === 0)
+              inner += `<text x="${sx(i) + 3 + bw / 2}" y="${H - P.b + 14}" text-anchor="middle">${esc(String(p[0]).slice(0, 9))}</text>`;
+          });
+        } else {
+          const path = points
+            .map(
+              (p, i) =>
+                `${i ? "L" : "M"}${sx(i).toFixed(1)},${sy(p[1]).toFixed(1)}`,
+            )
+            .join("");
+          inner += `<path d="${path}" fill="none" stroke="var(--accent)" stroke-width="2"/>`;
+          points.forEach((p, i) => {
+            inner += `<circle data-i="${i}" cx="${sx(i)}" cy="${sy(p[1])}" r="${points.length > 200 ? 2 : 3.2}" fill="var(--accent)" opacity="0"/>`;
+          });
+          const stepLbl = Math.ceil(points.length / 8);
+          points.forEach((p, i) => {
+            if (i % stepLbl === 0 || i === points.length - 1)
+              inner += `<text x="${sx(i)}" y="${H - P.b + 14}" text-anchor="middle">${esc(String(p[0]).slice(0, 10))}</text>`;
+          });
+        }
+        host.innerHTML = `<svg width="${W}" height="${H}" role="img" aria-label="${esc(yName)} by ${esc(xName)}">${inner}</svg>`;
+        const tip = $("tip");
+        host.querySelectorAll("[data-i]").forEach((el) => {
+          el.addEventListener("mousemove", (e) => {
+            const p = points[+el.dataset.i];
+            tip.innerHTML = `<b>${fmt(p[1])}</b> ${esc(yName)} · ${esc(String(p[0]))}`;
+            tip.style.display = "block";
+            tip.style.left = e.clientX + 12 + "px";
+            tip.style.top = e.clientY - 10 + "px";
+            if (el.tagName === "circle") el.setAttribute("opacity", "1");
+          });
+          el.addEventListener("mouseleave", () => {
+            tip.style.display = "none";
+            if (el.tagName === "circle") el.setAttribute("opacity", "0");
+          });
+        });
+        $("chart-card").hidden = false;
+      }
+      function renderAll() {
+        renderStats();
+        renderChartControls();
+        renderChart();
+        renderTable();
+      }
+
+      // ---------- exports & share ----------
+      function download(name, text, type) {
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([text], { type }));
+        a.download = name;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+      $("btn-csv").onclick = () => {
+        const head = state.cols.map((c) => c.name);
+        const csv = [head.join(",")]
+          .concat(
+            state.rows.map((r) =>
+              head
+                .map((h) => {
+                  const v = String(r[h] ?? "");
+                  return /[",\n]/.test(v)
+                    ? '"' + v.replace(/"/g, '""') + '"'
+                    : v;
+                })
+                .join(","),
+            ),
+          )
+          .join("\n");
+        download("data.csv", csv, "text/csv");
+      };
+      $("btn-json").onclick = () =>
+        download(
+          "data.json",
+          JSON.stringify(state.rows, null, 2),
+          "application/json",
+        );
+      $("btn-md").onclick = async () => {
+        const head = state.cols.map((c) => c.name);
+        const md = [
+          "| " + head.join(" | ") + " |",
+          "| " + head.map(() => "---").join(" | ") + " |",
+        ]
+          .concat(
+            state.rows
+              .slice(0, 100)
+              .map(
+                (r) =>
+                  "| " + head.map((h) => String(r[h] ?? "")).join(" | ") + " |",
+              ),
+          )
+          .join("\n");
+        await navigator.clipboard.writeText(md);
+        $("status").textContent = "Markdown table copied (first 100 rows).";
+      };
+      $("btn-share").onclick = async () => {
+        const raw = $("raw").value.trim();
+        if (!raw) return;
+        if (raw.length > 24000) {
+          $("status").textContent =
+            "Dataset too large for a URL — links top out around 24 KB.";
+          return;
+        }
+        const hash = "#d=" + btoa(unescape(encodeURIComponent(raw)));
+        const url = location.origin + location.pathname + hash;
+        history.replaceState(null, "", hash);
+        await navigator.clipboard.writeText(url);
+        $("status").textContent =
+          `Share link copied — ${url.length.toLocaleString()} chars, the data travels in the URL.`;
+      };
+      $("btn-reset").onclick = () => {
+        localStorage.removeItem("dp.raw");
+        localStorage.removeItem("dp.cfg");
+        history.replaceState(null, "", " ");
+        location.reload();
+      };
+
+      // ---------- inputs ----------
+      $("btn-parse").onclick = () => load($("raw").value);
+      $("raw").addEventListener("paste", () =>
+        setTimeout(() => load($("raw").value), 30),
+      );
+      $("file").onchange = async (e) => {
+        const f = e.target.files[0];
+        if (f) load(await f.text());
+      };
+      addEventListener("dragover", (e) => {
+        e.preventDefault();
+        document.body.classList.add("drop");
+      });
+      addEventListener("dragleave", () =>
+        document.body.classList.remove("drop"),
+      );
+      addEventListener("drop", async (e) => {
+        e.preventDefault();
+        document.body.classList.remove("drop");
+        const f = e.dataTransfer.files[0];
+        if (f) load(await f.text());
+      });
+      $("filter").addEventListener("input", renderTable);
+      $("sel-x").onchange =
+        $("sel-y").onchange =
+        $("sel-kind").onchange =
+          renderChart;
+      $("btn-sample").onclick = () => load(SAMPLE);
+
+      const SAMPLE = `month,region,revenue,deals,avg_deal
+2026-01,NA,182400,42,4342
+2026-01,EU,121800,35,3480
+2026-01,APAC,64100,19,3373
+2026-02,NA,197300,45,4384
+2026-02,EU,133500,38,3513
+2026-02,APAC,72900,22,3313
+2026-03,NA,224800,51,4407
+2026-03,EU,141200,39,3620
+2026-03,APAC,84600,24,3525
+2026-04,NA,241100,53,4549
+2026-04,EU,158900,44,3611
+2026-04,APAC,97200,28,3471
+2026-05,NA,238700,50,4774
+2026-05,EU,171300,46,3723
+2026-05,APAC,112800,31,3638
+2026-06,NA,266400,57,4673
+2026-06,EU,183100,48,3814
+2026-06,APAC,128500,34,3779`;
+
+      // boot: URL hash > localStorage
+      (function boot() {
+        const m = location.hash.match(/^#d=(.+)$/);
+        if (m) {
+          try {
+            const text = decodeURIComponent(escape(atob(m[1])));
+            $("raw").value = text;
+            load(text, true);
+            return;
+          } catch {}
+        }
+        const saved = localStorage.getItem("dp.raw");
+        if (saved) {
+          $("raw").value = saved;
+          load(saved, true);
+        }
+      })();
+    </script>
+  </body>
+</html>

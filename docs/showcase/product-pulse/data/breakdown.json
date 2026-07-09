@@ -1,0 +1,53 @@
+{
+  "gates": [
+    { "label": "email", "value": 46 },
+    { "label": "public", "value": 27 },
+    { "label": "verified_email", "value": 17 },
+    { "label": "allowlist", "value": 10 }
+  ],
+  "sources": [
+    { "label": "Claude Code (MCP)", "value": 41 },
+    { "label": "Codex (bearer)", "value": 24 },
+    { "label": "CLI", "value": 19 },
+    { "label": "HTTP API", "value": 11 },
+    { "label": "Device connect", "value": 5 }
+  ],
+  "topArtifacts": [
+    {
+      "title": "Claims audit console",
+      "views": 1841,
+      "feedback": 42,
+      "gate": "email"
+    },
+    {
+      "title": "Q3 revenue explorer",
+      "views": 1512,
+      "feedback": 31,
+      "gate": "verified_email"
+    },
+    {
+      "title": "Onboarding flow demo",
+      "views": 1237,
+      "feedback": 55,
+      "gate": "email"
+    },
+    {
+      "title": "Pricing simulator",
+      "views": 986,
+      "feedback": 12,
+      "gate": "public"
+    },
+    {
+      "title": "API latency dashboard",
+      "views": 731,
+      "feedback": 26,
+      "gate": "allowlist"
+    },
+    {
+      "title": "Design tokens preview",
+      "views": 518,
+      "feedback": 9,
+      "gate": "public"
+    }
+  ]
+}

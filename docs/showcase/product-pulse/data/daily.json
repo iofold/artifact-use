@@ -1,0 +1,632 @@
+[
+  {
+    "date": "2026-04-11",
+    "visits": 166,
+    "signups": 11,
+    "publishes": 15,
+    "feedback": 4
+  },
+  {
+    "date": "2026-04-12",
+    "visits": 173,
+    "signups": 20,
+    "publishes": 49,
+    "feedback": 3
+  },
+  {
+    "date": "2026-04-13",
+    "visits": 238,
+    "signups": 16,
+    "publishes": 21,
+    "feedback": 10
+  },
+  {
+    "date": "2026-04-14",
+    "visits": 222,
+    "signups": 18,
+    "publishes": 37,
+    "feedback": 9
+  },
+  {
+    "date": "2026-04-15",
+    "visits": 244,
+    "signups": 27,
+    "publishes": 63,
+    "feedback": 4
+  },
+  {
+    "date": "2026-04-16",
+    "visits": 282,
+    "signups": 33,
+    "publishes": 50,
+    "feedback": 7
+  },
+  {
+    "date": "2026-04-17",
+    "visits": 300,
+    "signups": 27,
+    "publishes": 29,
+    "feedback": 6
+  },
+  {
+    "date": "2026-04-18",
+    "visits": 193,
+    "signups": 21,
+    "publishes": 48,
+    "feedback": 10
+  },
+  {
+    "date": "2026-04-19",
+    "visits": 176,
+    "signups": 24,
+    "publishes": 38,
+    "feedback": 7
+  },
+  {
+    "date": "2026-04-20",
+    "visits": 299,
+    "signups": 33,
+    "publishes": 79,
+    "feedback": 13
+  },
+  {
+    "date": "2026-04-21",
+    "visits": 313,
+    "signups": 21,
+    "publishes": 28,
+    "feedback": 10
+  },
+  {
+    "date": "2026-04-22",
+    "visits": 251,
+    "signups": 21,
+    "publishes": 23,
+    "feedback": 7
+  },
+  {
+    "date": "2026-04-23",
+    "visits": 290,
+    "signups": 27,
+    "publishes": 42,
+    "feedback": 8
+  },
+  {
+    "date": "2026-04-24",
+    "visits": 256,
+    "signups": 35,
+    "publishes": 72,
+    "feedback": 12
+  },
+  {
+    "date": "2026-04-25",
+    "visits": 165,
+    "signups": 20,
+    "publishes": 24,
+    "feedback": 6
+  },
+  {
+    "date": "2026-04-26",
+    "visits": 223,
+    "signups": 25,
+    "publishes": 47,
+    "feedback": 11
+  },
+  {
+    "date": "2026-04-27",
+    "visits": 326,
+    "signups": 40,
+    "publishes": 53,
+    "feedback": 6
+  },
+  {
+    "date": "2026-04-28",
+    "visits": 296,
+    "signups": 25,
+    "publishes": 32,
+    "feedback": 19
+  },
+  {
+    "date": "2026-04-29",
+    "visits": 365,
+    "signups": 32,
+    "publishes": 66,
+    "feedback": 13
+  },
+  {
+    "date": "2026-04-30",
+    "visits": 346,
+    "signups": 35,
+    "publishes": 49,
+    "feedback": 10
+  },
+  {
+    "date": "2026-05-01",
+    "visits": 311,
+    "signups": 26,
+    "publishes": 50,
+    "feedback": 19
+  },
+  {
+    "date": "2026-05-02",
+    "visits": 196,
+    "signups": 16,
+    "publishes": 42,
+    "feedback": 8
+  },
+  {
+    "date": "2026-05-03",
+    "visits": 175,
+    "signups": 12,
+    "publishes": 13,
+    "feedback": 8
+  },
+  {
+    "date": "2026-05-04",
+    "visits": 349,
+    "signups": 34,
+    "publishes": 35,
+    "feedback": 12
+  },
+  {
+    "date": "2026-05-05",
+    "visits": 407,
+    "signups": 43,
+    "publishes": 112,
+    "feedback": 24
+  },
+  {
+    "date": "2026-05-06",
+    "visits": 288,
+    "signups": 34,
+    "publishes": 71,
+    "feedback": 12
+  },
+  {
+    "date": "2026-05-07",
+    "visits": 300,
+    "signups": 34,
+    "publishes": 38,
+    "feedback": 11
+  },
+  {
+    "date": "2026-05-08",
+    "visits": 326,
+    "signups": 45,
+    "publishes": 110,
+    "feedback": 10
+  },
+  {
+    "date": "2026-05-09",
+    "visits": 221,
+    "signups": 17,
+    "publishes": 42,
+    "feedback": 13
+  },
+  {
+    "date": "2026-05-10",
+    "visits": 208,
+    "signups": 23,
+    "publishes": 45,
+    "feedback": 5
+  },
+  {
+    "date": "2026-05-11",
+    "visits": 376,
+    "signups": 40,
+    "publishes": 91,
+    "feedback": 16
+  },
+  {
+    "date": "2026-05-12",
+    "visits": 308,
+    "signups": 28,
+    "publishes": 27,
+    "feedback": 19
+  },
+  {
+    "date": "2026-05-13",
+    "visits": 432,
+    "signups": 56,
+    "publishes": 82,
+    "feedback": 9
+  },
+  {
+    "date": "2026-05-14",
+    "visits": 405,
+    "signups": 56,
+    "publishes": 61,
+    "feedback": 17
+  },
+  {
+    "date": "2026-05-15",
+    "visits": 304,
+    "signups": 37,
+    "publishes": 83,
+    "feedback": 7
+  },
+  {
+    "date": "2026-05-16",
+    "visits": 238,
+    "signups": 25,
+    "publishes": 35,
+    "feedback": 14
+  },
+  {
+    "date": "2026-05-17",
+    "visits": 237,
+    "signups": 19,
+    "publishes": 35,
+    "feedback": 12
+  },
+  {
+    "date": "2026-05-18",
+    "visits": 333,
+    "signups": 29,
+    "publishes": 76,
+    "feedback": 16
+  },
+  {
+    "date": "2026-05-19",
+    "visits": 399,
+    "signups": 42,
+    "publishes": 48,
+    "feedback": 11
+  },
+  {
+    "date": "2026-05-20",
+    "visits": 389,
+    "signups": 43,
+    "publishes": 57,
+    "feedback": 11
+  },
+  {
+    "date": "2026-05-21",
+    "visits": 327,
+    "signups": 37,
+    "publishes": 49,
+    "feedback": 20
+  },
+  {
+    "date": "2026-05-22",
+    "visits": 443,
+    "signups": 31,
+    "publishes": 42,
+    "feedback": 22
+  },
+  {
+    "date": "2026-05-23",
+    "visits": 235,
+    "signups": 17,
+    "publishes": 43,
+    "feedback": 10
+  },
+  {
+    "date": "2026-05-24",
+    "visits": 262,
+    "signups": 33,
+    "publishes": 76,
+    "feedback": 7
+  },
+  {
+    "date": "2026-05-25",
+    "visits": 347,
+    "signups": 34,
+    "publishes": 56,
+    "feedback": 14
+  },
+  {
+    "date": "2026-05-26",
+    "visits": 481,
+    "signups": 56,
+    "publishes": 147,
+    "feedback": 11
+  },
+  {
+    "date": "2026-05-27",
+    "visits": 434,
+    "signups": 39,
+    "publishes": 94,
+    "feedback": 13
+  },
+  {
+    "date": "2026-05-28",
+    "visits": 374,
+    "signups": 37,
+    "publishes": 61,
+    "feedback": 11
+  },
+  {
+    "date": "2026-05-29",
+    "visits": 388,
+    "signups": 53,
+    "publishes": 90,
+    "feedback": 23
+  },
+  {
+    "date": "2026-05-30",
+    "visits": 290,
+    "signups": 20,
+    "publishes": 53,
+    "feedback": 17
+  },
+  {
+    "date": "2026-05-31",
+    "visits": 337,
+    "signups": 46,
+    "publishes": 110,
+    "feedback": 8
+  },
+  {
+    "date": "2026-06-01",
+    "visits": 440,
+    "signups": 36,
+    "publishes": 58,
+    "feedback": 9
+  },
+  {
+    "date": "2026-06-02",
+    "visits": 462,
+    "signups": 65,
+    "publishes": 91,
+    "feedback": 26
+  },
+  {
+    "date": "2026-06-03",
+    "visits": 481,
+    "signups": 47,
+    "publishes": 121,
+    "feedback": 32
+  },
+  {
+    "date": "2026-06-04",
+    "visits": 468,
+    "signups": 56,
+    "publishes": 68,
+    "feedback": 15
+  },
+  {
+    "date": "2026-06-05",
+    "visits": 1139,
+    "signups": 125,
+    "publishes": 234,
+    "feedback": 62
+  },
+  {
+    "date": "2026-06-06",
+    "visits": 547,
+    "signups": 60,
+    "publishes": 108,
+    "feedback": 32
+  },
+  {
+    "date": "2026-06-07",
+    "visits": 577,
+    "signups": 80,
+    "publishes": 86,
+    "feedback": 15
+  },
+  {
+    "date": "2026-06-08",
+    "visits": 1045,
+    "signups": 123,
+    "publishes": 166,
+    "feedback": 25
+  },
+  {
+    "date": "2026-06-09",
+    "visits": 600,
+    "signups": 50,
+    "publishes": 98,
+    "feedback": 29
+  },
+  {
+    "date": "2026-06-10",
+    "visits": 517,
+    "signups": 57,
+    "publishes": 105,
+    "feedback": 33
+  },
+  {
+    "date": "2026-06-11",
+    "visits": 445,
+    "signups": 53,
+    "publishes": 71,
+    "feedback": 16
+  },
+  {
+    "date": "2026-06-12",
+    "visits": 536,
+    "signups": 47,
+    "publishes": 70,
+    "feedback": 29
+  },
+  {
+    "date": "2026-06-13",
+    "visits": 285,
+    "signups": 28,
+    "publishes": 74,
+    "feedback": 19
+  },
+  {
+    "date": "2026-06-14",
+    "visits": 288,
+    "signups": 23,
+    "publishes": 32,
+    "feedback": 18
+  },
+  {
+    "date": "2026-06-15",
+    "visits": 595,
+    "signups": 79,
+    "publishes": 124,
+    "feedback": 15
+  },
+  {
+    "date": "2026-06-16",
+    "visits": 641,
+    "signups": 77,
+    "publishes": 153,
+    "feedback": 42
+  },
+  {
+    "date": "2026-06-17",
+    "visits": 611,
+    "signups": 40,
+    "publishes": 93,
+    "feedback": 20
+  },
+  {
+    "date": "2026-06-18",
+    "visits": 574,
+    "signups": 79,
+    "publishes": 93,
+    "feedback": 13
+  },
+  {
+    "date": "2026-06-19",
+    "visits": 471,
+    "signups": 51,
+    "publishes": 72,
+    "feedback": 22
+  },
+  {
+    "date": "2026-06-20",
+    "visits": 395,
+    "signups": 32,
+    "publishes": 65,
+    "feedback": 12
+  },
+  {
+    "date": "2026-06-21",
+    "visits": 369,
+    "signups": 50,
+    "publishes": 119,
+    "feedback": 8
+  },
+  {
+    "date": "2026-06-22",
+    "visits": 553,
+    "signups": 48,
+    "publishes": 45,
+    "feedback": 31
+  },
+  {
+    "date": "2026-06-23",
+    "visits": 653,
+    "signups": 56,
+    "publishes": 124,
+    "feedback": 29
+  },
+  {
+    "date": "2026-06-24",
+    "visits": 613,
+    "signups": 40,
+    "publishes": 43,
+    "feedback": 37
+  },
+  {
+    "date": "2026-06-25",
+    "visits": 676,
+    "signups": 73,
+    "publishes": 173,
+    "feedback": 31
+  },
+  {
+    "date": "2026-06-26",
+    "visits": 521,
+    "signups": 39,
+    "publishes": 57,
+    "feedback": 32
+  },
+  {
+    "date": "2026-06-27",
+    "visits": 441,
+    "signups": 58,
+    "publishes": 144,
+    "feedback": 12
+  },
+  {
+    "date": "2026-06-28",
+    "visits": 367,
+    "signups": 27,
+    "publishes": 61,
+    "feedback": 22
+  },
+  {
+    "date": "2026-06-29",
+    "visits": 598,
+    "signups": 68,
+    "publishes": 82,
+    "feedback": 38
+  },
+  {
+    "date": "2026-06-30",
+    "visits": 765,
+    "signups": 107,
+    "publishes": 249,
+    "feedback": 47
+  },
+  {
+    "date": "2026-07-01",
+    "visits": 567,
+    "signups": 69,
+    "publishes": 104,
+    "feedback": 36
+  },
+  {
+    "date": "2026-07-02",
+    "visits": 711,
+    "signups": 94,
+    "publishes": 219,
+    "feedback": 22
+  },
+  {
+    "date": "2026-07-03",
+    "visits": 717,
+    "signups": 53,
+    "publishes": 129,
+    "feedback": 43
+  },
+  {
+    "date": "2026-07-04",
+    "visits": 390,
+    "signups": 50,
+    "publishes": 86,
+    "feedback": 12
+  },
+  {
+    "date": "2026-07-05",
+    "visits": 485,
+    "signups": 40,
+    "publishes": 39,
+    "feedback": 13
+  },
+  {
+    "date": "2026-07-06",
+    "visits": 631,
+    "signups": 83,
+    "publishes": 216,
+    "feedback": 20
+  },
+  {
+    "date": "2026-07-07",
+    "visits": 773,
+    "signups": 74,
+    "publishes": 194,
+    "feedback": 34
+  },
+  {
+    "date": "2026-07-08",
+    "visits": 862,
+    "signups": 64,
+    "publishes": 167,
+    "feedback": 23
+  },
+  {
+    "date": "2026-07-09",
+    "visits": 814,
+    "signups": 70,
+    "publishes": 79,
+    "feedback": 32
+  }
+]

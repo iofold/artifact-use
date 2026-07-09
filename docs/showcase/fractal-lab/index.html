@@ -1,0 +1,590 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fractal Lab — a WebAssembly artifact</title>
+    <style>
+      :root {
+        --paper: #f6f4ec;
+        --panel: #fffdf7;
+        --ink: #1f2723;
+        --muted: #68726c;
+        --line: #ddd7c6;
+        --line-soft: #eae6d8;
+        --accent: #0b5d52;
+        --accent-deep: #083f38;
+        --lume: #d8ff4a;
+        --dark: #132420;
+        --serif: "Iowan Old Style", Palatino, Georgia, serif;
+        --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--paper);
+        background-image: radial-gradient(
+          rgba(31, 39, 35, 0.03) 1px,
+          transparent 1px
+        );
+        background-size: 22px 22px;
+        color: var(--ink);
+        font: 15px/1.55 var(--sans);
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        flex-wrap: wrap;
+        padding: 14px clamp(16px, 3vw, 32px);
+        border-bottom: 1px solid var(--line);
+      }
+      h1 {
+        font: 600 20px var(--serif);
+        margin: 0;
+      }
+      h1 small {
+        font: 600 11px var(--mono);
+        color: var(--accent);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        display: block;
+        margin-bottom: 2px;
+      }
+      main {
+        max-width: 1100px;
+        margin: 0 auto;
+        padding: 18px clamp(16px, 3vw, 32px) 60px;
+        display: grid;
+        gap: 16px;
+      }
+      .stage {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 250px;
+        gap: 16px;
+      }
+      canvas {
+        width: 100%;
+        display: block;
+        border-radius: 8px;
+        border: 1px solid var(--line);
+        background: var(--dark);
+        cursor: grab;
+        touch-action: none;
+      }
+      canvas:active {
+        cursor: grabbing;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 14px 16px;
+      }
+      .mini-t {
+        font: 600 10.5px var(--mono);
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 0 0 8px;
+      }
+      label {
+        display: block;
+        font: 600 10.5px var(--mono);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--muted);
+        margin: 12px 0 5px;
+      }
+      select,
+      input[type="range"] {
+        width: 100%;
+      }
+      select {
+        border: 1px solid var(--line);
+        border-radius: 5px;
+        background: #fff;
+        padding: 6px 9px;
+        font: 13.5px var(--sans);
+      }
+      button {
+        border: 1px solid var(--accent-deep);
+        border-radius: 5px;
+        background: var(--accent);
+        color: #fff;
+        padding: 7px 12px;
+        font: 600 13px var(--sans);
+        cursor: pointer;
+        width: 100%;
+        margin-top: 10px;
+      }
+      button:hover {
+        background: var(--accent-deep);
+      }
+      button.ghost {
+        background: transparent;
+        color: var(--accent);
+        border-color: var(--accent);
+      }
+      button.ghost:hover {
+        background: rgba(11, 93, 82, 0.08);
+      }
+      .muted {
+        color: var(--muted);
+      }
+      .hud {
+        font: 11.5px var(--mono);
+        color: var(--muted);
+        margin-top: 10px;
+        line-height: 1.7;
+        word-break: break-all;
+      }
+      .hud b {
+        color: var(--accent);
+      }
+      .bench {
+        margin-top: 10px;
+      }
+      .bench .bar {
+        height: 22px;
+        border-radius: 4px;
+        background: var(--accent);
+        color: #fff;
+        font: 600 11px var(--mono);
+        display: flex;
+        align-items: center;
+        padding: 0 8px;
+        margin: 5px 0;
+        white-space: nowrap;
+        min-width: fit-content;
+      }
+      .bench .bar.js {
+        background: #8a6d3b;
+      }
+      details.about {
+        border: 1px dashed var(--accent);
+        border-radius: 8px;
+        background: var(--panel);
+        padding: 0 14px;
+      }
+      details.about summary {
+        cursor: pointer;
+        padding: 11px 0;
+        font: 600 11.5px var(--mono);
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+        color: var(--accent);
+      }
+      details.about li {
+        margin-bottom: 5px;
+      }
+      pre {
+        background: var(--dark);
+        color: #e6efe8;
+        border-radius: 8px;
+        padding: 14px;
+        overflow: auto;
+        font: 11px/1.6 var(--mono);
+        max-height: 340px;
+      }
+      .pill {
+        display: inline-block;
+        border-radius: 999px;
+        background: var(--line-soft);
+        color: var(--muted);
+        font: 600 10.5px var(--mono);
+        padding: 2px 9px;
+        margin: 0 4px 4px 0;
+      }
+      footer {
+        border-top: 1px solid var(--line);
+        margin-top: 8px;
+        padding-top: 14px;
+        font-size: 13px;
+        color: var(--muted);
+      }
+      footer a,
+      details.about a {
+        color: var(--accent);
+      }
+      @media (max-width: 820px) {
+        .stage {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1><small>Artifact Use showcase</small>Fractal Lab</h1>
+      <span class="muted" style="font-size: 13px"
+        >drag to pan · scroll or double-click to zoom · share the URL to share
+        the view</span
+      >
+    </header>
+    <main>
+      <div class="stage">
+        <canvas
+          id="cv"
+          width="840"
+          height="560"
+          aria-label="Mandelbrot set explorer"
+        ></canvas>
+        <aside class="card">
+          <p class="mini-t">Controls</p>
+          <label for="engine">Engine</label>
+          <select id="engine">
+            <option value="wasm">WebAssembly (267-byte module)</option>
+            <option value="js">JavaScript fallback</option>
+          </select>
+          <label for="iter">Max iterations · <span id="iterv">300</span></label>
+          <input
+            type="range"
+            id="iter"
+            min="60"
+            max="1200"
+            step="20"
+            value="300"
+          />
+          <label for="palette">Palette</label>
+          <select id="palette">
+            <option value="lume">Lume (house colors)</option>
+            <option value="ember">Ember</option>
+            <option value="ice">Ice</option>
+          </select>
+          <button class="ghost" id="btn-bench">Benchmark JS vs WASM</button>
+          <div class="bench" id="bench"></div>
+          <button class="ghost" id="btn-png">Download PNG</button>
+          <button class="ghost" id="btn-reset">Reset view</button>
+          <div class="hud" id="hud"></div>
+        </aside>
+      </div>
+
+      <details class="about" open>
+        <summary>About this artifact — it is its own documentation</summary>
+        <p>
+          Everything you see is one HTML file. The per-pixel escape-time math
+          runs in a <strong>267-byte WebAssembly module</strong>, hand-written
+          in WAT, compiled once, and embedded below as base64 — no CDN, no
+          fetch, no build pipeline. A pure-JavaScript engine ships alongside it
+          so you can benchmark the two on your own machine.
+        </p>
+        <ul>
+          <li>
+            <strong>WebAssembly:</strong> the kernel fills linear memory with
+            iteration counts; JS only maps counts to colors. Run the benchmark —
+            on a kernel this simple, a warmed-up JS JIT often keeps pace, and an
+            honest demo should show you that. WASM's edge is predictability: no
+            warmup, no deopts, same speed on the thousandth frame as the first.
+          </li>
+          <li>
+            <strong>Canvas + ImageData:</strong> zero-copy-ish pixel painting at
+            device resolution.
+          </li>
+          <li>
+            <strong>URL state:</strong> the view (center, zoom, iterations,
+            palette) lives in the hash — every deep zoom is a shareable link.
+          </li>
+          <li>
+            <strong>Pointer events:</strong> drag-pan and wheel-zoom,
+            mobile-friendly.
+          </li>
+        </ul>
+        <p>
+          <span class="pill">WebAssembly</span><span class="pill">canvas</span
+          ><span class="pill">URL state</span
+          ><span class="pill">zero dependencies</span
+          ><span class="pill">benchmark</span>
+        </p>
+        <p class="mini-t" style="margin-top: 14px">
+          The entire compute kernel (WAT source)
+        </p>
+        <pre id="wat-src"></pre>
+        <footer>
+          Built and published by an agent ·
+          <a href="https://artifacts.iofold.com/go/docs-6ec38b/"
+            >Artifact Use docs</a
+          >
+          · publish your own with one paste
+        </footer>
+      </details>
+    </main>
+
+    <script>
+      "use strict";
+      const WASM_B64 =
+        "AGFzbQEAAAABCwFgB39/fHx8fH8AAwIBAAUDAQAgBxACA21lbQIABnJlbmRlcgAACtgBAdUBAgR/B3xBACEIAkADQCAIIAFODQEgAyAItyAFoqAhDEEAIQcCQANAIAcgAE4NASACIAe3IASioCELRAAAAAAAAAAAIQ1EAAAAAAAAAAAhDkEAIQkCQANAIAkgBk4NASANIA2iIQ8gDiAOoiEQIA8gEKBEAAAAAAAAEEBkDQEgDyAQoSALoCERRAAAAAAAAABAIA2iIA6iIAygIQ4gESENIAlBAWohCQwACwsgCCAAbCAHakECdCEKIAogCTYCACAHQQFqIQcMAAsLIAhBAWohCAwACwsL";
+      const $ = (id) => document.getElementById(id);
+      const cv = $("cv"),
+        ctx = cv.getContext("2d");
+      const view = { cx: -0.6, cy: 0, scale: 3.2 / 840 }; // complex units per CSS pixel-ish
+      let wasm = null;
+
+      function jsRender(w, h, minX, minY, stepX, stepY, maxIter, out) {
+        for (let py = 0; py < h; py++) {
+          const ci = minY + py * stepY;
+          for (let px = 0; px < w; px++) {
+            const cr = minX + px * stepX;
+            let zr = 0,
+              zi = 0,
+              i = 0;
+            while (i < maxIter) {
+              const zr2 = zr * zr,
+                zi2 = zi * zi;
+              if (zr2 + zi2 > 4) break;
+              zi = 2 * zr * zi + ci;
+              zr = zr2 - zi2 + cr;
+              i++;
+            }
+            out[py * w + px] = i;
+          }
+        }
+      }
+
+      const PALETTES = {
+        lume: (t) => [
+          Math.round(11 + 200 * t * t),
+          Math.round(93 + 150 * t),
+          Math.round(82 + 30 * t * (1 - t) * 4),
+        ],
+        ember: (t) => [
+          Math.round(30 + 225 * t),
+          Math.round(12 + 140 * t * t),
+          Math.round(28 * (1 - t)),
+        ],
+        ice: (t) => [
+          Math.round(20 + 90 * t * t),
+          Math.round(40 + 150 * t),
+          Math.round(80 + 175 * t),
+        ],
+      };
+
+      let renderQueued = false;
+      function scheduleRender() {
+        if (!renderQueued) {
+          renderQueued = true;
+          requestAnimationFrame(draw);
+        }
+      }
+
+      function counts(w, h, maxIter) {
+        const minX = view.cx - (w / 2) * view.scale,
+          minY = view.cy - (h / 2) * view.scale;
+        const engine = $("engine").value;
+        if (engine === "wasm" && wasm) {
+          const need = w * h * 4,
+            mem = wasm.mem;
+          if (mem.buffer.byteLength < need)
+            mem.grow(Math.ceil((need - mem.buffer.byteLength) / 65536));
+          wasm.render(w, h, minX, minY, view.scale, view.scale, maxIter);
+          return new Int32Array(wasm.mem.buffer, 0, w * h);
+        }
+        const out = new Int32Array(w * h);
+        jsRender(w, h, minX, minY, view.scale, view.scale, maxIter, out);
+        return out;
+      }
+
+      function draw() {
+        renderQueued = false;
+        const w = cv.width,
+          h = cv.height;
+        const maxIter = +$("iter").value;
+        const t0 = performance.now();
+        const data = counts(w, h, maxIter);
+        const ms = performance.now() - t0;
+        const img = ctx.createImageData(w, h);
+        const pal = PALETTES[$("palette").value];
+        const px = img.data;
+        for (let i = 0; i < data.length; i++) {
+          const n = data[i],
+            o = i * 4;
+          if (n >= maxIter) {
+            px[o] = 12;
+            px[o + 1] = 22;
+            px[o + 2] = 20;
+          } else {
+            const c = pal(Math.sqrt(n / maxIter));
+            px[o] = c[0];
+            px[o + 1] = c[1];
+            px[o + 2] = c[2];
+          }
+          px[o + 3] = 255;
+        }
+        ctx.putImageData(img, 0, 0);
+        const zoom = 3.2 / (view.scale * w);
+        $("hud").innerHTML =
+          `engine <b>${$("engine").value}</b> · ${w}×${h} px · <b>${ms.toFixed(1)} ms</b><br>center ${view.cx.toFixed(6)}, ${view.cy.toFixed(6)}<br>zoom <b>${zoom >= 100 ? zoom.toExponential(2) : zoom.toFixed(2)}×</b>`;
+        saveHash();
+      }
+
+      // ---------- interactions ----------
+      let drag = null;
+      cv.addEventListener("pointerdown", (e) => {
+        drag = { x: e.clientX, y: e.clientY };
+        cv.setPointerCapture(e.pointerId);
+      });
+      cv.addEventListener("pointermove", (e) => {
+        if (!drag) return;
+        const r = cv.getBoundingClientRect(),
+          k = cv.width / r.width;
+        view.cx -= (e.clientX - drag.x) * k * view.scale;
+        view.cy -= (e.clientY - drag.y) * k * view.scale;
+        drag = { x: e.clientX, y: e.clientY };
+        scheduleRender();
+      });
+      cv.addEventListener("pointerup", () => (drag = null));
+      function zoomAt(clientX, clientY, factor) {
+        const r = cv.getBoundingClientRect(),
+          k = cv.width / r.width;
+        const mx =
+          view.cx + ((clientX - r.left) * k - cv.width / 2) * view.scale;
+        const my =
+          view.cy + ((clientY - r.top) * k - cv.height / 2) * view.scale;
+        view.scale *= factor;
+        view.cx = mx - ((clientX - r.left) * k - cv.width / 2) * view.scale;
+        view.cy = my - ((clientY - r.top) * k - cv.height / 2) * view.scale;
+        scheduleRender();
+      }
+      cv.addEventListener(
+        "wheel",
+        (e) => {
+          e.preventDefault();
+          zoomAt(e.clientX, e.clientY, e.deltaY > 0 ? 1.18 : 1 / 1.18);
+        },
+        { passive: false },
+      );
+      cv.addEventListener("dblclick", (e) =>
+        zoomAt(e.clientX, e.clientY, 1 / 2.2),
+      );
+      $("iter").addEventListener("input", () => {
+        $("iterv").textContent = $("iter").value;
+        scheduleRender();
+      });
+      $("palette").onchange = $("engine").onchange = scheduleRender;
+      $("btn-reset").onclick = () => {
+        view.cx = -0.6;
+        view.cy = 0;
+        view.scale = 3.2 / cv.width;
+        $("iter").value = 300;
+        $("iterv").textContent = "300";
+        scheduleRender();
+      };
+      $("btn-png").onclick = () => {
+        const a = document.createElement("a");
+        a.download = "fractal.png";
+        a.href = cv.toDataURL("image/png");
+        a.click();
+      };
+      $("btn-bench").onclick = () => {
+        const w = 480,
+          h = 320,
+          iter = 500,
+          runs = 3;
+        const minX = view.cx - (w / 2) * view.scale,
+          minY = view.cy - (h / 2) * view.scale;
+        const out = new Int32Array(w * h);
+        let jsMs = Infinity,
+          wasmMs = Infinity;
+        for (let r = 0; r < runs; r++) {
+          const t1 = performance.now();
+          jsRender(w, h, minX, minY, view.scale, view.scale, iter, out);
+          jsMs = Math.min(jsMs, performance.now() - t1);
+          const t2 = performance.now();
+          wasm.render(w, h, minX, minY, view.scale, view.scale, iter);
+          wasmMs = Math.min(wasmMs, performance.now() - t2);
+        }
+        const maxMs = Math.max(jsMs, wasmMs);
+        const verdict =
+          wasmMs < jsMs
+            ? `wasm is ${(jsMs / wasmMs).toFixed(2)}× faster here.`
+            : `your JS JIT kept up — that's the honest result on simple kernels.`;
+        $("bench").innerHTML =
+          `<div class="bar" style="width:${(wasmMs / maxMs) * 100}%">wasm ${wasmMs.toFixed(1)} ms</div>` +
+          `<div class="bar js" style="width:${(jsMs / maxMs) * 100}%">js ${jsMs.toFixed(1)} ms</div>` +
+          `<span class="muted" style="font-size:12px">best of ${runs} · ${w}×${h} @ ${iter} iterations, this view, your machine. ${verdict}</span>`;
+      };
+
+      // ---------- URL state ----------
+      let hashTimer;
+      function saveHash() {
+        clearTimeout(hashTimer);
+        hashTimer = setTimeout(() => {
+          history.replaceState(
+            null,
+            "",
+            `#v=${view.cx.toPrecision(12)},${view.cy.toPrecision(12)},${view.scale.toExponential(6)},${$("iter").value},${$("palette").value}`,
+          );
+        }, 250);
+      }
+      (function boot() {
+        const m = location.hash.match(
+          /^#v=([^,]+),([^,]+),([^,]+),(\d+),(\w+)/,
+        );
+        if (m) {
+          view.cx = +m[1];
+          view.cy = +m[2];
+          view.scale = +m[3];
+          $("iter").value = +m[4];
+          $("iterv").textContent = m[4];
+          if (PALETTES[m[5]]) $("palette").value = m[5];
+        } else view.scale = 3.2 / cv.width;
+        const bytes = Uint8Array.from(atob(WASM_B64), (c) => c.charCodeAt(0));
+        WebAssembly.instantiate(bytes).then(({ instance }) => {
+          wasm = instance.exports;
+          $("wat-src").textContent = WAT_SOURCE;
+          scheduleRender();
+        });
+      })();
+
+      const WAT_SOURCE = `(module
+  ;; Mandelbrot renderer: fills linear memory with one i32 iteration
+  ;; count per pixel. Escape-time algorithm, bailout at |z|^2 > 4.
+  (memory (export "mem") 32)
+  (func (export "render")
+    (param $w i32) (param $h i32)
+    (param $minX f64) (param $minY f64)
+    (param $stepX f64) (param $stepY f64)
+    (param $maxIter i32)
+    (local $px i32) (local $py i32) (local $i i32) (local $off i32)
+    (local $cr f64) (local $ci f64)
+    (local $zr f64) (local $zi f64) (local $zr2 f64) (local $zi2 f64) (local $t f64)
+    (local.set $py (i32.const 0))
+    (block $doneY (loop $rows
+      (br_if $doneY (i32.ge_s (local.get $py) (local.get $h)))
+      (local.set $ci (f64.add (local.get $minY)
+        (f64.mul (f64.convert_i32_s (local.get $py)) (local.get $stepY))))
+      (local.set $px (i32.const 0))
+      (block $doneX (loop $cols
+        (br_if $doneX (i32.ge_s (local.get $px) (local.get $w)))
+        (local.set $cr (f64.add (local.get $minX)
+          (f64.mul (f64.convert_i32_s (local.get $px)) (local.get $stepX))))
+        (local.set $zr (f64.const 0)) (local.set $zi (f64.const 0))
+        (local.set $i (i32.const 0))
+        (block $esc (loop $iter
+          (br_if $esc (i32.ge_s (local.get $i) (local.get $maxIter)))
+          (local.set $zr2 (f64.mul (local.get $zr) (local.get $zr)))
+          (local.set $zi2 (f64.mul (local.get $zi) (local.get $zi)))
+          (br_if $esc (f64.gt (f64.add (local.get $zr2) (local.get $zi2)) (f64.const 4)))
+          (local.set $t (f64.add (f64.sub (local.get $zr2) (local.get $zi2)) (local.get $cr)))
+          (local.set $zi (f64.add
+            (f64.mul (f64.mul (f64.const 2) (local.get $zr)) (local.get $zi))
+            (local.get $ci)))
+          (local.set $zr (local.get $t))
+          (local.set $i (i32.add (local.get $i) (i32.const 1)))
+          (br $iter)))
+        (local.set $off (i32.shl
+          (i32.add (i32.mul (local.get $py) (local.get $w)) (local.get $px))
+          (i32.const 2)))
+        (i32.store (local.get $off) (local.get $i))
+        (local.set $px (i32.add (local.get $px) (i32.const 1)))
+        (br $cols)))
+      (local.set $py (i32.add (local.get $py) (i32.const 1)))
+      (br $rows))))
+)`;
+    </script>
+  </body>
+</html>
