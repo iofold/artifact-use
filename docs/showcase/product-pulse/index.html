@@ -150,12 +150,17 @@
         el.innerHTML = "";
         for (const s of SERIES) {
           const now = sum(cur, s.key);
-          const before = sum(prev, s.key) || 1;
-          const delta = ((now - before) / before) * 100;
+          const before = sum(prev, s.key);
+          // No full prior window (e.g. 90d view of a 90-day dataset): skip
+          // the delta instead of dividing by a fake baseline.
+          const deltaHtml =
+            prev.length === rangeDays && before > 0
+              ? `<span class="delta ${now >= before ? "up" : "down"}">${now >= before ? "▲" : "▼"} ${Math.abs(((now - before) / before) * 100).toFixed(0)}% vs prior ${rangeDays}d</span>`
+              : `<span class="delta" style="color:var(--muted)">no prior ${rangeDays}d window</span>`;
           el.insertAdjacentHTML(
             "beforeend",
             `<div class="kpi"><b>${now.toLocaleString()}</b><span>${s.label} · ${rangeDays}d</span>
-       <span class="delta ${delta >= 0 ? "up" : "down"}">${delta >= 0 ? "▲" : "▼"} ${Math.abs(delta).toFixed(0)}% vs prior ${rangeDays}d</span></div>`,
+       ${deltaHtml}</div>`,
           );
         }
       }

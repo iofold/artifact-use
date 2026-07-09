@@ -505,7 +505,7 @@
         $("bench").innerHTML =
           `<div class="bar" style="width:${(wasmMs / maxMs) * 100}%">wasm ${wasmMs.toFixed(1)} ms</div>` +
           `<div class="bar js" style="width:${(jsMs / maxMs) * 100}%">js ${jsMs.toFixed(1)} ms</div>` +
-          `<span class="muted" style="font-size:12px">best of ${runs} · ${w}×${h} @ ${iter} iterations, this view, your machine. ${verdict}</span>`;
+          `<span class="muted" style="font-size:11.5px">best of ${runs} · ${w}×${h} @ ${iter} iter · your machine. ${verdict}</span>`;
       };
 
       // ---------- URL state ----------
