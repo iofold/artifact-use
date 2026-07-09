@@ -22,5 +22,3 @@ apps/worker/wrangler.prod.toml
 # Built admin SPA assets (from apps/admin-ui)
 apps/worker/public/
 
-# Local ops journal (internal IDs/notes; repo is public)
-docs/progress_log.ndjson
