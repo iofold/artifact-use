@@ -266,27 +266,145 @@ export async function renderHome(
             <p class="eyebrow">The loop</p>
             <h2>Ship v1. The loop ships v2.</h2>
           </div>
-          <p class="muted">Artifacts aren't dead files. Colleagues comment right on the page, agents read that feedback over the API, apply it, and republish to the same link. Both halves below are real footage of real product actions — hover to play.</p>
+          <p class="muted">Artifacts aren't dead files. Colleagues comment right on the page, agents read that feedback over the API, apply it, and republish to the same link. Both reels below are real footage of real product actions — hover to play.</p>
         </div>
-        <div class="loop-grid">
-          <figure class="vidcard">
-            <div class="vid"><video data-hoverplay src="${MEDIA_BASE}agent-loop.mp4" poster="${MEDIA_BASE}agent-loop.jpg" muted loop playsinline preload="none"></video><span class="vtag">⟳ the agent loop · 36s</span></div>
-            <figcaption><strong>Your agent closes the loop.</strong><span>"Get your agent to read this" → Claude Code reads the artifact and its three comments over the API, applies the feedback, republishes — and the reviewers' link now shows v2.</span></figcaption>
-          </figure>
-          <figure class="vidcard">
-            <div class="vid"><video data-hoverplay src="${MEDIA_BASE}review-flow.mp4" poster="${MEDIA_BASE}review-flow.jpg" muted loop playsinline preload="none"></video><span class="vtag">the review flow · 22s</span></div>
-            <figcaption><strong>Feedback lives on the page.</strong><span>A spec published for review: anchored comments from colleagues, a one-time email gate, threads that resolve — no extra tooling for reviewers.</span></figcaption>
-          </figure>
-        </div>
+        <figure class="story">
+          <figcaption class="story-copy">
+            <p class="eyebrow">Reel 01 · 36s</p>
+            <h3>Your agent closes the loop.</h3>
+            <p>Recorded live: a Claude Code session turns three colleague comments into a shipped v2 — no copy-paste, no redeploy, no new link.</p>
+            <ul class="story-steps">
+              <li>Reviewer clicks "Get your agent to read this"</li>
+              <li>The agent pulls the artifact and its comments over the API</li>
+              <li>Feedback applied, v2 republished from the terminal</li>
+              <li>The reviewers' link now serves v2 — comments resolved</li>
+            </ul>
+          </figcaption>
+          <div class="vid"><video data-hoverplay src="${MEDIA_BASE}agent-loop.mp4" poster="${MEDIA_BASE}agent-loop.jpg" muted loop playsinline preload="none"></video></div>
+        </figure>
+        <figure class="story flip">
+          <figcaption class="story-copy">
+            <p class="eyebrow">Reel 02 · 22s</p>
+            <h3>Feedback lives on the page.</h3>
+            <p>A production spec out for review: colleagues comment directly on the artifact, so feedback stays threaded, anchored, and resolvable.</p>
+            <ul class="story-steps">
+              <li>Open the link — no account, no tool to install</li>
+              <li>Comments anchor to elements on the page</li>
+              <li>A one-time email keeps threads attributable</li>
+              <li>Resolve and reopen right where the work happened</li>
+            </ul>
+          </figcaption>
+          <div class="vid"><video data-hoverplay src="${MEDIA_BASE}review-flow.mp4" poster="${MEDIA_BASE}review-flow.jpg" muted loop playsinline preload="none"></video></div>
+        </figure>
       </section>
       <section class="feat" aria-label="What you get">
-        <div><strong>Stable links</strong><span>${escapeHtml(prefix)}/{slug}-{code}/ URLs that survive every republish.</span></div>
-        <div><strong>Access gates</strong><span>Public, email, verified email, or per-domain and per-address allowlists.</span></div>
-        <div><strong>Feedback</strong><span>Comments with element anchors, replies, and resolve/reopen — on the artifact itself.</span></div>
-        <div><strong>Agent-first API</strong><span>HTTP MCP with OAuth or bearer tokens, a JSON-first CLI, and machine descriptors for every artifact.</span></div>
-        <div><strong>Your infrastructure</strong><span>MIT licensed; runs on your Cloudflare account with R2 and D1. Agents never hold Cloudflare credentials.</span></div>
-        <div><strong>Team workspaces</strong><span>Invite teammates — everyone shares the same artifact list, stats, and feedback.</span></div>
-        <div class="feat-wide"><strong>Model- and harness-agnostic</strong><span>Your artifacts belong to you, not to any one agent. Switch between Claude Code, Codex, a terminal, an IDE extension, another subscription, open-source or private-cloud models and harnesses — the same stable links, versions, and feedback come with you. Anything that speaks HTTP can publish.</span></div>
+        <div class="feat-head">
+          <p class="eyebrow">What you get</p>
+          <h2>Everything an artifact needs, built in.</h2>
+        </div>
+        <div class="frow">
+          <span class="fnum">01</span>
+          <div class="fcopy"><strong>Stable links</strong><span>${escapeHtml(prefix)}/{slug}-{code}/ URLs that survive every republish — reviewers keep one link while versions advance.</span></div>
+          <div class="fviz" aria-hidden="true"><svg viewBox="0 0 220 96">
+      <rect class="db" x="8" y="10" width="34" height="18" rx="9"/><text class="dl" x="25" y="22" text-anchor="middle">v1</text>
+      <rect class="db" x="8" y="39" width="34" height="18" rx="9"/><text class="dl" x="25" y="51" text-anchor="middle">v2</text>
+      <rect class="da" x="8" y="68" width="34" height="18" rx="9"/><text class="dw9" x="25" y="80" text-anchor="middle">v3</text>
+      <path class="dd" d="M46 19 C 70 19, 80 42, 100 45"/>
+      <path class="dd" d="M46 48 L 100 48"/>
+      <path class="dd" d="M46 77 C 70 77, 80 54, 100 51"/>
+      <rect class="db" x="104" y="36" width="108" height="24" rx="12"/>
+      <text class="dlk" x="158" y="51" text-anchor="middle">/go/spec-4fk2a9/</text>
+    </svg></div>
+        </div>
+        <div class="frow">
+          <span class="fnum">02</span>
+          <div class="fcopy"><strong>Access gates</strong><span>Public, email, verified email, or per-domain and per-address allowlists — set per artifact at publish time.</span></div>
+          <div class="fviz" aria-hidden="true"><svg viewBox="0 0 220 96">
+      <rect class="db" x="8" y="26" width="44" height="34" rx="6"/>
+      <path class="dln" d="M16 36 h 28 M16 44 h 20 M16 52 h 24"/>
+      <path class="dd" d="M52 43 H 86"/>
+      <rect class="db" x="86" y="21" width="44" height="44" rx="9"/>
+      <circle cx="108" cy="38" r="5" fill="none" stroke="var(--accent)" stroke-width="1.6"/>
+      <path d="M108 43 v 8" stroke="var(--accent)" stroke-width="1.6" stroke-linecap="round"/>
+      <path class="dd" d="M130 43 H 164"/>
+      <circle class="db" cx="182" cy="34" r="9"/>
+      <path class="db" d="M168 62 c 0 -10, 28 -10, 28 0 v 2 h -28 z"/>
+      <text class="dl" x="108" y="88" text-anchor="middle">public · email · allowlist</text>
+    </svg></div>
+        </div>
+        <div class="frow">
+          <span class="fnum">03</span>
+          <div class="fcopy"><strong>Feedback</strong><span>Comments with element anchors, replies, and resolve/reopen — on the artifact itself.</span></div>
+          <div class="fviz" aria-hidden="true"><svg viewBox="0 0 220 96">
+      <rect class="db" x="8" y="12" width="92" height="72" rx="7"/>
+      <path class="dln" d="M18 26 h 60 M18 38 h 44 M18 50 h 56 M18 62 h 36"/>
+      <circle class="da" cx="74" cy="50" r="8"/><text class="dw9" x="74" y="53.5" text-anchor="middle">1</text>
+      <path class="dd" d="M82 50 C 96 50, 100 42, 112 40"/>
+      <rect class="db" x="112" y="20" width="100" height="38" rx="8"/>
+      <path class="dln" d="M122 32 h 64 M122 42 h 48"/>
+      <rect class="da" x="112" y="66" width="72" height="18" rx="9"/>
+      <text class="dw9" x="148" y="78" text-anchor="middle">resolved ✓</text>
+    </svg></div>
+        </div>
+        <div class="frow">
+          <span class="fnum">04</span>
+          <div class="fcopy"><strong>Agent-first API</strong><span>HTTP MCP with OAuth or bearer tokens, a JSON-first CLI, and machine descriptors for every artifact.</span></div>
+          <div class="fviz" aria-hidden="true"><svg viewBox="0 0 220 96">
+      <rect x="8" y="8" width="204" height="54" rx="8" fill="var(--dark)"/>
+      <circle cx="20" cy="19" r="2.5" fill="var(--lume)"/><circle cx="29" cy="19" r="2.5" fill="#2c4b42"/><circle cx="38" cy="19" r="2.5" fill="#2c4b42"/>
+      <text class="dt" x="18" y="40" fill="#e6efe8">$ au publish ./dist</text>
+      <text class="dt" x="18" y="53" fill="var(--lume)">→ v4 live · same URL</text>
+      <rect class="db" x="8" y="70" width="40" height="17" rx="8"/><text class="dl" x="28" y="81.5" text-anchor="middle">MCP</text>
+      <rect class="db" x="54" y="70" width="40" height="17" rx="8"/><text class="dl" x="74" y="81.5" text-anchor="middle">CLI</text>
+      <rect class="db" x="100" y="70" width="112" height="17" rx="8"/><text class="dl" x="156" y="81.5" text-anchor="middle">JSON descriptors</text>
+    </svg></div>
+        </div>
+        <div class="frow">
+          <span class="fnum">05</span>
+          <div class="fcopy"><strong>Your infrastructure</strong><span>MIT licensed; runs on your Cloudflare account with R2 and D1. Agents never hold Cloudflare credentials.</span></div>
+          <div class="fviz" aria-hidden="true"><svg viewBox="0 0 220 96">
+      <text class="dl" x="10" y="13">your cloudflare account</text>
+      <rect x="8" y="20" width="148" height="64" rx="9" fill="none" stroke="var(--muted)" stroke-width="1.2" stroke-dasharray="4 4"/>
+      <rect class="db" x="18" y="34" width="44" height="30" rx="6"/><text class="dl" x="40" y="52" text-anchor="middle">Worker</text>
+      <rect class="db" x="68" y="34" width="36" height="30" rx="6"/><text class="dl" x="86" y="52" text-anchor="middle">R2</text>
+      <rect class="db" x="110" y="34" width="36" height="30" rx="6"/><text class="dl" x="128" y="52" text-anchor="middle">D1</text>
+      <text class="dl" x="18" y="78">MIT licensed</text>
+      <rect class="da" x="166" y="43" width="46" height="18" rx="9"/><text class="dw9" x="189" y="55" text-anchor="middle">yours</text>
+    </svg></div>
+        </div>
+        <div class="frow">
+          <span class="fnum">06</span>
+          <div class="fcopy"><strong>Team workspaces</strong><span>Invite teammates — everyone shares the same artifact list, stats, and feedback.</span></div>
+          <div class="fviz" aria-hidden="true"><svg viewBox="0 0 220 96">
+      <circle class="db" cx="30" cy="40" r="12"/>
+      <circle class="db" cx="50" cy="40" r="12"/>
+      <circle class="db" cx="70" cy="40" r="12"/>
+      <text class="dl" x="50" y="68" text-anchor="middle">one workspace</text>
+      <path class="dd" d="M88 40 H 112"/>
+      <rect class="db" x="112" y="14" width="100" height="68" rx="8"/>
+      <path class="dln" d="M122 30 h 56 M122 48 h 64 M122 66 h 48"/>
+      <circle class="da" cx="200" cy="30" r="3"/><circle class="da" cx="200" cy="48" r="3"/><circle cx="200" cy="66" r="3" fill="var(--line)"/>
+    </svg></div>
+        </div>
+        <div class="frow">
+          <span class="fnum">07</span>
+          <div class="fcopy"><strong>Model- and harness-agnostic</strong><span>Your artifacts belong to you, not to any one agent. Switch between Claude Code, Codex, a terminal, an IDE extension, another subscription, open-source or private-cloud models and harnesses — the same stable links, versions, and feedback come with you. Anything that speaks HTTP can publish.</span></div>
+          <div class="fviz" aria-hidden="true"><svg viewBox="0 0 220 96">
+      <rect class="db" x="2" y="6" width="68" height="17" rx="8"/><text class="dl" x="36" y="17.5" text-anchor="middle">claude code</text>
+      <rect class="db" x="2" y="39" width="68" height="17" rx="8"/><text class="dl" x="36" y="50.5" text-anchor="middle">codex</text>
+      <rect class="db" x="2" y="72" width="68" height="17" rx="8"/><text class="dl" x="36" y="83.5" text-anchor="middle">terminal</text>
+      <rect class="db" x="150" y="6" width="68" height="17" rx="8"/><text class="dl" x="184" y="17.5" text-anchor="middle">IDE</text>
+      <rect class="db" x="150" y="39" width="68" height="17" rx="8"/><text class="dl" x="184" y="50.5" text-anchor="middle">self-hosted</text>
+      <rect class="db" x="150" y="72" width="68" height="17" rx="8"/><text class="dl" x="184" y="83.5" text-anchor="middle">any HTTP</text>
+      <rect class="da" x="86" y="37" width="48" height="22" rx="6"/><text class="dw9" x="110" y="51" text-anchor="middle">artifact</text>
+      <path class="dd" d="M70 14 C 82 14, 80 40, 88 42"/>
+      <path class="dd" d="M70 47 H 86"/>
+      <path class="dd" d="M70 80 C 82 80, 80 56, 88 54"/>
+      <path class="dd" d="M150 14 C 138 14, 140 40, 132 42"/>
+      <path class="dd" d="M150 47 H 134"/>
+      <path class="dd" d="M150 80 C 138 80, 140 56, 132 54"/>
+    </svg></div>
+        </div>
       </section>
       <section class="showcase" aria-label="Live example artifacts">
         <div class="show-head">
@@ -356,7 +474,7 @@ export async function renderHome(
       (function () {
         if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
         document.querySelectorAll("[data-hoverplay]").forEach(function (v) {
-          var card = v.closest(".vidcard, .show-card");
+          var card = v.closest(".story, .show-card");
           if (!card) return;
           card.addEventListener("mouseenter", function () { v.play().catch(function () {}); });
           card.addEventListener("mouseleave", function () { v.pause(); });
@@ -2101,12 +2219,22 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-of
 .step-n{display:block;font:600 12px var(--mono);color:var(--accent);letter-spacing:.12em;margin-bottom:12px}
 .steps h3{font-size:20px;margin:0 0 8px}
 .steps p{margin:0;font-size:14.5px;line-height:1.6;color:var(--muted)}
-.feat{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--line);border:1px solid var(--line);margin:44px 0}
-.feat .feat-wide{grid-column:1/-1}
-.feat div{background:var(--panel);padding:18px 20px}
-.feat strong{display:block;font-size:15px;margin-bottom:5px}
-.feat strong::before{content:"-> ";font-family:var(--mono);color:var(--accent)}
-.feat span{font-size:13.5px;line-height:1.55;color:var(--muted)}
+.feat{margin:44px 0}
+.feat-head h2{font-size:clamp(24px,2.6vw,30px);margin:8px 0 14px}
+.frow{display:grid;grid-template-columns:52px minmax(0,1fr) 232px;gap:clamp(18px,3vw,44px);align-items:start;padding:18px 0;border-top:1px solid var(--line)}
+.frow:last-of-type{border-bottom:1px solid var(--line)}
+.fnum{font:600 13px var(--mono);color:var(--accent);letter-spacing:.1em;padding-top:4px}
+.fcopy strong{display:block;font:600 16.5px var(--serif);margin-bottom:4px}
+.fcopy span{font-size:13.5px;line-height:1.55;color:var(--muted)}
+.fviz svg{width:100%;height:auto;display:block}
+.fviz .db{fill:var(--panel);stroke:var(--ink);stroke-width:1.2}
+.fviz .da{fill:var(--accent)}
+.fviz .dd{stroke:var(--muted);stroke-width:1.2;stroke-dasharray:3 4;fill:none}
+.fviz .dln{stroke:var(--line);stroke-width:3;stroke-linecap:round;fill:none}
+.fviz .dl{font:600 9px var(--mono);fill:var(--muted)}
+.fviz .dlk{font:600 9px var(--mono);fill:var(--accent-deep)}
+.fviz .dw9{font:600 9px var(--mono);fill:#fff}
+.fviz .dt{font:600 9.5px var(--mono)}
 .loop{padding:26px 0 10px}
 .loop-flow{margin:-4px 0 22px}
 .loop-flow svg{width:100%;height:auto;display:block;overflow:visible}
@@ -2115,15 +2243,18 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-of
 .loop-head>*{min-width:0;max-width:100%}
 .loop-head h2{font-size:clamp(26px,3vw,34px);margin:8px 0 0}
 .loop-head .muted{max-width:52ch;font-size:15px;margin:0}
-.loop-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.vidcard{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;transition:border-color .15s,transform .15s,box-shadow .15s}
-.vidcard:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 18px 36px -22px rgba(19,36,32,.5)}
+.story{display:grid;grid-template-columns:minmax(0,.9fr) minmax(0,1.25fr);gap:clamp(22px,4vw,52px);align-items:center;margin:0;padding:26px 0}
+.story+.story{border-top:1px dashed var(--line)}
+.story .vid{border:1px solid var(--line);border-radius:12px;box-shadow:0 18px 36px -22px rgba(19,36,32,.5);transition:border-color .15s,transform .15s}
+.story:hover .vid{border-color:var(--accent);transform:translateY(-2px)}
+.story.flip .story-copy{order:2}
+.story-copy h3{font:600 22px var(--serif);margin:6px 0 8px}
+.story-copy>p:not(.eyebrow){margin:0 0 14px;font-size:14.5px;line-height:1.6;color:var(--muted)}
+.story-steps{list-style:none;margin:0;padding:0;display:grid;gap:7px;counter-reset:ss}
+.story-steps li{counter-increment:ss;font:12.5px/1.5 var(--mono);color:var(--ink);display:flex;gap:10px;align-items:baseline}
+.story-steps li::before{content:counter(ss,decimal-leading-zero);font:600 10.5px var(--mono);color:var(--accent);min-width:18px}
 .vid{position:relative;display:block;aspect-ratio:16/9;background:var(--dark);overflow:hidden}
 .vid video{width:100%;height:100%;object-fit:cover;display:block}
-.vtag{position:absolute;left:10px;bottom:10px;background:rgba(13,27,24,.88);color:var(--lume);font:600 11px var(--mono);letter-spacing:.08em;padding:5px 10px;border-radius:999px;pointer-events:none}
-.vidcard figcaption{padding:14px 16px 16px}
-.vidcard strong{display:block;font:600 17px var(--serif);margin-bottom:5px}
-.vidcard figcaption span{font-size:13.5px;line-height:1.55;color:var(--muted)}
 .showcase{padding:6px 0 44px}
 .show-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:18px;flex-wrap:wrap}
 .show-head h2{font-size:clamp(24px,2.6vw,30px);margin:8px 0 0}
@@ -2295,7 +2426,7 @@ details.manual .setup-grid{padding:2px 14px 16px}
 .error-box{color:#8f2f26;border-color:#e3b7af;background:#fff8f6}
 .invite-list form{margin:0}
 @media(max-width:640px){.top nav a:not(.button):not([href="/login"]){display:none}}
-@media(max-width:940px){.hero{grid-template-columns:1fr;padding-top:34px}.steps,.feat,.show-grid,.loop-grid{grid-template-columns:1fr}.loop-head{flex-direction:column;align-items:flex-start}.steps section{border-right:0;border-bottom:1px solid var(--line)}.steps section:last-child{border-bottom:0}.agents{grid-template-columns:1fr}.headline{flex-direction:column;align-items:flex-start}.setup,.team-panel,.team-grid,.team-invite,.token-form,.setup-paths{grid-template-columns:1fr}.access,.share-create{grid-template-columns:1fr}.onboard ol{grid-template-columns:1fr}.metrics div{flex:1 1 33%;border-bottom:1px solid var(--line)}.art-head{display:none}.art-tr{grid-template-columns:minmax(0,1fr) 70px}.art-gate,.art-7d,.art-fb,.art-date{display:none}.art-toolbar input{max-width:none;width:100%}.sheet-stats{grid-template-columns:1fr 1fr}}
+@media(max-width:940px){.hero{grid-template-columns:1fr;padding-top:34px}.steps,.show-grid{grid-template-columns:1fr}.story{grid-template-columns:1fr;gap:16px}.story .vid{order:-1}.frow{grid-template-columns:32px minmax(0,1fr);row-gap:12px}.fviz{grid-column:2;max-width:280px}.loop-head{flex-direction:column;align-items:flex-start}.steps section{border-right:0;border-bottom:1px solid var(--line)}.steps section:last-child{border-bottom:0}.agents{grid-template-columns:1fr}.headline{flex-direction:column;align-items:flex-start}.setup,.team-panel,.team-grid,.team-invite,.token-form,.setup-paths{grid-template-columns:1fr}.access,.share-create{grid-template-columns:1fr}.onboard ol{grid-template-columns:1fr}.metrics div{flex:1 1 33%;border-bottom:1px solid var(--line)}.art-head{display:none}.art-tr{grid-template-columns:minmax(0,1fr) 70px}.art-gate,.art-7d,.art-fb,.art-date{display:none}.art-toolbar input{max-width:none;width:100%}.sheet-stats{grid-template-columns:1fr 1fr}}
 </style></head><body>${body}${COPY_SCRIPT}</body></html>`,
     { status: opts.status || 200, headers },
   );
