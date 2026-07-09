@@ -168,26 +168,32 @@ function docsUrl(env: Env): string {
   return env.ARTIFACT_USE_DOCS_URL || GITHUB_URL;
 }
 
-// Landing-page showcase artifacts. Deployment-specific url_keys: replace with
-// your own published artifacts (or empty the list) on other deployments.
+// Landing-page showcase artifacts and demo footage. Deployment-specific
+// url_keys: replace with your own published artifacts (or empty the list)
+// on other deployments. The videos live in a published showcase-media
+// artifact — the platform hosts its own marketing footage.
+const MEDIA_BASE = "/go/showcase-media-51ac21/";
 const SHOWCASE = [
   {
     title: "Data Playground",
     desc: "Paste CSV or JSON, get sortable tables, column stats, and charts. Your data stays in the tab; a share link carries it in the URL.",
     tags: ["single file", "localStorage", "URL state", "zero deps"],
     path: "/go/data-playground-925c11/",
+    video: "data-playground",
   },
   {
     title: "Fractal Lab",
     desc: "A Mandelbrot explorer whose math runs in a 267-byte hand-written WebAssembly module — with an honest JS-vs-WASM benchmark.",
     tags: ["WebAssembly", "canvas", "benchmark"],
     path: "/go/fractal-lab-0ce938/",
+    video: "fractal-lab",
   },
   {
     title: "Product Pulse",
     desc: "A multi-file dashboard — ES modules, JSON data files, dependency-free SVG charts, dark mode — that lists its own manifest via the machine API.",
     tags: ["multi-file", "data viz", "self-describing"],
     path: "/go/product-pulse-1676b8/",
+    video: "product-pulse",
   },
 ];
 
@@ -216,7 +222,7 @@ export async function renderHome(
         <div>
           <p class="eyebrow rise">Review-ready artifact links</p>
           <h1 class="rise d1">Turn agent output into links people can open and review.</h1>
-          <p class="lead rise d2">Your coding agent publishes HTML tools, dashboards, PDFs, and whole static folders to one stable URL — with access gates, versioning, and comments built in.</p>
+          <p class="lead rise d2">Your coding agent publishes HTML tools, dashboards, PDFs, and whole static folders to one stable URL — with access gates, versioning, and comments built in. Feedback is machine-readable, so artifacts improve themselves: an agent reads the comments and ships v2 to the same link.</p>
           <div class="actions rise d3">
             <a class="button" href="/signup">Start publishing</a>
             <a class="button ghost" href="/llms.txt">Connect your agent</a>
@@ -234,22 +240,25 @@ export async function renderHome(
 <span class="t-dim"># the next agent reads the feedback</span><span class="caret"></span></pre>
         </div>
       </section>
-      <section class="steps" aria-label="How it works">
-        <section>
-          <span class="step-n">01</span>
-          <h3>Agents publish</h3>
-          <p>Over MCP, CLI, or plain HTTP — single HTML files or complete folders with images, data, and PDFs. Versions are immutable and promoted atomically.</p>
-        </section>
-        <section>
-          <span class="step-n">02</span>
-          <h3>People review</h3>
-          <p>One stable link behind an email, verified-email, or allowlist gate. Reviewers comment directly on the artifact — no extra tooling.</p>
-        </section>
-        <section>
-          <span class="step-n">03</span>
-          <h3>Work loops back</h3>
-          <p>Views and feedback are readable through the same API, so the next agent iteration starts where the review ended.</p>
-        </section>
+      <section class="loop" aria-label="The feedback loop">
+        <div class="loop-band" aria-hidden="true"><div class="loop-track">${`PUBLISH&ensp;▸&ensp;REVIEW&ensp;▸&ensp;AGENT READS&ensp;▸&ensp;APPLIES&ensp;▸&ensp;V2 LIVE&ensp;▸&ensp;SAME LINK&ensp;⟳&ensp;`.repeat(6)}</div></div>
+        <div class="loop-head">
+          <div>
+            <p class="eyebrow">The loop</p>
+            <h2>Ship v1. The loop ships v2.</h2>
+          </div>
+          <p class="muted">Artifacts aren't dead files. Colleagues comment right on the page, agents read that feedback over the API, apply it, and republish to the same link. Both halves below are real footage of real product actions — hover to play.</p>
+        </div>
+        <div class="loop-grid">
+          <figure class="vidcard">
+            <div class="vid"><video data-hoverplay src="${MEDIA_BASE}agent-loop.mp4" poster="${MEDIA_BASE}agent-loop.jpg" muted loop playsinline preload="none"></video><span class="vtag">⟳ the agent loop · 36s</span></div>
+            <figcaption><strong>Your agent closes the loop.</strong><span>"Get your agent to read this" → Claude Code reads the artifact and its three comments over the API, applies the feedback, republishes — and the reviewers' link now shows v2.</span></figcaption>
+          </figure>
+          <figure class="vidcard">
+            <div class="vid"><video data-hoverplay src="${MEDIA_BASE}review-flow.mp4" poster="${MEDIA_BASE}review-flow.jpg" muted loop playsinline preload="none"></video><span class="vtag">the review flow · 22s</span></div>
+            <figcaption><strong>Feedback lives on the page.</strong><span>A spec published for review: anchored comments from colleagues, a one-time email gate, threads that resolve — no extra tooling for reviewers.</span></figcaption>
+          </figure>
+        </div>
       </section>
       <section class="feat" aria-label="What you get">
         <div><strong>Stable links</strong><span>${escapeHtml(prefix)}/{slug}-{code}/ URLs that survive every republish.</span></div>
@@ -271,6 +280,7 @@ export async function renderHome(
         <div class="show-grid">
           ${SHOWCASE.map(
             (item) => `<a class="show-card" href="${escapeHtml(item.path)}">
+              <span class="vid"><video data-hoverplay src="${MEDIA_BASE}${item.video}.mp4" poster="${MEDIA_BASE}${item.video}.jpg" muted loop playsinline preload="none"></video></span>
               <strong>${escapeHtml(item.title)}</strong>
               <span>${escapeHtml(item.desc)}</span>
               <div>${item.tags.map((tag) => `<i>${escapeHtml(tag)}</i>`).join("")}</div>
@@ -279,6 +289,28 @@ export async function renderHome(
           ).join("")}
         </div>
       </section>
+      <style>
+      /* Chrome drops these two rules from the main sheet (parser quirk with
+         the giant inline stylesheet); a separate tag applies them reliably. */
+      .loop-head > * { min-width: 0; max-width: 100%; }
+      .agents > div { min-width: 0; }
+      .agents pre { overflow-x: auto; }
+      @media (max-width: 640px) {
+        .top nav a:not(.button):not([href="/login"]) { display: none; }
+      }
+      </style>
+      <script>
+      (function () {
+        if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+        document.querySelectorAll("[data-hoverplay]").forEach(function (v) {
+          var card = v.closest(".vidcard, .show-card");
+          if (!card) return;
+          card.addEventListener("mouseenter", function () { v.play().catch(function () {}); });
+          card.addEventListener("mouseleave", function () { v.pause(); });
+          card.addEventListener("touchstart", function () { v.paused ? v.play().catch(function () {}) : v.pause(); }, { passive: true });
+        });
+      })();
+      </script>
       <section class="agents" id="agents">
         <div>
           <p class="eyebrow">Built for agents first</p>
@@ -2022,12 +2054,32 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-of
 .feat strong{display:block;font-size:15px;margin-bottom:5px}
 .feat strong::before{content:"-> ";font-family:var(--mono);color:var(--accent)}
 .feat span{font-size:13.5px;line-height:1.55;color:var(--muted)}
+.loop{padding:26px 0 10px}
+.loop-band{overflow:hidden;background:var(--dark);border:1px solid #24443c;border-radius:999px;padding:9px 0;margin-bottom:26px;box-shadow:0 14px 30px -18px rgba(19,36,32,.5)}
+.loop-track{display:inline-block;white-space:nowrap;font:700 12px var(--mono);letter-spacing:.22em;color:var(--lume);animation:loopscroll 40s linear infinite;will-change:transform}
+@keyframes loopscroll{to{transform:translateX(-50%)}}
+@media(prefers-reduced-motion:reduce){.loop-track{animation:none}}
+.loop-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:18px;flex-wrap:wrap}
+.loop-head>*{min-width:0;max-width:100%}
+.loop-head h2{font-size:clamp(26px,3vw,34px);margin:8px 0 0}
+.loop-head .muted{max-width:52ch;font-size:15px;margin:0}
+.loop-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.vidcard{margin:0;background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;transition:border-color .15s,transform .15s,box-shadow .15s}
+.vidcard:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 18px 36px -22px rgba(19,36,32,.5)}
+.vid{position:relative;display:block;aspect-ratio:16/9;background:var(--dark);overflow:hidden}
+.vid video{width:100%;height:100%;object-fit:cover;display:block}
+.vtag{position:absolute;left:10px;bottom:10px;background:rgba(13,27,24,.88);color:var(--lume);font:600 11px var(--mono);letter-spacing:.08em;padding:5px 10px;border-radius:999px;pointer-events:none}
+.vidcard figcaption{padding:14px 16px 16px}
+.vidcard strong{display:block;font:600 17px var(--serif);margin-bottom:5px}
+.vidcard figcaption span{font-size:13.5px;line-height:1.55;color:var(--muted)}
 .showcase{padding:6px 0 44px}
 .show-head{display:flex;justify-content:space-between;align-items:flex-end;gap:24px;margin-bottom:18px;flex-wrap:wrap}
 .show-head h2{font-size:clamp(24px,2.6vw,30px);margin:8px 0 0}
 .show-head .muted{max-width:44ch;font-size:14.5px;margin:0}
 .show-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
-.show-card{display:flex;flex-direction:column;gap:9px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:18px;transition:border-color .15s,transform .15s,box-shadow .15s}
+.show-card{display:flex;flex-direction:column;gap:9px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:0 0 18px;overflow:hidden;transition:border-color .15s,transform .15s,box-shadow .15s}
+.show-card>strong,.show-card>span,.show-card>div,.show-card>em{margin:0 18px}
+.show-card .vid{margin:0 0 6px;border-bottom:1px solid var(--line-soft)}
 .show-card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 14px 28px -18px rgba(19,36,32,.4)}
 .show-card strong{font:600 17px var(--serif)}
 .show-card span{font-size:13.5px;line-height:1.55;color:var(--muted);flex:1}
@@ -2190,7 +2242,8 @@ details.manual .setup-grid{padding:2px 14px 16px}
 .team-grid h3{margin:10px 0;font:600 11px var(--mono);text-transform:uppercase;letter-spacing:.1em;color:var(--muted)}
 .error-box{color:#8f2f26;border-color:#e3b7af;background:#fff8f6}
 .invite-list form{margin:0}
-@media(max-width:940px){.hero{grid-template-columns:1fr;padding-top:34px}.steps,.feat,.show-grid{grid-template-columns:1fr}.steps section{border-right:0;border-bottom:1px solid var(--line)}.steps section:last-child{border-bottom:0}.agents{grid-template-columns:1fr}.headline{flex-direction:column;align-items:flex-start}.setup,.team-panel,.team-grid,.team-invite,.token-form,.setup-paths{grid-template-columns:1fr}.access,.share-create{grid-template-columns:1fr}.onboard ol{grid-template-columns:1fr}.metrics div{flex:1 1 33%;border-bottom:1px solid var(--line)}.art-head{display:none}.art-tr{grid-template-columns:minmax(0,1fr) 70px}.art-gate,.art-7d,.art-fb,.art-date{display:none}.art-toolbar input{max-width:none;width:100%}.sheet-stats{grid-template-columns:1fr 1fr}}
+@media(max-width:640px){.top nav a:not(.button):not([href="/login"]){display:none}}
+@media(max-width:940px){.hero{grid-template-columns:1fr;padding-top:34px}.steps,.feat,.show-grid,.loop-grid{grid-template-columns:1fr}.loop-head{flex-direction:column;align-items:flex-start}.steps section{border-right:0;border-bottom:1px solid var(--line)}.steps section:last-child{border-bottom:0}.agents{grid-template-columns:1fr}.headline{flex-direction:column;align-items:flex-start}.setup,.team-panel,.team-grid,.team-invite,.token-form,.setup-paths{grid-template-columns:1fr}.access,.share-create{grid-template-columns:1fr}.onboard ol{grid-template-columns:1fr}.metrics div{flex:1 1 33%;border-bottom:1px solid var(--line)}.art-head{display:none}.art-tr{grid-template-columns:minmax(0,1fr) 70px}.art-gate,.art-7d,.art-fb,.art-date{display:none}.art-toolbar input{max-width:none;width:100%}.sheet-stats{grid-template-columns:1fr 1fr}}
 </style></head><body>${body}${COPY_SCRIPT}</body></html>`,
     { status: opts.status || 200, headers },
   );
