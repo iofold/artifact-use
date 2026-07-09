@@ -258,6 +258,7 @@ export async function renderHome(
         <div><strong>Agent-first API</strong><span>HTTP MCP with OAuth or bearer tokens, a JSON-first CLI, and machine descriptors for every artifact.</span></div>
         <div><strong>Your infrastructure</strong><span>MIT licensed; runs on your Cloudflare account with R2 and D1. Agents never hold Cloudflare credentials.</span></div>
         <div><strong>Team workspaces</strong><span>Invite teammates — everyone shares the same artifact list, stats, and feedback.</span></div>
+        <div class="feat-wide"><strong>Model- and harness-agnostic</strong><span>Your artifacts belong to you, not to any one agent. Switch between Claude Code, Codex, a terminal, an IDE extension, another subscription, open-source or private-cloud models and harnesses — the same stable links, versions, and feedback come with you. Anything that speaks HTTP can publish.</span></div>
       </section>
       <section class="showcase" aria-label="Live example artifacts">
         <div class="show-head">
@@ -283,6 +284,7 @@ export async function renderHome(
           <p class="eyebrow">Built for agents first</p>
           <h2>Your agent can set itself up.</h2>
           <p>Point any MCP-capable agent at the endpoint and it authenticates with OAuth — or it requests a token and asks you to approve a one-time code, with no browser on its side.</p>
+          <p>No lock-in on either side: swap models, harnesses, or subscriptions any time — your artifacts and their history stay put, and the next agent picks up where the last one left off.</p>
           <p>Everything here is machine-readable. Agents start at <a href="/llms.txt">${escapeHtml(base)}/llms.txt</a>.</p>
         </div>
         <div>
@@ -2015,6 +2017,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-of
 .steps h3{font-size:20px;margin:0 0 8px}
 .steps p{margin:0;font-size:14.5px;line-height:1.6;color:var(--muted)}
 .feat{display:grid;grid-template-columns:repeat(3,1fr);gap:2px;background:var(--line);border:1px solid var(--line);margin:44px 0}
+.feat .feat-wide{grid-column:1/-1}
 .feat div{background:var(--panel);padding:18px 20px}
 .feat strong{display:block;font-size:15px;margin-bottom:5px}
 .feat strong::before{content:"-> ";font-family:var(--mono);color:var(--accent)}
