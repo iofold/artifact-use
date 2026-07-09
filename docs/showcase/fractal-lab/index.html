@@ -58,7 +58,7 @@
       main {
         max-width: 1100px;
         margin: 0 auto;
-        padding: 18px clamp(16px, 3vw, 32px) 60px;
+        padding: 14px clamp(16px, 3vw, 32px) 26px;
         display: grid;
         gap: 16px;
       }
@@ -141,7 +141,7 @@
         color: var(--muted);
         margin-top: 10px;
         line-height: 1.7;
-        word-break: break-all;
+        overflow-wrap: break-word;
       }
       .hud b {
         color: var(--accent);
@@ -231,15 +231,15 @@
         <canvas
           id="cv"
           width="840"
-          height="560"
+          height="520"
           aria-label="Mandelbrot set explorer"
         ></canvas>
         <aside class="card">
           <p class="mini-t">Controls</p>
           <label for="engine">Engine</label>
           <select id="engine">
-            <option value="wasm">WebAssembly (267-byte module)</option>
-            <option value="js">JavaScript fallback</option>
+            <option value="wasm">WebAssembly (267 B)</option>
+            <option value="js">JavaScript</option>
           </select>
           <label for="iter">Max iterations · <span id="iterv">300</span></label>
           <input
@@ -417,7 +417,7 @@
         ctx.putImageData(img, 0, 0);
         const zoom = 3.2 / (view.scale * w);
         $("hud").innerHTML =
-          `engine <b>${$("engine").value}</b> · ${w}×${h} px · <b>${ms.toFixed(1)} ms</b><br>center ${view.cx.toFixed(6)}, ${view.cy.toFixed(6)}<br>zoom <b>${zoom >= 100 ? zoom.toExponential(2) : zoom.toFixed(2)}×</b>`;
+          `engine <b>${$("engine").value}</b> · ${w}×${h} · <span style="white-space:nowrap"><b>${Math.round(ms)} ms</b></span><br>center ${view.cx.toFixed(4)}, ${view.cy.toFixed(4)} · zoom <b>${zoom >= 100 ? zoom.toExponential(1) : zoom.toFixed(1)}×</b>`;
         saveHash();
       }
 

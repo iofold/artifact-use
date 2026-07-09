@@ -197,6 +197,9 @@
       th .dir {
         color: var(--ink);
       }
+      th.num {
+        text-align: right;
+      }
       td.num {
         text-align: right;
         font-variant-numeric: tabular-nums;
@@ -560,7 +563,7 @@
           state.cols
             .map(
               (c) =>
-                `<th data-col="${esc(c.name)}">${esc(c.name)}${state.sortCol === c.name ? ` <span class="dir">${state.sortDir > 0 ? "▲" : "▼"}</span>` : ""}</th>`,
+                `<th data-col="${esc(c.name)}" class="${c.kind === "number" ? "num" : ""}">${esc(c.name)}${state.sortCol === c.name ? ` <span class="dir">${state.sortDir > 0 ? "▲" : "▼"}</span>` : ""}</th>`,
             )
             .join("") +
           "</tr></thead>" +
