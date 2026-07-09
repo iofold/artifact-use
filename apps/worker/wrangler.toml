@@ -46,6 +46,14 @@ pattern = "artifacts.example.com/llms-full.txt"
 zone_name = "example.com"
 
 [[routes]]
+pattern = "artifacts.example.com/privacy"
+zone_name = "example.com"
+
+[[routes]]
+pattern = "artifacts.example.com/terms"
+zone_name = "example.com"
+
+[[routes]]
 pattern = "artifacts.example.com/login*"
 zone_name = "example.com"
 

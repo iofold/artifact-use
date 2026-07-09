@@ -248,6 +248,8 @@ POST ${escapeHtml(base)}/api/v1/connect/poll
         <span>Artifact Use · MIT licensed</span>
         <nav>
           <a href="${GITHUB_URL}">GitHub</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
           <a href="/llms.txt">llms.txt</a>
           <a href="/llms-full.txt">Agent guide</a>
           <code>MCP ${escapeHtml(base)}/mcp</code>
@@ -262,7 +264,19 @@ POST ${escapeHtml(base)}/api/v1/connect/poll
   );
 }
 
-export async function handlePublisherAuth(
+export function renderPrivacyPolicy(..._args: unknown[]): Response {
+    return new Response("Privacy policy is not configured for this deployment.", {
+      status: 404,
+    });
+  }
+  
+  export function renderTermsOfService(..._args: unknown[]): Response {
+    return new Response("Terms of service are not configured for this deployment.", {
+      status: 404,
+    });
+  }
+  
+  export async function handlePublisherAuth(
   request: Request,
   env: Env,
   path: string,
@@ -2119,6 +2133,17 @@ footer.site{border-top:1px solid var(--line);margin-top:56px;padding:26px 0 44px
 footer.site nav{display:flex;gap:18px;flex-wrap:wrap}
 footer.site a:hover{color:var(--ink)}
 footer.site code{font:12px var(--mono)}
+.legal{max-width:840px;margin:0 auto;padding:clamp(34px,6vw,68px) clamp(18px,4vw,34px) 28px}
+.legal h1{font-size:clamp(32px,4.2vw,48px);line-height:1.08;margin:8px 0 8px}
+.legal h2{font-size:24px;margin:34px 0 10px;padding-top:4px;border-top:1px solid var(--line)}
+.legal p,.legal li{color:var(--muted);font-size:15.5px;line-height:1.72}
+.legal p{margin:0 0 14px}
+.legal ul{margin:0 0 18px;padding-left:22px}
+.legal li{margin:8px 0}
+.legal strong{color:var(--ink)}
+.legal a{text-decoration:underline dotted;color:var(--accent)}
+.legal .updated{font:600 12px var(--mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent);margin-bottom:26px}
+.legal-foot{max-width:840px;margin-left:auto;margin-right:auto;padding-left:clamp(18px,4vw,34px);padding-right:clamp(18px,4vw,34px)}
 .admin{max-width:1180px;margin:0 auto;padding:30px clamp(18px,4vw,34px) 72px}
 .headline{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;padding-bottom:20px;border-bottom:2px solid var(--ink)}
 .headline h1{font-size:clamp(28px,3.2vw,38px);margin:8px 0 4px}
