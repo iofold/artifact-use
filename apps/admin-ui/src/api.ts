@@ -89,9 +89,6 @@ export type ConnectInfo = {
   site: Site;
   quick: { prompt: string; expiresAt: number } | null;
   tokens: AgentToken[];
-  claudeAdd: string;
-  mcpConfig: string;
-  codexConfig: string;
 };
 
 export type TeamMember = {

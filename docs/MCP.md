@@ -8,57 +8,58 @@ https://artifacts.iofold.com/mcp
 
 The repository also ships a local stdio MCP server for environments that need the tool itself to walk a folder on disk.
 
-## Auth
+## Choose One Auth Path
 
-Remote HTTP MCP requires auth from the first request. OAuth-capable clients receive a `401` with MCP protected-resource metadata and should prompt for WorkOS/AuthKit sign-in automatically.
+Remote HTTP MCP requires authentication from the first request. The admin's
+**Connect an agent** action copies one short, harness-neutral handoff: its
+creator token appears once, and it directs the agent to `/llms.txt` to choose
+one matching path. Do not configure both OAuth and bearer auth for the same
+server; a configured bearer token takes precedence over the OAuth flow.
 
-For OAuth-capable clients such as Codex, configure only the MCP URL. Do not add
-an `Authorization` header unless you are deliberately bypassing OAuth with a
-fresh bearer token; a stale or placeholder bearer value can force an
-`invalid_token` path instead of the normal OAuth login flow.
+### Codex Desktop, CLI, And IDE: Shared OAuth
 
-Codex currently loads HTTP MCP auth state into the running process. After
-running `codex mcp login artifact-use` from another shell, restart the active
-Codex session before expecting `mcp__artifact_use` calls to see the new token.
-If the deployment host changes, remove credentials for the old MCP resource
-before logging in again so the OAuth `resource` / token `aud` value matches:
+Codex desktop, CLI, and the IDE extension share `config.toml` and MCP OAuth
+credentials on the same host. Configure Artifact Use once with URL-only OAuth:
+
+1. In the ChatGPT desktop app, open **Settings → MCP servers → Add server**.
+2. Name it `artifact-use`, choose **Streamable HTTP**, and enter
+   `https://artifacts.iofold.com/mcp`.
+3. Select **Save**, then **Restart**.
+4. Select **Authenticate** and complete the browser sign-in.
+5. Run `/mcp` in the composer to confirm the server is connected.
+
+The CLI equivalent writes the same shared configuration and OAuth credentials:
 
 ```bash
-codex mcp get artifact-use
-codex mcp logout artifact-use
-codex mcp login artifact-use --scopes openid,profile,email,offline_access
+codex mcp add artifact-use --url https://artifacts.iofold.com/mcp
+codex mcp login artifact-use
 ```
 
-If logout cannot delete keyring-backed tokens, remove only the `artifact-use`
-records from `~/.codex/.credentials.json`, then log in and restart Codex.
+Do not attach the creator token or an `Authorization` header on this path.
 
-### Codex Bearer-Token Fallback
+If an existing `artifact-use` entry has `bearer_token_env_var`, remove that
+setting (or run `codex mcp remove artifact-use` and re-add the URL-only entry)
+before OAuth login. Codex tries a configured bearer token before stored OAuth
+credentials, so leaving the setting in place can produce the missing
+`ARTIFACT_USE_TOKEN` startup error instead of starting OAuth.
 
-Codex can bypass MCP OAuth entirely by reading a bearer token from an
-environment variable. Use this when Codex's OAuth refresh path keeps expiring or
-an active thread keeps stale MCP auth state.
+#### Codex CLI Bearer Fallback
 
-User journey:
-
-1. Sign in to Artifact Use in a browser.
-2. Open `/admin`.
-3. In **Agent setup**, click **Generate agent prompt**. The page shows a
-   one-paste prompt with the token embedded, plus the raw pieces below it.
-4. Copy the shell export into the environment that launches Codex.
-5. Add the bearer-token MCP block to `~/.codex/config.toml`.
-6. Start a fresh Codex process or open a new thread.
-
-Tokens can be revoked anytime in **Agent setup**; revocation takes effect on
-the token's next use.
-
-Shell environment:
+Use bearer auth only when OAuth is unavailable or unreliable. Export the
+creator token in the launcher terminal _before_ Codex starts, replace the
+URL-only entry with the bearer configuration, then restart Codex from that same
+terminal:
 
 ```bash
-export ARTIFACT_USE_API_BASE=https://artifacts.iofold.com
 export ARTIFACT_USE_TOKEN='au_creator_...'
+codex mcp remove artifact-use
+codex mcp add artifact-use \
+  --url https://artifacts.iofold.com/mcp \
+  --bearer-token-env-var ARTIFACT_USE_TOKEN
+codex
 ```
 
-Codex config:
+The equivalent persisted fallback config is:
 
 ```toml
 [mcp_servers.artifact-use]
@@ -66,12 +67,31 @@ url = "https://artifacts.iofold.com/mcp"
 bearer_token_env_var = "ARTIFACT_USE_TOKEN"
 ```
 
-Do not paste the token itself into `config.toml`, source files, prompts, or
-published artifact HTML. Rotate by minting a new token and revoking the old
-one in the admin.
+If startup reports `Environment variable ARTIFACT_USE_TOKEN ... is not set`,
+the token was not present in the environment that launched Codex. Exit Codex,
+export it in the parent terminal, and launch Codex again. An export performed
+inside an already-running Codex shell cannot change its parent process.
 
-For CLI usage, local stdio MCP, or non-OAuth clients, pass the same creator
-token explicitly through `ARTIFACT_USE_TOKEN`.
+### Claude Code: Hosted MCP With OAuth
+
+```bash
+claude mcp add --transport http \
+  artifact-use https://artifacts.iofold.com/mcp
+```
+
+Then open `/mcp` in Claude Code, select `artifact-use`, and choose
+**Authenticate**. Do not attach the creator token on this path.
+
+### Other MCP Clients
+
+Prefer hosted MCP OAuth when the client supports it. Configure only
+`https://artifacts.iofold.com/mcp` and complete the client's authentication
+prompt. If OAuth is unavailable, configure that URL with the supplied creator
+token as a bearer credential.
+
+Creator tokens can be revoked from `/admin/connect`; revocation takes effect on
+the token's next use. Keep tokens out of config files, source, logs, and
+published artifacts.
 
 ### Agent Connect (Device-Code Style)
 
@@ -83,31 +103,32 @@ When the agent has no token and no browser, it can request one itself:
    approve the code from a signed-in publisher session.
 3. Agent: `POST /api/v1/connect/poll` with `{"device_code": "..."}` →
    `{"status": "pending"}` until approval, then the bearer token (delivered
-   exactly once) plus a ready-to-follow setup prompt.
+   exactly once) plus a short, harness-neutral handoff prompt.
 
 Programmatic minting also exists for OAuth-authenticated identities:
 `POST /api/v1/tokens` `{"label": "...", "expires_days": 30}`. Creator tokens
 cannot mint further tokens.
 
-## Codex
+## Advanced Fallbacks
 
-Use the bundled Codex plugin under:
+Hosted MCP is the default. The repository's JSON-first CLI, direct HTTP API,
+and local stdio MCP server are advanced alternatives for clients without hosted
+MCP support or specialized shell workflows. They use:
 
-```text
-plugins/codex/artifact-use
+```bash
+export ARTIFACT_USE_API_BASE=https://artifacts.iofold.com
+export ARTIFACT_USE_TOKEN='au_creator_...'
 ```
 
-Or copy `integrations/codex.mcp.json` into a project `.mcp.json`. The default config uses HTTP MCP.
-
-## Claude Code
-
-Merge `integrations/claude-code/settings.example.json` into your Claude Code settings. The default config uses HTTP MCP.
+The portable skill lives under `skills/artifact-use`; the Codex plugin mirror
+lives under `plugins/codex/artifact-use`.
 
 ## Tools
 
 - `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP.
 - `artifact_upload_session`: create a draft and receive a 6-hour upload token for direct HTTP file upload from a shell/curl-capable agent.
 - `artifact_manage`: list artifacts, fetch stats, update access, or create share links. Use the returned `url_key` from `action: "list"` for exact management calls.
+- `artifact_comments`: list, reply to, resolve, or reopen feedback threads.
 
 ## File Publishing Over MCP
 
@@ -116,7 +137,7 @@ HTTP MCP cannot read local files by itself. Use one of these paths:
 - Remote `artifact_publish` with `html` for one HTML string.
 - Remote `artifact_publish` with `files` for small multi-file artifacts where the agent passes inline text or base64 file content. This is convenient but consumes MCP request size and may consume model context in some clients.
 - Remote `artifact_upload_session` for large files or folders when the agent can read local files and make HTTP requests. The tool returns `upload_token`, `upload_base`, and `complete_url`; upload files with `PUT` and complete with a manifest `POST`.
-- Local stdio MCP `artifact_publish` with `dir`, or the CLI `publish-folder`, for large folders. In this mode the tool reads files from disk and streams bytes to the hosted API; the model only sees the path, manifest, and final URL.
+- As an advanced fallback, local stdio MCP `artifact_publish` with `dir`, or the CLI `publish-folder`, for large folders. In this mode the tool reads files from disk and streams bytes to the hosted API; the model only sees the path, manifest, and final URL.
 
 Do not guess public URL keys. Publish with a lower-case artifact slug, then use the returned `url_key` for stats, access changes, and share links.
 

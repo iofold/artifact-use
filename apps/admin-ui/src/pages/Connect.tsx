@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { api, postForm, type MintedPrompt } from "../api";
-import { CopyBlock, Shell, Skeleton, ago, dateLabel } from "../ui";
+import { CopyButton, Shell, Skeleton, ago, dateLabel } from "../ui";
 
 export default function Connect() {
   const { data, isPending } = useQuery({
@@ -28,175 +28,161 @@ export default function Connect() {
 
   return (
     <Shell>
-      <section className="headline">
+      <section className="headline connect-headline">
         <div>
           <p className="eyebrow">Agent setup</p>
           <h1>Connect an agent</h1>
           <p className="muted">
-            Two paths: <strong>OAuth</strong> for agents with proper MCP support
-            (Claude Code), a <strong>bearer-token prompt</strong> for everything
-            else (Codex, custom agents). Agent asked you to approve a code?{" "}
-            <a href="/connect">
-              <strong>Approve it here →</strong>
-            </a>
+            Copy one compact handoff. The agent identifies its own harness and
+            follows the matching path in <a href="/llms.txt">/llms.txt</a>.
+            <span className="approve-line">
+              Agent already has a code?{" "}
+              <a href="/connect">
+                Approve an agent code
+                <svg
+                  className="inline-arrow"
+                  viewBox="0 0 16 16"
+                  aria-hidden="true"
+                  focusable="false"
+                >
+                  <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" />
+                </svg>
+              </a>
+            </span>
           </p>
         </div>
       </section>
       <section className="setup-page">
         {isPending || !data ? (
           <div className="setup-grid">
-            <Skeleton style={{ height: 120 }} />
-            <Skeleton style={{ height: 260 }} />
+            <Skeleton style={{ height: 190 }} />
             <Skeleton style={{ height: 70 }} />
           </div>
         ) : (
           <div className="setup-grid">
-            <div className="setup-paths">
-              <div className="path-card">
-                <p className="path-head">
-                  Path A · OAuth{" "}
-                  <span className="path-for">Claude Code, MCP clients</span>
-                </p>
-                <p className="mini">
-                  No token to copy — the agent signs in as you in the browser.
-                </p>
-                <div className="copywrap">
-                  <CopyBlock text={data.claudeAdd} />
+            {data.quick ? (
+              <section className="setup-handoff">
+                <div>
+                  <p className="eyebrow">Universal handoff</p>
+                  <h2>One short prompt. The agent picks the path.</h2>
+                  <p className="muted">
+                    It contains one workspace-scoped token and a pointer to the
+                    harness guide. The credential is not displayed on this page.
+                  </p>
+                </div>
+                <div className="handoff-actions">
+                  <CopyButton
+                    text={data.quick.prompt}
+                    label="Copy setup prompt"
+                    className="button setup-copy"
+                    icon
+                  />
+                  <a
+                    className="button ghost"
+                    href="/llms.txt"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Read harness guide ↗
+                  </a>
                 </div>
                 <p className="mini">
-                  Then <code>/mcp</code> in Claude Code →{" "}
-                  <strong>Authenticate</strong>. Other MCP clients: use the
-                  config under Manual setup below.
+                  <span>
+                    Valid until {dateLabel(data.quick.expiresAt)} · publish,
+                    read, access, stats, and feedback
+                  </span>
+                  <span>To rotate, revoke “Quick connect” below.</span>
                 </p>
-              </div>
-              <div className="path-card">
-                <p className="path-head">
-                  Path B · Bearer token{" "}
-                  <span className="path-for">Codex, everything else</span>
-                </p>
-                <p className="mini">
-                  For agents with weak or no OAuth support: paste one message
-                  with a scoped 30-day token baked in — token, endpoints, and
-                  instructions in a single prompt.
-                </p>
-                <p className="mini">
-                  Your prompt is ready below. Codex users: the bearer config is
-                  under Manual setup.
-                </p>
-              </div>
-            </div>
-            {minted ? (
-              <div className="quick-prompt">
-                <label htmlFor="minted-prompt">
-                  {minted.label || "Agent prompt"} — shown once, copy it now
-                </label>
-                <CopyBlock id="minted-prompt" text={minted.prompt} rows={12} />
-                <p className="mini">
-                  Valid until {dateLabel(minted.expiresAt)}. Scope: publish,
-                  read, manage access, and stats — this workspace only.
-                </p>
-              </div>
-            ) : null}
-            {data.quick ? (
-              <div className="quick-prompt">
-                <label htmlFor="quick-prompt">
-                  Ready to paste — connects any agent
-                </label>
-                <CopyBlock
-                  id="quick-prompt"
-                  text={data.quick.prompt}
-                  rows={12}
-                />
-                <p className="mini">
-                  One paste is the whole setup: a publish token scoped to this
-                  workspace (valid until {dateLabel(data.quick.expiresAt)}),
-                  endpoints, and instructions. The same prompt stays here across
-                  reloads; revoke its "Quick connect" token below to rotate it.
-                </p>
-              </div>
-            ) : null}
-            <form
-              className="token-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                mint.mutate();
-              }}
-            >
-              <div>
-                <label htmlFor="ap-label">Agent label</label>
-                <input
-                  id="ap-label"
-                  placeholder="codex on my-laptop"
-                  value={label}
-                  onChange={(e) => setLabel(e.target.value)}
-                />
-              </div>
-              <div>
-                <label htmlFor="ap-days">Expires in days</label>
-                <input
-                  id="ap-days"
-                  inputMode="numeric"
-                  placeholder="30"
-                  value={days}
-                  onChange={(e) => setDays(e.target.value)}
-                />
-              </div>
-              <button type="submit" disabled={mint.isPending}>
-                {mint.isPending ? "Generating…" : "Generate agent prompt"}
-              </button>
-            </form>
-            {data.tokens.length ? (
-              <ul className="token-list">
-                {data.tokens.map((token) => (
-                  <li key={token.id}>
-                    <span>
-                      <strong>{token.label || "Agent token"}</strong>
-                      <small>
-                        {token.source} · created {dateLabel(token.created_at)} ·
-                        expires {dateLabel(token.expires_at)} (
-                        {ago(token.created_at)})
-                      </small>
-                    </span>
-                    <button
-                      type="button"
-                      className="button small danger"
-                      onClick={() => revoke.mutate(token.id)}
-                    >
-                      Revoke
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              </section>
             ) : (
-              <p className="mini">
-                No active agent tokens yet. Copy the ready prompt above, or
-                approve an agent's connect code at{" "}
-                <a href="/connect">/connect</a>.
-              </p>
+              <div className="empty error-box">
+                <strong>Setup prompt unavailable</strong>
+                <span>Reload the page to prepare a new workspace token.</span>
+              </div>
             )}
             <details className="manual">
-              <summary>Manual setup — MCP URL and configs</summary>
+              <summary>Quick connect &amp; token management</summary>
               <div className="setup-grid">
-                <CopyBlock
-                  label="MCP URL"
-                  id="mcp-url"
-                  text={data.site.mcpUrl}
-                />
-                <CopyBlock
-                  label="OAuth MCP config (Claude Code, MCP clients)"
-                  id="mcp-json"
-                  text={data.mcpConfig}
-                  rows={8}
-                />
-                <CopyBlock
-                  label="Codex bearer config (~/.codex/config.toml)"
-                  id="mcp-toml"
-                  text={data.codexConfig}
-                  rows={4}
-                />
+                {minted ? (
+                  <div className="minted-prompt-row">
+                    <span>
+                      <strong>{minted.label || "Agent prompt"} is ready</strong>
+                      <small>
+                        Valid until {dateLabel(minted.expiresAt)} · shown only
+                        as a copy action
+                      </small>
+                    </span>
+                    <CopyButton
+                      text={minted.prompt}
+                      label="Copy prompt"
+                      className="button small"
+                    />
+                  </div>
+                ) : null}
+                <form
+                  className="token-form"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    mint.mutate();
+                  }}
+                >
+                  <div>
+                    <label htmlFor="ap-label">Agent label</label>
+                    <input
+                      id="ap-label"
+                      placeholder="agent on my-laptop"
+                      value={label}
+                      onChange={(e) => setLabel(e.target.value)}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="ap-days">Expires in days</label>
+                    <input
+                      id="ap-days"
+                      inputMode="numeric"
+                      placeholder="30"
+                      value={days}
+                      onChange={(e) => setDays(e.target.value)}
+                    />
+                  </div>
+                  <button type="submit" disabled={mint.isPending}>
+                    {mint.isPending ? "Generating…" : "Create another prompt"}
+                  </button>
+                </form>
+                {mint.isError ? (
+                  <p className="mini error-box">
+                    Could not create the prompt. Try again.
+                  </p>
+                ) : null}
+                {data.tokens.length ? (
+                  <ul className="token-list">
+                    {data.tokens.map((token) => (
+                      <li key={token.id}>
+                        <span>
+                          <strong>{token.label || "Agent token"}</strong>
+                          <small>
+                            {token.source} · created{" "}
+                            {dateLabel(token.created_at)}· expires{" "}
+                            {dateLabel(token.expires_at)} (
+                            {ago(token.created_at)})
+                          </small>
+                        </span>
+                        <button
+                          type="button"
+                          className="button small danger"
+                          onClick={() => revoke.mutate(token.id)}
+                        >
+                          Revoke
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="mini">No active agent tokens.</p>
+                )}
                 <p className="mini">
-                  Bearer tokens live in <code>ARTIFACT_USE_TOKEN</code> — never
-                  in config files, source, or published HTML.
+                  Prompts contain scoped credentials. Keep them out of source,
+                  logs, and published artifacts.
                 </p>
               </div>
             </details>

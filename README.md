@@ -67,68 +67,95 @@ where they were generated.
   element selection.
 - **Publisher dashboard** with artifact lists, stats, recent views, share links,
   access controls, and team invitations.
-- **HTTP MCP endpoint** for OAuth-capable agents.
+- **Hosted HTTP MCP endpoint** with OAuth and bearer authentication.
 - **Local stdio MCP server** for agents that need to walk and publish folders
   from disk.
 - **JSON-first CLI** for shell workflows and direct uploads.
 - **No agent-side Cloudflare credentials**. Agents publish through Artifact Use;
   the Worker owns R2/D1 access.
 
-## Agent Publishing Paths
+## Connect An Agent
 
-Use the hosted HTTP MCP endpoint when the agent can authenticate through OAuth:
+The admin's **Connect an agent** page gives you one short, harness-neutral
+handoff. Its creator token appears once, and it points the agent to
+[`/llms.txt`](https://artifacts.iofold.com/llms.txt) to select exactly one setup
+path.
 
-```json
-{
-  "mcpServers": {
-    "artifact-use": {
-      "type": "http",
-      "url": "https://artifacts.iofold.com/mcp"
-    }
-  }
-}
+### Codex Desktop, CLI, And IDE: Hosted MCP With OAuth
+
+Codex desktop, CLI, and the IDE extension share MCP configuration and OAuth
+credentials on the same host, so configure Artifact Use once with URL-only
+OAuth.
+
+In the ChatGPT desktop app, open **Settings → MCP servers → Add server**. Name
+the server `artifact-use`, choose **Streamable HTTP**, enter
+`https://artifacts.iofold.com/mcp`, then select **Save → Restart →
+Authenticate**. Confirm the connection with `/mcp`.
+
+The CLI equivalent is:
+
+```bash
+codex mcp add artifact-use --url https://artifacts.iofold.com/mcp
+codex mcp login artifact-use
 ```
 
-Tokenless agents can self-serve with the connect flow — no browser needed on
-the agent side:
+This OAuth path does not use the creator token from the handoff. If an existing
+`artifact-use` config contains `bearer_token_env_var`, remove that setting (or
+remove and re-add the server URL-only) before login: Codex tries a configured
+bearer token before OAuth.
+
+#### Codex CLI Bearer Fallback
+
+Use bearer auth only when Codex OAuth is unavailable or unreliable. The token
+must exist in the terminal that launches Codex:
+
+```bash
+export ARTIFACT_USE_TOKEN='au_creator_...'
+codex mcp remove artifact-use
+codex mcp add artifact-use \
+  --url https://artifacts.iofold.com/mcp \
+  --bearer-token-env-var ARTIFACT_USE_TOKEN
+codex
+```
+
+Restart Codex after changing auth modes. Exporting the token inside an
+already-running Codex shell cannot change the parent Codex process environment.
+
+### Claude Code: Hosted MCP With OAuth
+
+```bash
+claude mcp add --transport http \
+  artifact-use https://artifacts.iofold.com/mcp
+```
+
+Then open `/mcp` in Claude Code, select `artifact-use`, and choose
+**Authenticate**. This path does not use the creator token from the handoff.
+
+Other clients should prefer hosted MCP OAuth. If the client cannot complete MCP
+OAuth, configure the same hosted MCP URL with the supplied creator token as its
+bearer credential. Do not configure OAuth and bearer auth at the same time.
+
+Tokenless agents can self-serve with the connect flow; the agent itself does not
+need a browser:
 
 ```text
 POST /api/v1/connect/start            -> device_code + user_code + verification_url
 (human approves the code at /connect)
-POST /api/v1/connect/poll             -> bearer token + one-paste setup prompt
+POST /api/v1/connect/poll             -> bearer token + short handoff prompt
 ```
 
-Codex fallback when OAuth refresh is unreliable:
+### Advanced Fallbacks
 
-1. Sign in at `https://artifacts.iofold.com/admin`.
-2. In **Agent setup**, generate an agent prompt (a scoped bearer token is
-   embedded; tokens are listed and revocable there too).
-3. Store the token in the environment that launches Codex:
-
-```bash
-export ARTIFACT_USE_API_BASE=https://artifacts.iofold.com
-export ARTIFACT_USE_TOKEN='au_creator_...'
-```
-
-4. Add this to `~/.codex/config.toml`:
-
-```toml
-[mcp_servers.artifact-use]
-url = "https://artifacts.iofold.com/mcp"
-bearer_token_env_var = "ARTIFACT_USE_TOKEN"
-```
-
-Then start a fresh Codex process or open a new thread.
-
-For non-OAuth clients, local CLI usage, or the bundled stdio MCP server, use the
-same environment variables:
+The CLI, direct HTTP API, and bundled local stdio MCP server are available for
+harnesses without hosted MCP support and for specialized shell workflows. They
+use the same creator token:
 
 ```bash
 export ARTIFACT_USE_API_BASE=https://artifacts.iofold.com
 export ARTIFACT_USE_TOKEN=<artifact-use-creator-token>
 ```
 
-Publish a folder with the CLI:
+For example, publish a folder with the CLI:
 
 ```bash
 npm run cli -- publish-folder --json '{
@@ -142,12 +169,15 @@ npm run cli -- publish-folder --json '{
 The CLI walks the folder, creates a draft version, uploads every file through
 service-owned HTTP endpoints, completes the version, and returns a live URL.
 
-MCP exposes two main tools:
+Hosted MCP exposes these main tools:
 
 - `artifact_publish`: publish single HTML, small inline multi-file payloads, or
   a local `dir` when using the bundled stdio MCP.
+- `artifact_upload_session`: create a short-lived direct upload session for
+  folders and large or multi-file artifacts.
 - `artifact_manage`: list artifacts, fetch stats, update access, and create
   share links. Use the returned `url_key` for exact management calls.
+- `artifact_comments`: list, reply to, resolve, and reopen feedback threads.
 
 For large artifacts, use the direct upload flow. The server creates a short-lived
 upload session, the agent uploads bytes with `PUT`, and the final manifest flips

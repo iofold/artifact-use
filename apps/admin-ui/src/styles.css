@@ -84,8 +84,10 @@ h3 {
   color: var(--ink);
 }
 .top nav a.active {
-  color: var(--ink);
-  background: var(--line-soft);
+  color: var(--accent-deep);
+  background: transparent;
+  font-weight: 600;
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 .button,
 button {
@@ -208,6 +210,32 @@ code {
 }
 .headline .muted {
   margin: 0;
+}
+.headline .muted a {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.connect-headline {
+  padding-bottom: 23px;
+  border-bottom-color: var(--accent-deep);
+}
+.inline-arrow {
+  width: 15px;
+  height: 15px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
+.approve-line {
+  display: block;
+  margin-top: 4px;
 }
 .metrics {
   display: flex;
@@ -925,52 +953,78 @@ code {
   gap: 14px;
   margin-top: 22px;
 }
-.setup-paths {
+.setup-handoff {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 14px;
-}
-.path-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 20px 28px;
   background: var(--panel);
-  border: 1px solid var(--line);
+  border: 1px solid var(--accent);
   border-radius: 8px;
-  padding: 14px;
+  padding: 22px 22px 18px;
+  box-shadow: inset 4px 0 0 var(--accent);
 }
-.path-head {
-  margin: 0 0 8px;
-  font: 600 12px var(--mono);
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--accent);
+.setup-handoff .eyebrow {
+  margin: 0 0 7px;
 }
-.path-for {
-  color: var(--muted);
-  letter-spacing: 0.04em;
-  text-transform: none;
-  font-weight: 500;
-  margin-left: 6px;
+.setup-handoff h2 {
+  margin: 0;
+  font-size: clamp(22px, 3vw, 31px);
+  letter-spacing: -0.025em;
 }
-.path-card .mini {
+.setup-handoff .muted {
   margin: 8px 0 0;
+  max-width: 64ch;
 }
-.path-card .copywrap {
-  margin-top: 8px;
+.handoff-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 9px;
+  flex-wrap: wrap;
 }
-.quick-prompt {
-  border: 1px dashed var(--accent);
-  background: var(--panel);
-  border-radius: 8px;
-  padding: 14px;
+.setup-handoff > .mini {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding-top: 13px;
+  border-top: 1px solid var(--line-soft);
+  color: #3f4d46;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.55;
 }
-.quick-prompt label {
-  margin: 0 0 8px;
-  color: var(--accent);
+.setup-handoff > .mini span {
+  display: block;
 }
-.quick-prompt textarea {
-  min-height: 210px;
+.setup-handoff > .mini span + span {
+  margin-top: 2px;
 }
-.quick-prompt .mini {
-  margin-bottom: 0;
+.setup-copy {
+  min-width: 158px;
+  gap: 7px;
+}
+.copy-icon {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.35;
+}
+.minted-prompt-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 14px;
+  border: 1px solid var(--accent);
+  border-radius: 7px;
+  background: rgba(11, 93, 82, 0.04);
+}
+.minted-prompt-row small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
 }
 .copywrap {
   position: relative;
@@ -1116,7 +1170,7 @@ code {
   .sheet-stats {
     grid-template-columns: 1fr 1fr;
   }
-  .setup-paths,
+  .setup-handoff,
   .token-form,
   .team-panel,
   .team-grid,
@@ -1126,6 +1180,9 @@ code {
   .transfer-form {
     grid-template-columns: 1fr;
   }
+  .handoff-actions {
+    justify-content: flex-start;
+  }
   .art-table.super .art-tr {
     grid-template-columns: minmax(0, 1fr) 70px;
   }
@@ -1134,5 +1191,29 @@ code {
   }
   .onboard ol {
     grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 620px) {
+  .top {
+    height: auto;
+    min-height: 92px;
+    padding-top: 10px;
+    padding-bottom: 9px;
+    align-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .brand {
+    width: 100%;
+  }
+  .top nav {
+    width: 100%;
+    gap: 3px;
+    overflow-x: auto;
+  }
+  .top nav a {
+    padding: 6px 8px;
+    font-size: 13.5px;
+    white-space: nowrap;
   }
 }

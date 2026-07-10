@@ -902,14 +902,10 @@ async function adminConnectJson(
     listAgentTokens(env, session.orgId),
     quickConnectPrompt(env, session),
   ]);
-  const base = siteBaseUrl(env);
   return json({
     site: siteJson(env),
     quick,
     tokens,
-    claudeAdd: `claude mcp add --transport http artifact-use ${base}/mcp`,
-    mcpConfig: mcpConfig(env),
-    codexConfig: codexBearerConfig(env),
   });
 }
 
@@ -1685,14 +1681,6 @@ function mcpConfig(env: Env): string {
     null,
     2,
   );
-}
-
-function codexBearerConfig(env: Env): string {
-  return [
-    "[mcp_servers.artifact-use]",
-    `url = "${env.SITE_BASE_URL}/mcp"`,
-    'bearer_token_env_var = "ARTIFACT_USE_TOKEN"',
-  ].join("\n");
 }
 
 function allowlistLines(value: string | null): string {

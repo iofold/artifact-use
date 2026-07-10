@@ -44,12 +44,22 @@ export function Shell({ me, children }: { me?: Me; children: ReactNode }) {
   );
 }
 
-export function CopyButton({ text }: { text: string }) {
+export function CopyButton({
+  text,
+  label = "Copy",
+  className = "copy-lite",
+  icon = false,
+}: {
+  text: string;
+  label?: string;
+  className?: string;
+  icon?: boolean;
+}) {
   const [copied, setCopied] = useState(false);
   return (
     <button
       type="button"
-      className={`copy-lite${copied ? " copied" : ""}`}
+      className={`${className}${copied ? " copied" : ""}`}
       onClick={() => {
         void navigator.clipboard.writeText(text).then(() => {
           setCopied(true);
@@ -57,7 +67,18 @@ export function CopyButton({ text }: { text: string }) {
         });
       }}
     >
-      {copied ? "Copied" : "Copy"}
+      {!copied && icon ? (
+        <svg
+          className="copy-icon"
+          viewBox="0 0 16 16"
+          aria-hidden="true"
+          focusable="false"
+        >
+          <rect x="5" y="2.5" width="8" height="9" rx="1.5" />
+          <path d="M10.5 11.5v.5A1.5 1.5 0 0 1 9 13.5H3A1.5 1.5 0 0 1 1.5 12V5A1.5 1.5 0 0 1 3 3.5h2" />
+        </svg>
+      ) : null}
+      {copied ? "Copied" : label}
     </button>
   );
 }

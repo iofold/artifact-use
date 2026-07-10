@@ -417,8 +417,9 @@
             >Sign in at
             <a href="https://artifacts.iofold.com/admin"
               >artifacts.iofold.com/admin</a
-            >, copy the ready-made connect prompt, and paste it to any agent.
-            That one paste is the entire setup.</span
+            >, copy the compact agent handoff, and paste it to any agent. The
+            agent follows the matching harness guide in
+            <code>/llms.txt</code>.</span
           >
         </div>
 
@@ -428,9 +429,10 @@
         </p>
         <ol>
           <li>
-            <strong>Agents publish</strong> over MCP, CLI, or plain HTTP —
-            single HTML files or complete folders with images, data, and PDFs.
-            Versions are immutable and promoted atomically.
+            <strong>Agents publish</strong> over hosted MCP — single HTML files
+            or complete folders with images, data, and PDFs. CLI, local stdio
+            MCP, and plain HTTP remain available as advanced fallbacks. Versions
+            are immutable and promoted atomically.
           </li>
           <li>
             <strong>People review</strong> at one stable link behind an email,
@@ -466,13 +468,13 @@
           <li>
             <strong>Copy the connect prompt.</strong> When your workspace hasn't
             published recently, the admin shows a ready one-paste prompt under
-            <em>Agent setup</em>. It carries a scoped publish token, endpoints,
-            and instructions.
+            <em>Connect an agent</em>. It contains one scoped creator token and
+            a short reference to <code>/llms.txt</code>.
           </li>
           <li>
             <strong>Paste it to your agent</strong> — Claude Code, Codex, or
-            anything that can call HTTP. The agent verifies itself and knows how
-            to publish.
+            another MCP client. The agent identifies its harness and follows
+            exactly one matching auth path.
           </li>
           <li>
             <strong>Ask for an artifact.</strong> "Publish this prototype with
@@ -487,72 +489,92 @@
 
         <h2 id="connect">Connect an agent</h2>
         <p>
-          Two paths — pick by what your agent supports. Both end with the same
-          capability: publish and manage artifacts in your workspace.
+          The admin gives you one compact, harness-neutral handoff. The creator
+          token appears once; setup details stay in
+          <a href="https://artifacts.iofold.com/llms.txt">/llms.txt</a> so the
+          agent can select the right path for its current harness.
         </p>
 
         <div class="grid2 paths">
           <div class="card path-a">
-            <p class="badge">Path A · OAuth</p>
-            <h3>Claude Code &amp; MCP-proper clients</h3>
+            <p class="badge">Codex desktop · CLI · IDE</p>
+            <h3>One shared OAuth connection</h3>
             <p>
-              The smoothest path when the agent supports MCP OAuth: no tokens to
-              copy, the agent signs in as you in the browser.
+              These Codex surfaces share MCP config and OAuth credentials on the
+              same host. In the ChatGPT desktop app, open
+              <strong>Settings → MCP servers → Add server</strong>. Name it
+              <code>artifact-use</code>, choose
+              <strong>Streamable HTTP</strong>, and enter the hosted MCP URL.
+              Then select <strong>Save → Restart → Authenticate</strong> and
+              confirm with <code>/mcp</code>.
             </p>
-            <pre><code>claude mcp add --transport http \
-  artifact-use https://artifacts.iofold.com/mcp
-<span class="c"># then /mcp in Claude Code → Authenticate</span></code></pre>
-            <p>Other OAuth-capable MCP clients need only the config:</p>
-            <pre><code>{
-  "mcpServers": {
-    "artifact-use": { "type": "http",
-      "url": "https://artifacts.iofold.com/mcp" }
-  }
-}</code></pre>
+            <pre><code><span class="c"># CLI equivalent</span>
+codex mcp add artifact-use --url https://artifacts.iofold.com/mcp
+codex mcp login artifact-use</code></pre>
+            <p>
+              Remove any existing <code>bearer_token_env_var</code> before OAuth
+              because Codex tries a configured bearer before stored OAuth. Do
+              not use the creator token on this path.
+            </p>
           </div>
           <div class="card path-b">
-            <p class="badge b">Path B · Bearer token</p>
-            <h3>Codex &amp; agents with weak OAuth</h3>
+            <p class="badge b">Codex CLI fallback · Bearer</p>
+            <h3>Only when OAuth is unavailable or unreliable</h3>
             <p>
-              One paste is the whole setup: in
-              <a href="https://artifacts.iofold.com/admin#agent-setup"
-                >Admin → Agent setup</a
-              >, copy the ready prompt (30-day scoped token embedded) into the
-              agent chat. Revoke it anytime from the same page.
+              Export the supplied token in the terminal that will launch Codex,
+              replace the URL-only entry with bearer auth, then restart Codex
+              from that same terminal.
             </p>
-            <p>
-              Codex specifically — export the token and point the MCP server at
-              it:
-            </p>
-            <pre><code><span class="c"># shell</span>
-export ARTIFACT_USE_API_BASE=https://artifacts.iofold.com
+            <pre><code><span class="c"># launcher terminal, before Codex starts</span>
 export ARTIFACT_USE_TOKEN='au_creator_…'
-
-<span class="c"># ~/.codex/config.toml</span>
-[mcp_servers.artifact-use]
-url = "https://artifacts.iofold.com/mcp"
-bearer_token_env_var = "ARTIFACT_USE_TOKEN"</code></pre>
+codex mcp remove artifact-use
+codex mcp add artifact-use \
+  --url https://artifacts.iofold.com/mcp \
+  --bearer-token-env-var ARTIFACT_USE_TOKEN
+codex</code></pre>
+            <p>
+              An export inside an already-running Codex shell cannot change the
+              parent Codex process environment.
+            </p>
+          </div>
+          <div class="card path-a">
+            <p class="badge">Claude Code · OAuth</p>
+            <h3>Authenticate from <code>/mcp</code></h3>
+            <pre><code>claude mcp add --transport http \
+  artifact-use https://artifacts.iofold.com/mcp
+<span class="c"># then /mcp → artifact-use → Authenticate</span></code></pre>
+            <p>Do not use the creator token on this path.</p>
+          </div>
+          <div class="card">
+            <p class="badge">Other clients</p>
+            <h3>Prefer OAuth, bearer as fallback</h3>
+            <p>
+              Configure the hosted MCP URL and use OAuth when supported. If the
+              client cannot complete OAuth, use the supplied creator token as
+              its bearer credential. Configure one auth mode, not both.
+            </p>
           </div>
         </div>
 
         <div class="note">
-          <strong>Which path?</strong> Claude Code → Path A. Codex → Path B (its
-          MCP OAuth token refresh is unreliable). Anything else that can send an
-          HTTP header → Path B works everywhere. Either way, the agent verifies
-          itself with <code>GET /api/v1/me</code> and should read
+          <strong>Why keep the handoff short?</strong> Harness-specific setup
+          can evolve in
+          <a href="https://artifacts.iofold.com/llms.txt">/llms.txt</a>
+          without minting a longer prompt or repeating its secret. Agents can
+          read
           <a href="https://artifacts.iofold.com/llms-full.txt"
             >/llms-full.txt</a
           >
-          once for publishing rules and limits.
+          for the complete publishing rules and limits after connecting.
         </div>
 
         <h3>
-          Agent-initiated: device connect
+          Advanced: agent-initiated device connect
           <span class="pill">no browser, no token yet</span>
         </h3>
         <p>
-          A tokenless agent can also start Path B itself — it requests a code,
-          you approve it, it polls for its token:
+          A tokenless agent can request a code, ask you to approve it, then poll
+          for its token:
         </p>
         <pre><code><span class="c"># agent asks for a code</span>
 POST https://artifacts.iofold.com/api/v1/connect/start
@@ -597,9 +619,19 @@ POST https://artifacts.iofold.com/api/v1/connect/poll
               <code>url_key</code> for exact management calls.
             </td>
           </tr>
+          <tr>
+            <td><code>artifact_comments</code></td>
+            <td>List, reply to, resolve, or reopen feedback threads.</td>
+          </tr>
         </table>
 
-        <h3>CLI</h3>
+        <p>
+          Hosted MCP is the normal path. The CLI, direct HTTP API, and bundled
+          local stdio MCP server are advanced alternatives for harnesses without
+          hosted MCP support and specialized shell workflows.
+        </p>
+
+        <h3>Advanced: CLI</h3>
         <pre><code><span class="c"># single HTML file</span>
 artifact-use publish-html --json '{
   "artifact": "claims-demo",
@@ -616,7 +648,7 @@ artifact-use publish-folder --json '{
   "gate_level": "email"
 }'</code></pre>
 
-        <h3>HTTP API</h3>
+        <h3>Advanced: HTTP API</h3>
         <pre><code><span class="c"># one-call HTML publish</span>
 POST /api/v1/publish/html
      {"artifact": "claims-demo", "title": "Claims Demo",
@@ -628,7 +660,7 @@ POST /api/v1/publish/start          <span class="c"># → version_id, upload_bas
 PUT  {upload_base}{path}            <span class="c"># one request per file</span>
 POST /api/v1/publish/{version_id}/complete   <span class="c"># manifest JSON</span></code></pre>
         <p>
-          All publish calls take
+          All direct HTTP publish calls take
           <code>Authorization: Bearer &lt;token&gt;</code>. Republishing the
           same <code>artifact</code> slug creates a new immutable version and
           atomically promotes it — the public URL never changes.
@@ -868,8 +900,8 @@ PATCH /_au/comments   {"artifact_key": "…", "id": 42, "resolved": true}</code>
           </li>
           <li>
             Every token is listed under
-            <a href="https://artifacts.iofold.com/admin#agent-setup"
-              >Admin → Agent setup</a
+            <a href="https://artifacts.iofold.com/admin/connect"
+              >Admin → Connect an agent</a
             >
             with its label, source, and expiry — revocation is immediate.
           </li>

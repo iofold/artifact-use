@@ -24,15 +24,16 @@ Consuming an artifact (no browser needed):
 - Comments (read + write, same bearer as reads): GET {site}/_au/comments?artifact_key={key}&status=open|resolved|all&since=<unix> lists threads; POST {artifact_key, body, parent_id?, page_path?, target?} comments or replies and returns the created comment id; PATCH {artifact_key, id, resolved:true|false} resolves/reopens a thread.
 - Publishers close the loop with their own token: artifact_comments MCP tool, CLI \`artifact-use comments\`, or /api/v1/artifacts/{url_key}/comments (GET with the same filters, POST to reply, PATCH {id, resolved}). Owner tokens also work directly on /_au/comments.
 
-Agent setup summary:
-1. Prefer HTTP MCP at ${base}/mcp. OAuth-capable clients should configure only the URL and use the MCP auth prompt.
-2. No token and no browser? Self-serve a publisher token: POST ${base}/api/v1/connect/start (JSON, optional {"agent_label": "..."}) -> tell your human to approve at the returned verification_url with the user_code -> poll ${base}/api/v1/connect/poll {"device_code": "..."} until it returns your token and a setup prompt.
-3. Humans can also mint a token in the admin: sign in at ${base}/admin, use "Connect an agent", and paste the generated prompt (token embedded) to the agent.
-4. Bearer tokens (au_creator_...) work everywhere: HTTP MCP at ${base}/mcp (Codex: bearer_token_env_var = "ARTIFACT_USE_TOKEN"), the HTTP API, the CLI, and local stdio MCP via ARTIFACT_USE_API_BASE=${base} and ARTIFACT_USE_TOKEN.
-5. Verify a token with GET ${base}/api/v1/me. Install or create a skill named artifact-use using the guidance in ${base}/llms-full.txt.
-6. Use artifact_publish for one HTML string or small inline files.
-7. Use artifact_upload_session, local stdio MCP, or CLI publish-folder for local folders and large/multi-file artifacts.
-8. Do not use Wrangler, Cloudflare API tokens, direct R2, or direct D1 for publishing artifacts.
+Agent setup — identify the current harness and follow exactly one path:
+
+- Codex desktop / CLI / IDE (OAuth default; do not use the creator token): These surfaces share MCP config and OAuth credentials on the same host. Use a URL-only artifact-use entry; remove any existing bearer_token_env_var before OAuth because bearer configuration is tried first. Desktop: Open Settings -> MCP servers -> Add server, choose Streamable HTTP, enter ${base}/mcp, Save, Restart, then Authenticate. CLI: run \`codex mcp add artifact-use --url ${base}/mcp\` and \`codex mcp login artifact-use\`. Run /mcp to confirm it is connected.
+- Codex CLI bearer fallback (only when OAuth is unavailable or unreliable): The launcher terminal must contain ARTIFACT_USE_TOKEN before starting Codex. Configure with \`codex mcp add artifact-use --url ${base}/mcp --bearer-token-env-var ARTIFACT_USE_TOKEN\`, then start or restart Codex from that terminal and run /mcp. An export run inside an already-running Codex session cannot change the parent Codex environment.
+- Claude Code (OAuth; do not use the creator token): Run \`claude mcp add --transport http artifact-use ${base}/mcp\`, then open /mcp, select artifact-use, and Authenticate in the browser.
+- Other harnesses: Prefer hosted MCP OAuth when supported. Otherwise configure ${base}/mcp with the supplied creator token as its bearer credential. See ${base}/llms-full.txt for client-neutral config and non-MCP fallbacks.
+
+After connection, prefer the MCP tools: artifact_publish for one HTML string or small inline files; artifact_upload_session for local folders or large/multi-file artifacts; artifact_manage for stats/access/share links; artifact_comments for feedback. Never use Wrangler, Cloudflare API tokens, direct R2, or direct D1 for publishing.
+
+No token yet? POST ${base}/api/v1/connect/start, ask the human to approve its code, then poll ${base}/api/v1/connect/poll. A human can also mint or revoke creator tokens at ${base}/admin/connect.
 `);
 }
 
@@ -47,15 +48,73 @@ Artifact Use is a Cloudflare-backed artifact host for agents. It exposes HTTP MC
 
 Use this order:
 
-1. HTTP MCP at \`${base}/mcp\` for OAuth-capable agents.
-2. Local stdio MCP or CLI when the agent needs to walk a local folder.
+1. Hosted HTTP MCP at \`${base}/mcp\`, using the auth path for the current harness.
+2. Local stdio MCP or CLI only when the agent needs to walk a local folder or the hosted MCP is unavailable.
 3. Hosted API only when MCP/CLI is unavailable.
 
 Never publish by using Wrangler, Cloudflare API tokens, R2 credentials, or direct D1 access.
 
 ## 2. MCP setup
 
-For OAuth-capable clients, configure:
+Choose one path. Do not combine a bearer-token setting with OAuth on the same
+MCP entry; Codex tries configured bearer credentials before its OAuth fallback.
+
+### Codex desktop, CLI, and IDE: OAuth default
+
+These Codex surfaces share \`~/.codex/config.toml\` and MCP OAuth credentials
+on the same host. A single URL-only entry therefore works across them:
+
+\`\`\`toml
+[mcp_servers.artifact-use]
+url = "${base}/mcp"
+\`\`\`
+
+Codex desktop:
+
+1. Open Settings -> MCP servers -> Add server.
+2. Name it \`artifact-use\`, choose Streamable HTTP, and enter \`${base}/mcp\`.
+3. Save, select Restart, then Authenticate in the server list.
+4. Complete browser sign-in and run \`/mcp\` in the composer to verify it.
+
+Codex CLI equivalent:
+
+\`\`\`bash
+codex mcp add artifact-use --url ${base}/mcp
+codex mcp login artifact-use
+\`\`\`
+
+If an existing entry contains \`bearer_token_env_var\`, remove that key before
+using OAuth. Adding \`auth = "oauth"\` while leaving the bearer key in place does
+not fix a missing-environment-variable startup failure.
+
+### Codex CLI: bearer fallback
+
+Use bearer MCP only when OAuth is unavailable or unreliable. The token must be
+present in the environment that launches Codex—not merely exported by a child
+shell inside an already-running Codex session:
+
+\`\`\`bash
+export ARTIFACT_USE_TOKEN='au_creator_...'
+codex mcp add artifact-use --url ${base}/mcp --bearer-token-env-var ARTIFACT_USE_TOKEN
+codex
+\`\`\`
+
+If the server entry already exists, update it to the same URL and bearer env
+name instead of creating a duplicate. Restart Codex from that launcher terminal,
+then run \`/mcp\` before claiming the connection works.
+
+### Claude Code: OAuth
+
+\`\`\`bash
+claude mcp add --transport http artifact-use ${base}/mcp
+\`\`\`
+
+Then open \`/mcp\`, select \`artifact-use\`, and Authenticate in the browser.
+Do not add a creator token or static Authorization header to this path.
+
+### Other OAuth-capable clients
+
+Configure a URL-only HTTP server:
 
 \`\`\`json
 {
@@ -74,48 +133,7 @@ The MCP endpoint requires auth from the first request and advertises protected-r
 ${base}/.well-known/oauth-protected-resource
 \`\`\`
 
-For OAuth-capable clients such as Codex, configure only the MCP URL. Do not add
-an \`Authorization\` header unless you are deliberately bypassing OAuth with a
-fresh bearer token; a stale or placeholder bearer value can force an
-\`invalid_token\` path instead of the normal OAuth login flow.
-
-Codex currently loads HTTP MCP auth state into the running process. After
-running \`codex mcp login artifact-use\` from another shell, restart the active
-Codex session before expecting \`mcp__artifact_use\` calls to see the new token.
-If the deployment host changes, remove credentials for the old MCP resource
-before logging in again so the OAuth \`resource\` / token \`aud\` value matches:
-
-\`\`\`bash
-codex mcp get artifact-use
-codex mcp logout artifact-use
-codex mcp login artifact-use --scopes openid,profile,email,offline_access
-\`\`\`
-
-If logout cannot delete keyring-backed tokens, remove only the \`artifact-use\`
-records from \`~/.codex/.credentials.json\`, then log in and restart Codex.
-
-Codex bearer fallback, when MCP OAuth refresh is unreliable:
-
-1. Sign in at ${base}/admin.
-2. In Agent setup, create a Codex token.
-3. Export the token before starting Codex:
-
-\`\`\`bash
-export ARTIFACT_USE_API_BASE=${base}
-export ARTIFACT_USE_TOKEN='au_creator_...'
-\`\`\`
-
-4. Add this to \`~/.codex/config.toml\`:
-
-\`\`\`toml
-[mcp_servers.artifact-use]
-url = "${base}/mcp"
-bearer_token_env_var = "ARTIFACT_USE_TOKEN"
-\`\`\`
-
-Then start a fresh Codex process or open a new thread.
-
-For non-OAuth clients, CLI, or local stdio MCP, use the same token:
+For non-OAuth clients, the Artifact Use CLI, or local stdio MCP, use the creator token:
 
 \`\`\`bash
 export ARTIFACT_USE_API_BASE=${base}
@@ -148,11 +166,9 @@ Artifact Use publishes static artifacts to ${base} without exposing Cloudflare c
 ## Core Rules
 
 - Never use Wrangler, Cloudflare API tokens, direct R2 credentials, or direct D1 access for publishing artifacts.
-- Prefer hosted HTTP MCP at ${base}/mcp; OAuth-capable clients should authenticate through the MCP prompt.
-- For OAuth-capable clients, configure only the MCP URL. Do not add an Authorization header unless you are intentionally passing a fresh bearer token.
-- After codex mcp login artifact-use, restart the active Codex session before using mcp__artifact_use; Codex may keep the old HTTP MCP auth state in memory.
-- If Codex MCP OAuth refresh is unreliable, sign in at /admin, create a Codex token in Agent setup, export it as ARTIFACT_USE_TOKEN, and set bearer_token_env_var = "ARTIFACT_USE_TOKEN" for the MCP server.
-- Use ARTIFACT_USE_TOKEN for the Codex bearer fallback, CLI, local stdio MCP, or non-OAuth clients.
+- Read ${base}/llms.txt and follow exactly one setup path for the current harness.
+- Prefer hosted HTTP MCP at ${base}/mcp. Codex desktop/CLI/IDE share a URL-only OAuth entry on the same host; remove bearer_token_env_var before using OAuth. Claude Code also uses URL-only OAuth.
+- Use ARTIFACT_USE_TOKEN only for a non-OAuth client, local stdio/CLI, or the Codex CLI bearer fallback. For that fallback, the variable must exist before Codex starts; restart from the launcher terminal after configuring it.
 - Use artifact_publish for a single HTML string or small inline multi-file payloads.
 - Use artifact_upload_session, local stdio MCP with dir, or the CLI for local folders, large files, images, PDFs, or multi-file artifacts.
 - Use artifact_manage for list, stats, access changes, and share links. action: "list" returns artifact url_key values for exact management calls, plus open_comments counts.
@@ -341,10 +357,8 @@ Report:
 `);
 }
 
-// One-paste prompt handed to a publishing agent together with a fresh creator
-// bearer token. Publisher-side sibling of the viewer handoff prompt in
-// serve.ts handleAgentToken: same shape — capability line, credential,
-// numbered steps, upgrade pointer.
+// Short, harness-neutral handoff: the creator token appears once and all
+// client-specific setup stays behind the stable /llms.txt pointer.
 export function agentSetupPrompt(
   env: Env,
   token: string,
@@ -353,23 +367,12 @@ export function agentSetupPrompt(
   const base = siteBaseUrl(env);
   const expires = new Date(expiresAt * 1000).toISOString();
   return [
-    `You are connected to Artifact Use — publish and manage web artifacts (HTML tools, dashboards, static folders, PDFs) at ${base}.`,
-    ``,
-    `Bearer token (publish + manage, expires ${expires}) — send on every call:`,
-    `  Authorization: Bearer ${token}`,
-    ``,
-    `1. Verify:   GET ${base}/api/v1/me`,
-    `2. Learn:    GET ${base}/llms-full.txt   (publishing rules, MCP tools, limits)`,
-    `3. Publish:  MCP at ${base}/mcp accepts this same bearer token`,
-    `             (Codex config.toml: url = "${base}/mcp", bearer_token_env_var = "ARTIFACT_USE_TOKEN").`,
-    `             For the HTTP API or CLI instead:`,
-    `               export ARTIFACT_USE_API_BASE=${base}`,
-    `               export ARTIFACT_USE_TOKEN='${token}'`,
-    `4. Manage:   GET ${base}/api/v1/artifacts   (stats, access, share links, open_comments per artifact)`,
-    `5. Feedback: GET ${base}/api/v1/artifacts/{url_key}/comments?status=open   -> open threads;`,
-    `             POST {body, parent_id} replies, PATCH {id, resolved:true} resolves (same URL).`,
-    ``,
-    `Keep this token out of committed files and published HTML.`,
+    `Connect this agent to Artifact Use at ${base}.`,
+    `Creator token (publish + manage, expires ${expires}):`,
+    token,
+    `Read ${base}/llms.txt, identify the current harness, and follow exactly one matching setup path.`,
+    `Prefer hosted MCP; use this token only when that path requires bearer auth.`,
+    `Keep the token out of repositories, logs, and published artifacts.`,
   ].join("\n");
 }
 
