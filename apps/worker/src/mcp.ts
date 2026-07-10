@@ -1,5 +1,6 @@
 import type { Env } from "./types";
 import {
+  artifactCommentsTool,
   artifactManageTool,
   artifactPublishTool,
   artifactUploadSessionTool,
@@ -15,6 +16,7 @@ const TOOLS = [
   artifactPublishTool,
   artifactUploadSessionTool,
   artifactManageTool,
+  artifactCommentsTool,
 ];
 
 export async function handleMcp(request: Request, env: Env): Promise<Response> {
@@ -81,15 +83,21 @@ type ApiHandler = (
 ) => Promise<Response>;
 
 // The MCP tools are thin adapters over the HTTP API: build an internal Request
-// and dispatch it straight to the route handler.
+// and dispatch it straight to the route handler. `query` rides only on the
+// Request URL — route matching happens on the bare `path`.
 function callApi(
   request: Request,
   env: Env,
   handler: ApiHandler,
   path: string,
   init: RequestInit,
+  query = "",
 ): Promise<Response> {
-  return handler(new Request(new URL(path, request.url), init), env, path);
+  return handler(
+    new Request(new URL(path + query, request.url), init),
+    env,
+    path,
+  );
 }
 
 async function callTool(
@@ -168,6 +176,50 @@ async function callTool(
       route.init,
     );
     return r.json();
+  }
+  if (name === "artifact_comments") {
+    const action = String(args.action || "");
+    const artifact = String(args.artifact || "");
+    if (!artifact) throw new Error("artifact_comments requires artifact");
+    const path = `/api/v1/artifacts/${encodeURIComponent(artifact)}/comments`;
+    if (action === "list") {
+      const q = new URLSearchParams();
+      for (const key of ["status", "since", "page_path", "limit"] as const) {
+        if (args[key] !== undefined && args[key] !== null && args[key] !== "")
+          q.set(key, String(args[key]));
+      }
+      const r = await callApi(
+        request,
+        env,
+        handleAdminApi,
+        path,
+        { method: "GET", headers },
+        q.size ? `?${q}` : "",
+      );
+      return r.json();
+    }
+    if (action === "post") {
+      const r = await callApi(
+        request,
+        env,
+        handleAdminApi,
+        path,
+        postJson({
+          body: args.body,
+          parent_id: args.parent_id,
+          page_path: args.page_path,
+        }),
+      );
+      return r.json();
+    }
+    if (action === "resolve" || action === "reopen") {
+      const r = await callApi(request, env, handleAdminApi, path, {
+        ...postJson({ id: args.comment_id, resolved: action === "resolve" }),
+        method: "PATCH",
+      });
+      return r.json();
+    }
+    throw new Error(`unknown artifact_comments action: ${action}`);
   }
   throw new Error(`unknown tool: ${name}`);
 }

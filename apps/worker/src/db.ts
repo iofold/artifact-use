@@ -238,15 +238,27 @@ export async function completeVersion(
   ]);
 }
 
+// Comment tallies ride along so an agent can spot "which artifacts have open
+// feedback" from the plain list call without a per-artifact round trip.
 export async function listArtifactsForOrg(
   env: Env,
   orgId: string,
-): Promise<Artifact[]> {
+): Promise<(Artifact & { comment_count: number; open_comments: number })[]> {
   const res = await env.DB.prepare(
-    "SELECT * FROM artifacts WHERE org_id = ? ORDER BY updated_at DESC",
+    `SELECT a.*,
+      COUNT(DISTINCT c.id) AS comment_count,
+      COUNT(DISTINCT CASE
+        WHEN c.parent_comment_id IS NULL AND c.resolved_at IS NULL THEN c.id
+        ELSE NULL
+      END) AS open_comments
+     FROM artifacts a
+     LEFT JOIN comments c ON c.artifact_id = a.id AND c.deleted_at IS NULL
+     WHERE a.org_id = ?
+     GROUP BY a.id
+     ORDER BY a.updated_at DESC`,
   )
     .bind(orgId)
-    .all<Artifact>();
+    .all<Artifact & { comment_count: number; open_comments: number }>();
   return res.results || [];
 }
 

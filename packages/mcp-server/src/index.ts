@@ -16,6 +16,7 @@ import {
   validatePath,
 } from "@artifact-use/client-core";
 import {
+  artifactCommentsTool,
   artifactManageTool,
   artifactPublishLocalTool,
   artifactUploadSessionTool,
@@ -33,6 +34,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     artifactPublishLocalTool,
     artifactUploadSessionTool,
     artifactManageTool,
+    artifactCommentsTool,
   ],
 }));
 
@@ -49,6 +51,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     else throw new Error("artifact_publish requires dir, html, or files");
   } else if (name === "artifact_manage") {
     result = await manageArtifact(args);
+  } else if (name === "artifact_comments") {
+    result = await commentOnArtifact(args);
   } else if (name === "artifact_upload_session") {
     result = await api(conf, "POST", "/api/v1/publish/upload-session", args);
   } else {
@@ -81,6 +85,35 @@ async function manageArtifact(args: Record<string, unknown>): Promise<unknown> {
       args,
     );
   throw new Error(`unknown artifact_manage action: ${action}`);
+}
+
+async function commentOnArtifact(
+  args: Record<string, unknown>,
+): Promise<unknown> {
+  const action = String(args.action || "");
+  const artifact = String(args.artifact || "");
+  if (!artifact) throw new Error("artifact_comments requires artifact");
+  const path = `/api/v1/artifacts/${encodeURIComponent(artifact)}/comments`;
+  if (action === "list") {
+    const q = new URLSearchParams();
+    for (const key of ["status", "since", "page_path", "limit"] as const) {
+      if (args[key] !== undefined && args[key] !== null && args[key] !== "")
+        q.set(key, String(args[key]));
+    }
+    return api(conf, "GET", q.size ? `${path}?${q}` : path);
+  }
+  if (action === "post")
+    return api(conf, "POST", path, {
+      body: args.body,
+      parent_id: args.parent_id,
+      page_path: args.page_path,
+    });
+  if (action === "resolve" || action === "reopen")
+    return api(conf, "PATCH", path, {
+      id: args.comment_id,
+      resolved: action === "resolve",
+    });
+  throw new Error(`unknown artifact_comments action: ${action}`);
 }
 
 async function publishFiles(args: Record<string, unknown>): Promise<unknown> {

@@ -18,7 +18,8 @@ Artifact Use publishes static artifacts to `https://artifacts.iofold.com` withou
 - Use `ARTIFACT_USE_TOKEN` for the Codex bearer fallback, CLI, local stdio MCP, or non-OAuth clients.
 - Use `artifact_publish` for a single HTML string or small inline multi-file payloads.
 - Use `artifact_upload_session`, local stdio MCP with `dir`, or the CLI for local folders, large files, images, PDFs, or multi-file artifacts.
-- Use `artifact_manage` for list, stats, access changes, and share links. `action: "list"` returns `url_key`; use it for exact management calls.
+- Use `artifact_manage` for list, stats, access changes, and share links. `action: "list"` returns `url_key` (use it for exact management calls) and per-artifact `open_comments` counts.
+- Use `artifact_comments` for the feedback loop: list open feedback (`status: "open"`), apply the fixes, republish the same artifact slug, then reply to each thread (`parent_id`) and resolve it (`comment_id`). Details in `references/publishing.md`.
 - Publish with a lower-case artifact slug; use the returned `url_key` when managing an existing artifact.
 - Keep artifact slugs lower-case hyphen-case.
 - Default gate is `email`; use `verified_email` when inbox control matters, `allowlist` for restricted customer material, and `public` only when intentionally low sensitivity.
@@ -32,6 +33,7 @@ Artifact Use publishes static artifacts to `https://artifacts.iofold.com` withou
 4. Build the working artifact first, then polish visual hierarchy, copy, responsiveness, and empty/error states.
 5. Before saying it is ready or publishing it, read `references/browser-qa.md` and run the relevant checks.
 6. For MCP, CLI, or upload-session details, read `references/publishing.md`.
+7. When revising a published artifact, first list its open comments (`artifact_comments`), address them, republish the same slug, then reply to and resolve each thread.
 
 ## Completion Checklist
 

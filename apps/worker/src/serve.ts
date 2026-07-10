@@ -1,5 +1,13 @@
 import type { Artifact, ArtifactVersion, Env, PublishManifest } from "./types";
-import { signViewerSession } from "./auth";
+import { getCreator, requirePermission, signViewerSession } from "./auth";
+import {
+  type CommentAuthor,
+  createComment,
+  listComments,
+  positiveInteger,
+  reanchorComment,
+  resolveComment,
+} from "./comments";
 import {
   getArtifactByLegacyPath,
   getArtifactByUrlKey,
@@ -9,6 +17,7 @@ import {
 import { getViewerSession, renderGate } from "./gate";
 import { FEEDBACK_WIDGET_JS } from "./widget/feedback.generated";
 import {
+  bearerToken,
   error,
   json,
   mimeFor,
@@ -245,22 +254,19 @@ export async function handleComments(
     );
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
-    const session = await getViewerSession(request, env, artifact);
-    // Public artifacts allow open reading; gated ones still require a session.
-    if (!session && artifact.gate_level !== "public")
-      return error(401, "unauthorized", "viewer session required");
-    const rows = await env.DB.prepare(
-      `SELECT id, parent_comment_id, email, body, target_json, page_path, version_id, created_at, resolved_at, resolved_by
-       FROM comments
-       WHERE artifact_id = ? AND deleted_at IS NULL
-       ORDER BY COALESCE(parent_comment_id, id) DESC,
-         CASE WHEN parent_comment_id IS NULL THEN 0 ELSE 1 END,
-         created_at ASC
-       LIMIT 200`,
-    )
-      .bind(artifact.id)
-      .all();
-    return json({ comments: rows.results || [] });
+    const author = await commentIdentity(request, env, artifact, "read");
+    // Public artifacts allow open reading; gated ones still require a viewer
+    // session or a workspace credential.
+    if (!author && artifact.gate_level !== "public")
+      return commentsUnauthorized(env, artifact, "read");
+    return json(
+      await listComments(env, artifact, {
+        status: url.searchParams.get("status"),
+        since: Number(url.searchParams.get("since")) || null,
+        pagePath: url.searchParams.get("page_path"),
+        limit: Number(url.searchParams.get("limit")) || null,
+      }),
+    );
   }
   if (request.method === "POST") {
     const body = (await request.json()) as {
@@ -274,44 +280,11 @@ export async function handleComments(
     const artifact = await getArtifactByUrlKey(env, body.artifact_key || "");
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
-    const session = await getViewerSession(request, env, artifact);
-    if (!session) return error(401, "unauthorized", "viewer session required");
-    const text = String(body.body || "")
-      .trim()
-      .slice(0, 2000);
-    if (!text) return error(400, "body_required", "comment body required");
-    const parentId = positiveInteger(body.parent_id);
-    const parent = parentId
-      ? await commentParent(env, artifact.id, parentId)
-      : null;
-    if (parentId && !parent)
-      return error(404, "comment_not_found", "parent comment not found");
-    const targetJson =
-      commentTargetJson(body.target) || parent?.target_json || null;
-    const pagePath = normalizePagePath(
-      env,
-      artifact,
-      cleanStr(body.page_path, 300) || targetPath(targetJson),
-    );
-    const versionId = cleanStr(body.version_id, 64);
-    await env.DB.prepare(
-      `INSERT INTO comments
-       (artifact_id, view_id, email, body, target_json, page_path, version_id, parent_comment_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    )
-      .bind(
-        artifact.id,
-        session.view_id,
-        session.email,
-        text,
-        targetJson,
-        pagePath,
-        versionId,
-        parent?.id || null,
-        nowSec(),
-      )
-      .run();
-    return json({ ok: true });
+    const author = await commentIdentity(request, env, artifact, "write");
+    if (!author) return commentsUnauthorized(env, artifact, "write");
+    const result = await createComment(env, artifact, author, body);
+    if (!result.ok) return error(result.status, result.code, result.message);
+    return json({ ok: true, comment: result.comment });
   }
   if (request.method === "PATCH") {
     const body = (await request.json()) as {
@@ -323,166 +296,98 @@ export async function handleComments(
     const artifact = await getArtifactByUrlKey(env, body.artifact_key || "");
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
-    const session = await getViewerSession(request, env, artifact);
-    if (!session) return error(401, "unauthorized", "viewer session required");
+    const author = await commentIdentity(request, env, artifact, "write");
+    if (!author) return commentsUnauthorized(env, artifact, "write");
     const id = positiveInteger(body.id);
     if (!id) return error(400, "invalid_comment", "comment id is required");
-    const existing = await env.DB.prepare(
-      "SELECT id FROM comments WHERE id = ? AND artifact_id = ? AND deleted_at IS NULL",
-    )
-      .bind(id, artifact.id)
-      .first<{ id: number }>();
-    if (!existing) return error(404, "comment_not_found", "comment not found");
-    // Re-anchor: replace the comment's target with a freshly picked element.
     if (body.target !== undefined) {
-      const targetJson = commentTargetJson(body.target);
-      if (!targetJson) return error(400, "invalid_target", "target is invalid");
-      const pagePath = normalizePagePath(env, artifact, targetPath(targetJson));
-      await env.DB.prepare(
-        "UPDATE comments SET target_json = ?, page_path = ? WHERE id = ? AND artifact_id = ?",
-      )
-        .bind(targetJson, pagePath, id, artifact.id)
-        .run();
-      return json({ ok: true, comment: { id, target_json: targetJson } });
+      const reanchored = await reanchorComment(env, artifact, id, body.target);
+      if (reanchored === null)
+        return error(404, "comment_not_found", "comment not found");
+      if (reanchored === "invalid_target")
+        return error(400, "invalid_target", "target is invalid");
+      return json({ ok: true, comment: reanchored });
     }
-    const resolved = body.resolved !== false;
-    const resolvedAt = resolved ? nowSec() : null;
-    const resolvedBy = resolved ? session.email : null;
-    await env.DB.prepare(
-      "UPDATE comments SET resolved_at = ?, resolved_by = ? WHERE id = ? AND artifact_id = ?",
-    )
-      .bind(resolvedAt, resolvedBy, id, artifact.id)
-      .run();
-    return json({
-      ok: true,
-      comment: { id, resolved_at: resolvedAt, resolved_by: resolvedBy },
-    });
+    const updated = await resolveComment(
+      env,
+      artifact,
+      id,
+      body.resolved !== false,
+      author.email,
+    );
+    if (!updated) return error(404, "comment_not_found", "comment not found");
+    return json({ ok: true, comment: updated });
   }
   return error(404, "not_found", "comments route not found");
 }
 
-async function commentParent(
+// Viewer session (cookie / bearer / ?agent=) first; otherwise a workspace
+// credential — creator token or OAuth JWT from the owning org — so the
+// publisher's agent can read, reply to, and resolve threads with the token it
+// already holds instead of minting a viewer session for its own artifact.
+async function commentIdentity(
+  request: Request,
   env: Env,
-  artifactId: string,
-  parentId: number,
-): Promise<{ id: number; target_json: string | null } | null> {
-  const row = await env.DB.prepare(
-    `SELECT id, parent_comment_id, target_json
-     FROM comments
-     WHERE id = ? AND artifact_id = ? AND deleted_at IS NULL`,
-  )
-    .bind(parentId, artifactId)
-    .first<{
-      id: number;
-      parent_comment_id: number | null;
-      target_json: string | null;
-    }>();
-  if (!row) return null;
-  if (!row.parent_comment_id)
-    return { id: row.id, target_json: row.target_json };
-  const root = await env.DB.prepare(
-    `SELECT id, target_json
-     FROM comments
-     WHERE id = ? AND artifact_id = ? AND deleted_at IS NULL`,
-  )
-    .bind(row.parent_comment_id, artifactId)
-    .first<{ id: number; target_json: string | null }>();
-  if (!root) return null;
-  return { id: root.id, target_json: row.target_json || root.target_json };
-}
-
-function positiveInteger(value: unknown): number | null {
-  const n = Number(value);
-  return Number.isSafeInteger(n) && n > 0 ? n : null;
-}
-
-interface CleanTarget {
-  v: number;
-  selector: string;
-  label: string;
-  path: string;
-  version_id?: string;
-  text?: string;
-  anchors?: { type: string; value: string; name?: string }[];
-  rect: { x: number; y: number; w: number; h: number } | null;
-}
-
-function commentTargetJson(target: unknown): string | null {
-  if (!target || typeof target !== "object") return null;
-  const input = target as Record<string, unknown>;
-  const rect = input.rect as Record<string, unknown> | undefined;
-  const anchorsIn = Array.isArray(input.anchors) ? input.anchors : [];
-  const anchors = anchorsIn
-    .slice(0, 6)
-    .map((a) => {
-      const o = (a || {}) as Record<string, unknown>;
-      const out: { type: string; value: string; name?: string } = {
-        type: String(o.type || "").slice(0, 16),
-        value: String(o.value || "").slice(0, 300),
-      };
-      if (o.name) out.name = String(o.name).slice(0, 160);
-      return out;
-    })
-    .filter((a) => a.type && a.value);
-  const clean: CleanTarget = {
-    v: 2,
-    selector: String(input.selector || "").slice(0, 300),
-    label: String(input.label || "").slice(0, 160),
-    path: String(input.path || "").slice(0, 300),
-    rect: rect
-      ? {
-          x: finiteNumber(rect.x),
-          y: finiteNumber(rect.y),
-          w: finiteNumber(rect.w),
-          h: finiteNumber(rect.h),
-        }
-      : null,
-  };
-  if (input.version_id)
-    clean.version_id = String(input.version_id).slice(0, 64);
-  if (input.text) clean.text = String(input.text).slice(0, 200);
-  if (anchors.length) clean.anchors = anchors;
-  return JSON.stringify(clean).slice(0, 2000);
-}
-
-function targetPath(targetJson: string | null): string | null {
-  if (!targetJson) return null;
+  artifact: Artifact,
+  mode: "read" | "write",
+): Promise<CommentAuthor | null> {
+  const session = await getViewerSession(request, env, artifact);
+  if (session) return { email: session.email, viewId: session.view_id };
+  if (!bearerToken(request)) return null;
   try {
-    const p = (JSON.parse(targetJson) as { path?: unknown }).path;
-    return p ? String(p).slice(0, 300) : null;
+    const creator = await getCreator(request, env);
+    if (!creator || creator.orgId !== artifact.org_id) return null;
+    requirePermission(
+      creator,
+      env,
+      mode === "read" ? "artifacts:read" : "artifacts:publish",
+    );
+    return { email: creator.email || creator.sub, viewId: null };
   } catch {
     return null;
   }
 }
 
-function cleanStr(value: unknown, max: number): string | null {
-  if (value === undefined || value === null) return null;
-  const s = String(value).slice(0, max);
-  return s || null;
-}
-
-// Clamp a comment's page_path to a path within the artifact. A stray value
-// (absent, "/", or another origin — e.g. from an agent that guessed it) becomes
-// the artifact's base path, so the widget never navigates off the artifact.
-function normalizePagePath(
+// Machine-readable 401 for the comments route: unlike gateJson this is
+// reachable on public artifacts too (posting always needs an identity), so it
+// spells out every way in from here.
+function commentsUnauthorized(
   env: Env,
   artifact: Artifact,
-  raw: string | null,
-): string {
-  const base = publicArtifactPath(env, artifact.url_key);
-  if (!raw) return base;
-  let p = raw;
-  try {
-    if (/^https?:\/\//i.test(p)) p = new URL(p).pathname;
-  } catch {
-    /* keep p */
-  }
-  return p.startsWith(base) ? p.slice(0, 300) : base;
-}
-
-function finiteNumber(value: unknown): number {
-  const n = Number(value);
-  return Number.isFinite(n) ? Math.round(n) : 0;
+  mode: "read" | "write",
+): Response {
+  const site = siteBaseUrl(env);
+  const needsOtp = requiresVerified(artifact.gate_level);
+  return json(
+    {
+      error: {
+        code: "unauthorized",
+        message: `a viewer session or workspace token is required to ${
+          mode === "read" ? "read" : "post or resolve"
+        } comments`,
+      },
+      access: {
+        bearer:
+          "send Authorization: Bearer <viewer-session or workspace token> on this call",
+        email_self_serve: !needsOtp
+          ? `POST form {artifact_key:"${artifact.url_key}", email} to ${site}/_au/gate/email with header 'Accept: application/json' to receive a token`
+          : null,
+        otp_self_serve: needsOtp
+          ? `if you can read the inbox: POST form {artifact_key:"${artifact.url_key}", email} to ${site}/_au/gate/start (the email must be allowlisted for allowlist gates), read the one-time code from that email, then POST form {artifact_key, email, code} to ${site}/_au/gate/verify with header 'Accept: application/json' to receive a token`
+          : null,
+        delegated: needsOtp
+          ? "or ask the human who shared this to use 'Hand to your agent' in the feedback widget for a scoped token"
+          : null,
+        workspace:
+          "agents of the publishing workspace: your Artifact Use bearer token (au_creator_... or MCP OAuth) works on this route directly",
+        descriptor: `${publicArtifactUrl(env, artifact.url_key)}_au/index.json`,
+      },
+    },
+    {
+      status: 401,
+      headers: { "WWW-Authenticate": 'Bearer realm="artifact-use"' },
+    },
+  );
 }
 
 // The bare artifact prefix (/go, /go/) has no content of its own; send the
@@ -586,11 +491,25 @@ function artifactDescriptor(
     read: "GET each file's `url` with header 'Authorization: Bearer <token>'. HTML is fine to read directly; no browser needed.",
     feedback: {
       endpoint: `${site}/_au/comments`,
-      method: "POST",
-      body: {
-        artifact_key: artifact.url_key,
-        body: "<your comment>",
-        target: "<optional element anchor>",
+      auth: "same bearer as reads; the publishing workspace's own token (au_creator_.../MCP OAuth) also works",
+      list: `GET ${site}/_au/comments?artifact_key=${artifact.url_key}&status=open|resolved|all&since=<unix>&page_path=<path> -> threaded comments (parent_comment_id links replies to roots)`,
+      post: {
+        method: "POST",
+        body: {
+          artifact_key: artifact.url_key,
+          body: "<your comment>",
+          parent_id: "<optional comment id to reply to>",
+          target: "<optional element anchor>",
+        },
+        returns: "the created comment, including its id",
+      },
+      resolve: {
+        method: "PATCH",
+        body: {
+          artifact_key: artifact.url_key,
+          id: "<comment id>",
+          resolved: true,
+        },
       },
     },
     mcp: `${site}/mcp`,
@@ -627,7 +546,9 @@ export async function handleAgentToken(
         ``,
         `1. GET  ${base}_au/index.json   -> title, pages, files, entrypoint, content-types`,
         `2. GET  ${base}<file>           -> any page/asset (HTML is fine to read directly)`,
-        `3. POST ${site}/_au/comments  {artifact_key:"${artifact.url_key}", body, target?}   -> leave feedback (you'll be asked for an email once)`,
+        `3. GET  ${site}/_au/comments?artifact_key=${artifact.url_key}&status=open   -> read the feedback threads`,
+        `4. POST ${site}/_au/comments  {artifact_key:"${artifact.url_key}", body, parent_id?, target?}   -> comment or reply; returns the comment id (you'll be asked for an email once)`,
+        `5. PATCH ${site}/_au/comments  {artifact_key:"${artifact.url_key}", id, resolved:true}   -> resolve a thread once addressed`,
         ``,
         `Publish your own at ${site}/mcp (sign in once).`,
       ].join("\n"),
@@ -650,14 +571,16 @@ export async function handleAgentToken(
     env,
   );
   const prompt = [
-    `You have temporary read access to a published artifact. Explore it via its API (no browser needed), summarize it, and leave any issues as feedback.`,
+    `You have temporary access to a published artifact. Explore it via its API (no browser needed), read the feedback discussion, leave any issues as comments, and resolve threads you have addressed.`,
     ``,
     `Artifact: "${artifact.title}" — ${base}`,
     `Auth header for every call:  Authorization: Bearer ${token}   (read+comment, this artifact only, expires ${new Date(exp * 1000).toISOString()})`,
     ``,
     `1. GET  ${base}_au/index.json   -> title, pages, files, entrypoint, content-types`,
     `2. GET  ${base}<file>           -> any page/asset (HTML is fine to read directly)`,
-    `3. POST ${site}/_au/comments  {artifact_key:"${artifact.url_key}", body, target?}   -> leave feedback`,
+    `3. GET  ${site}/_au/comments?artifact_key=${artifact.url_key}&status=open   -> read the feedback threads`,
+    `4. POST ${site}/_au/comments  {artifact_key:"${artifact.url_key}", body, parent_id?, target?}   -> comment or reply; returns the comment id`,
+    `5. PATCH ${site}/_au/comments  {artifact_key:"${artifact.url_key}", id, resolved:true}   -> resolve a thread once addressed`,
     ``,
     `Recurring/richer access -> connect the MCP at ${site}/mcp, or publish your own there (sign in once).`,
   ].join("\n");

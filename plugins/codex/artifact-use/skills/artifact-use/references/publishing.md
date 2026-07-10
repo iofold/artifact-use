@@ -52,6 +52,7 @@ Tools:
 - `artifact_publish`: publish a single `html` string or small inline `files`.
 - `artifact_upload_session`: create a 6-hour direct upload token for shell/curl uploads.
 - `artifact_manage`: list artifacts, get stats, change access, or create share links.
+- `artifact_comments`: list, post/reply, resolve, or reopen feedback comments.
 
 ## Artifact Slug And URL Key Rules
 
@@ -70,6 +71,42 @@ https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/
 - Small multi-file artifact where all file contents are already in context: use `artifact_publish` with `files`.
 - Local folder or large files: use `artifact_upload_session`, local stdio MCP with `dir`, or CLI `publish-folder`.
 - Existing artifact stats/access/share links: use `artifact_manage`.
+- Reading or acting on viewer feedback: use `artifact_comments`.
+
+## Feedback Loop (Comments)
+
+Viewers comment on the artifact page through the built-in widget; comments are
+threaded and may be anchored to a specific on-page element. Close the loop:
+
+1. Find work: `artifact_manage action:"list"` → artifacts with `open_comments > 0`,
+   or `artifact_comments action:"list", status:"open"` (add `since:<unix>` for
+   only-new feedback).
+2. Read each thread: roots carry the request; replies hang off
+   `parent_comment_id`; `target` (when present) describes the anchored element
+   (`selector`, `label`, `text`, `path`).
+3. Fix and republish the SAME slug — the URL stays stable for viewers.
+4. Reply to each thread (`action:"post"`, `parent_id`, `body`) saying what
+   changed, then resolve it (`action:"resolve"`, `comment_id`). Use `reopen`
+   to undo a resolve.
+
+The same operations over HTTP (`Authorization: Bearer $ARTIFACT_USE_TOKEN`):
+
+```bash
+# list open threads (status=open|resolved|all, since=<unix>, page_path, limit)
+curl -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" \
+  "$ARTIFACT_USE_API_BASE/api/v1/artifacts/{url_key}/comments?status=open"
+
+# reply to comment 42, then resolve it
+curl -X POST -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" -H "Content-Type: application/json" \
+  -d '{"body": "Fixed in v2 — chart now sorts by date.", "parent_id": 42}' \
+  "$ARTIFACT_USE_API_BASE/api/v1/artifacts/{url_key}/comments"
+curl -X PATCH -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" -H "Content-Type: application/json" \
+  -d '{"id": 42, "resolved": true}' \
+  "$ARTIFACT_USE_API_BASE/api/v1/artifacts/{url_key}/comments"
+```
+
+POST returns the created comment including its `id`, so a follow-up resolve or
+reply never needs a re-list.
 
 ## CLI Examples
 
@@ -111,6 +148,21 @@ artifact-use share --json '{
   "recipient_label": "Viewer",
   "expires_days": 14
 }'
+```
+
+Comments:
+
+```bash
+artifact-use comments --json '{"artifact": "claims-demo-a1b2c3", "status": "open"}'
+
+artifact-use comments --json '{
+  "artifact": "claims-demo-a1b2c3",
+  "action": "post",
+  "parent_id": 42,
+  "body": "Fixed in v2 — chart now sorts by date."
+}'
+
+artifact-use comments --json '{"artifact": "claims-demo-a1b2c3", "action": "resolve", "comment_id": 42}'
 ```
 
 ## Direct Upload Session Sketch

@@ -69,6 +69,41 @@ const SCHEMAS = {
       },
     },
   },
+  comments: {
+    type: "object",
+    required: ["artifact"],
+    properties: {
+      artifact: {
+        type: "string",
+        description: "Artifact url_key from list output, or artifact slug.",
+      },
+      action: {
+        type: "string",
+        enum: ["list", "post", "resolve", "reopen"],
+        default: "list",
+      },
+      status: {
+        type: "string",
+        enum: ["open", "resolved", "all"],
+        description: "list: filter threads by resolution state.",
+      },
+      since: {
+        type: "number",
+        description: "list: only comments created after this unix timestamp.",
+      },
+      page_path: { type: "string" },
+      limit: { type: "number" },
+      body: { type: "string", description: "post: the comment text." },
+      parent_id: {
+        type: "number",
+        description: "post: comment id to reply to.",
+      },
+      comment_id: {
+        type: "number",
+        description: "resolve/reopen: id of the comment (thread root).",
+      },
+    },
+  },
 };
 
 main().catch((e) => {
@@ -150,7 +185,36 @@ async function main(): Promise<void> {
         `/api/v1/artifacts/${encodeURIComponent(String(input.artifact || ""))}/stats`,
       ),
     );
+  if (command === "comments") return output(await comments(conf, input));
   throw new Error(`unknown command: ${command}`);
+}
+
+async function comments(
+  conf: ReturnType<typeof resolveConfig>,
+  input: Record<string, unknown>,
+): Promise<unknown> {
+  const action = String(input.action || "list");
+  const path = `/api/v1/artifacts/${encodeURIComponent(String(input.artifact || ""))}/comments`;
+  if (action === "list") {
+    const q = new URLSearchParams();
+    for (const key of ["status", "since", "page_path", "limit"] as const) {
+      if (input[key] !== undefined && input[key] !== null && input[key] !== "")
+        q.set(key, String(input[key]));
+    }
+    return api(conf, "GET", q.size ? `${path}?${q}` : path);
+  }
+  if (action === "post")
+    return api(conf, "POST", path, {
+      body: input.body,
+      parent_id: input.parent_id,
+      page_path: input.page_path,
+    });
+  if (action === "resolve" || action === "reopen")
+    return api(conf, "PATCH", path, {
+      id: input.comment_id,
+      resolved: action === "resolve",
+    });
+  throw new Error(`unknown comments action: ${action}`);
 }
 
 function output(value: unknown): void {

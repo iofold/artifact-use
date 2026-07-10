@@ -98,6 +98,59 @@ export const artifactManageTool: ToolSchema = {
   },
 };
 
+export const artifactCommentsTool: ToolSchema = {
+  name: "artifact_comments",
+  description:
+    'Read, post, and resolve feedback comments on an artifact. Viewers comment through the on-page widget; this tool is the publisher side of the loop: list with status "open" to see outstanding feedback, fix and republish the same artifact slug, then reply to each thread and resolve it. Comments are threaded (parent_id / parent_comment_id) and may carry a `target` anchor describing the on-page element they point at.',
+  inputSchema: {
+    type: "object",
+    required: ["action", "artifact"],
+    properties: {
+      action: {
+        type: "string",
+        enum: ["list", "post", "resolve", "reopen"],
+      },
+      artifact: {
+        type: "string",
+        description: "Artifact url_key from artifact_manage list, or slug.",
+      },
+      status: {
+        type: "string",
+        enum: ["open", "resolved", "all"],
+        description:
+          "list: filter threads by resolution state (replies follow their root). Default all.",
+      },
+      since: {
+        type: "number",
+        description:
+          "list: only comments created after this unix timestamp (seconds) — new feedback since the last check.",
+      },
+      page_path: {
+        type: "string",
+        description:
+          "list/post: scope to one page of a multi-page artifact (path as stored on the comment).",
+      },
+      limit: {
+        type: "number",
+        description: "list: maximum comments returned (default 200, max 500).",
+      },
+      body: {
+        type: "string",
+        description: "post: the comment text. Required for post.",
+      },
+      parent_id: {
+        type: "number",
+        description:
+          "post: comment id to reply to. Replies join that thread and inherit its target anchor.",
+      },
+      comment_id: {
+        type: "number",
+        description: "resolve/reopen: id of the comment (thread root).",
+      },
+    },
+  },
+};
+
 // The stdio server also accepts a local folder path (`dir`) and a `dry_run`
 // preview that the hosted endpoint does not expose.
 export const artifactPublishLocalTool: ToolSchema = {

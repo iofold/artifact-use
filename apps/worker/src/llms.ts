@@ -21,7 +21,8 @@ Consuming an artifact (no browser needed):
 - Machine descriptor (structure/files): GET {artifact-url}_au/index.json
 - Read any page/file directly with GET; HTML is fine to read as-is (the feedback widget is not injected for agent requests).
 - Auth with a viewer-session bearer token: email gates self-serve via POST /_au/gate/email (Accept: application/json); verified_email/allowlist gates self-serve if you can read the inbox (POST /_au/gate/start, read the one-time code, POST /_au/gate/verify), or are delegated by the human via "Hand to your agent" in the feedback widget (POST /_au/agent-token). The 401 JSON on any gated artifact spells out the exact path.
-- Leave feedback: POST {artifact-url-or-site}/_au/comments {artifact_key, body, page_path, target?} with the same bearer.
+- Comments (read + write, same bearer as reads): GET {site}/_au/comments?artifact_key={key}&status=open|resolved|all&since=<unix> lists threads; POST {artifact_key, body, parent_id?, page_path?, target?} comments or replies and returns the created comment id; PATCH {artifact_key, id, resolved:true|false} resolves/reopens a thread.
+- Publishers close the loop with their own token: artifact_comments MCP tool, CLI \`artifact-use comments\`, or /api/v1/artifacts/{url_key}/comments (GET with the same filters, POST to reply, PATCH {id, resolved}). Owner tokens also work directly on /_au/comments.
 
 Agent setup summary:
 1. Prefer HTTP MCP at ${base}/mcp. OAuth-capable clients should configure only the URL and use the MCP auth prompt.
@@ -154,7 +155,8 @@ Artifact Use publishes static artifacts to ${base} without exposing Cloudflare c
 - Use ARTIFACT_USE_TOKEN for the Codex bearer fallback, CLI, local stdio MCP, or non-OAuth clients.
 - Use artifact_publish for a single HTML string or small inline multi-file payloads.
 - Use artifact_upload_session, local stdio MCP with dir, or the CLI for local folders, large files, images, PDFs, or multi-file artifacts.
-- Use artifact_manage for list, stats, access changes, and share links. action: "list" returns artifact url_key values for exact management calls.
+- Use artifact_manage for list, stats, access changes, and share links. action: "list" returns artifact url_key values for exact management calls, plus open_comments counts.
+- Use artifact_comments for the feedback loop: list open feedback (status "open"), apply the fixes, republish the same artifact slug, then reply to each thread and resolve it.
 - Use artifact slugs when publishing; use the returned url_key when managing an existing artifact.
 - Keep artifact slugs lower-case hyphen-case.
 - Default gate is email; use verified_email when inbox control matters, allowlist for restricted customer material, and public only when intentionally low sensitivity.
@@ -181,15 +183,49 @@ plugins/codex/artifact-use/skills/artifact-use/
 
 - \`artifact_publish\`: publish one HTML string or small inline \`files\`.
 - \`artifact_upload_session\`: create a 6-hour upload token for direct shell/curl upload of local files.
-- \`artifact_manage\`: list artifacts, get stats, set access, or create share links.
+- \`artifact_manage\`: list artifacts, get stats, set access, or create share links. \`list\` includes per-artifact \`open_comments\` counts.
+- \`artifact_comments\`: list, post/reply, resolve, or reopen feedback comments on an artifact.
 
 Selection:
 
 - Single self-contained HTML: \`artifact_publish\` with \`html\`.
 - Small multi-file payload already in context: \`artifact_publish\` with \`files\`.
 - Local folder, large images/PDFs, vendored libraries, or many files: \`artifact_upload_session\`, local stdio MCP with \`dir\`, or CLI \`publish-folder\`.
+- Anything comment-related: \`artifact_comments\` (or the HTTP endpoints below).
 
-## 5. HTML artifact quality
+## 5. Feedback loop (comments)
+
+Viewers comment on the artifact page through the built-in widget; comments are
+threaded and can be anchored to a specific on-page element. The publisher's
+agent closes the loop:
+
+1. Find work: \`artifact_manage\` action \`list\` -> artifacts with \`open_comments > 0\`, or \`artifact_comments\` action \`list\` with \`status: "open"\` (add \`since: <unix>\` to see only new feedback).
+2. Read each thread: roots carry the request; replies hang off \`parent_comment_id\`; \`target\` (when present) describes the anchored element (\`selector\`, \`label\`, \`text\`, \`path\`).
+3. Fix the artifact and republish the SAME slug — the URL stays stable, viewers just see the new version.
+4. Reply to each thread (\`action: "post"\` with \`parent_id\`) saying what changed, then resolve it (\`action: "resolve"\` with \`comment_id\`). Use \`reopen\` if you resolved by mistake.
+
+The same operations over HTTP with a creator bearer token:
+
+\`\`\`bash
+# list open threads (filters: status=open|resolved|all, since=<unix>, page_path, limit)
+curl -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" \\
+  "$ARTIFACT_USE_API_BASE/api/v1/artifacts/{url_key}/comments?status=open"
+
+# reply to comment 42, then resolve it
+curl -X POST -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" -H "Content-Type: application/json" \\
+  -d '{"body": "Fixed in v2 — chart now sorts by date.", "parent_id": 42}' \\
+  "$ARTIFACT_USE_API_BASE/api/v1/artifacts/{url_key}/comments"
+curl -X PATCH -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" -H "Content-Type: application/json" \\
+  -d '{"id": 42, "resolved": true}' \\
+  "$ARTIFACT_USE_API_BASE/api/v1/artifacts/{url_key}/comments"
+\`\`\`
+
+POST returns the created comment (including its \`id\`), so a follow-up resolve
+or reply never needs a re-list. Viewer-side agents (delegated or self-served
+via the gate) use the same shapes on \`/_au/comments\` with
+\`artifact_key\` in the query/body — see any artifact's \`_au/index.json\`.
+
+## 6. HTML artifact quality
 
 Default to durable no-build artifacts:
 
@@ -204,7 +240,7 @@ Default to durable no-build artifacts:
 - Include loading, empty, invalid-input, and error states.
 - Never place secrets, private API keys, customer secrets, WorkOS tokens, Cloudflare tokens, or Artifact Use tokens in HTML.
 
-## 6. Multi-file artifact rules
+## 7. Multi-file artifact rules
 
 Use a folder when a single file would be too large or brittle:
 
@@ -225,7 +261,7 @@ Rules:
 - Vendor critical libraries into \`lib/\` when CDN failure would break the artifact.
 - Verify through a local HTTP server when using sibling assets, modules, or \`fetch()\`.
 
-## 7. CLI examples
+## 8. CLI examples
 
 Single HTML:
 
@@ -267,7 +303,7 @@ artifact-use share --json '{
 }'
 \`\`\`
 
-## 8. Limits
+## 9. Limits
 
 - Package: 95 MiB.
 - Single file: 75 MiB.
@@ -275,7 +311,7 @@ artifact-use share --json '{
 - Entrypoint: \`index.html\` by default.
 - Remote inline MCP file payloads are smaller than storage limits; use upload sessions for large content.
 
-## 9. Browser QA before sharing
+## 10. Browser QA before sharing
 
 For self-contained HTML:
 
@@ -292,7 +328,7 @@ agent-browser open "http://127.0.0.1:8765/"
 
 Check desktop, mobile, primary interaction, empty/error states, copy/download controls, external dependencies, and console errors. Save screenshots under \`.tmp/html-artifact-qa/<slug>/\` when useful.
 
-## 10. Final response after publishing
+## 11. Final response after publishing
 
 Report:
 
@@ -329,7 +365,9 @@ export function agentSetupPrompt(
     `             For the HTTP API or CLI instead:`,
     `               export ARTIFACT_USE_API_BASE=${base}`,
     `               export ARTIFACT_USE_TOKEN='${token}'`,
-    `4. Manage:   GET ${base}/api/v1/artifacts   (stats, access, share links per artifact)`,
+    `4. Manage:   GET ${base}/api/v1/artifacts   (stats, access, share links, open_comments per artifact)`,
+    `5. Feedback: GET ${base}/api/v1/artifacts/{url_key}/comments?status=open   -> open threads;`,
+    `             POST {body, parent_id} replies, PATCH {id, resolved:true} resolves (same URL).`,
     ``,
     `Keep this token out of committed files and published HTML.`,
   ].join("\n");

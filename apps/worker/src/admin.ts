@@ -1,5 +1,11 @@
 import type { Artifact, Env, GateLevel } from "./types";
 import { mintCreatorToken, requirePermission, safeCreator } from "./auth";
+import {
+  createComment,
+  listComments,
+  positiveInteger,
+  resolveComment,
+} from "./comments";
 import { agentSetupPrompt } from "./llms";
 import {
   createShareLink,
@@ -184,14 +190,60 @@ export async function handleAdminApi(
       });
     }
 
-    if (request.method === "GET" && parsed.action === "comments") {
-      requirePermission(creator, env, "artifacts:read");
-      const rows = await env.DB.prepare(
-        "SELECT * FROM comments WHERE artifact_id = ? AND deleted_at IS NULL ORDER BY created_at DESC LIMIT 100",
-      )
-        .bind(artifact.id)
-        .all();
-      return json({ comments: rows.results || [] });
+    // Creator-side comments: the publish -> collect feedback -> fix ->
+    // republish -> resolve loop, driven by the owner's own bearer token.
+    if (parsed.action === "comments") {
+      if (request.method === "GET") {
+        requirePermission(creator, env, "artifacts:read");
+        const q = new URL(request.url).searchParams;
+        return json(
+          await listComments(env, artifact, {
+            status: q.get("status"),
+            since: Number(q.get("since")) || null,
+            pagePath: q.get("page_path"),
+            limit: Number(q.get("limit")) || null,
+          }),
+        );
+      }
+      if (request.method === "POST") {
+        requirePermission(creator, env, "artifacts:publish");
+        const body = (await request.json()) as {
+          body?: string;
+          parent_id?: unknown;
+          target?: unknown;
+          page_path?: unknown;
+          version_id?: unknown;
+        };
+        const result = await createComment(
+          env,
+          artifact,
+          { email: creator.email || creator.sub, viewId: null },
+          body,
+        );
+        if (!result.ok)
+          return error(result.status, result.code, result.message);
+        return json({ ok: true, comment: result.comment });
+      }
+      if (request.method === "PATCH") {
+        requirePermission(creator, env, "artifacts:publish");
+        const body = (await request.json()) as {
+          id?: unknown;
+          resolved?: unknown;
+        };
+        const id = positiveInteger(body.id);
+        if (!id) return error(400, "invalid_comment", "comment id is required");
+        const updated = await resolveComment(
+          env,
+          artifact,
+          id,
+          body.resolved !== false,
+          creator.email || creator.sub,
+        );
+        if (!updated)
+          return error(404, "comment_not_found", "comment not found");
+        return json({ ok: true, comment: updated });
+      }
+      return error(405, "method_not_allowed", "method not allowed");
     }
   } catch (e) {
     return error(

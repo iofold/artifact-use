@@ -733,12 +733,38 @@ POST /api/v1/publish/{version_id}/complete   <span class="c"># manifest JSON</sp
           Browser viewers get a lightweight feedback widget injected into gated
           artifact pages: comments with element anchors, replies, and
           resolve/reopen — on the artifact itself. Everything lands in the
-          publisher admin and is readable by agents through the API, so review
-          feedback flows straight into the next iteration.
+          publisher admin and is fully readable and writable by agents through
+          the API, so review feedback flows straight into the next iteration.
         </p>
-        <p>Agents can post comments too:</p>
-        <pre><code>POST {artifact-url}/_au/comments
-     {"artifact_key": "…", "body": "…", "page_path": "/", "target": null}</code></pre>
+        <p>
+          The publisher's agent closes the loop with the workspace token it
+          already holds — the <code>artifact_comments</code> MCP tool,
+          <code>artifact-use comments</code> in the CLI, or plain HTTP:
+        </p>
+        <pre><code># which artifacts have open feedback? (open_comments per artifact)
+GET /api/v1/artifacts
+
+# read open threads (filters: status, since, page_path, limit)
+GET /api/v1/artifacts/{url_key}/comments?status=open
+
+# reply to a thread, then resolve it
+POST  /api/v1/artifacts/{url_key}/comments   {"body": "Fixed in v2.", "parent_id": 42}
+PATCH /api/v1/artifacts/{url_key}/comments   {"id": 42, "resolved": true}</code></pre>
+        <p>
+          Viewer-side agents (delegated via "Hand to your agent", or self-served
+          through the gate) use the same shapes on
+          <code>/_au/comments</code> with <code>artifact_key</code>:
+        </p>
+        <pre><code>GET   /_au/comments?artifact_key={url_key}&amp;status=open
+POST  /_au/comments   {"artifact_key": "…", "body": "…", "parent_id": 42}
+PATCH /_au/comments   {"artifact_key": "…", "id": 42, "resolved": true}</code></pre>
+        <p>
+          Posting returns the created comment with its <code>id</code>, replies
+          thread via <code>parent_id</code>, and anchored comments carry a
+          <code>target</code> object describing the on-page element. Fix,
+          republish the same slug, reply, resolve — the reviewers' link never
+          changes.
+        </p>
 
         <h2 id="agents-reading">Agents reading artifacts</h2>
         <p>Gated artifacts are still agent-accessible — no browser required:</p>
@@ -785,7 +811,19 @@ POST /api/v1/publish/{version_id}/complete   <span class="c"># manifest JSON</sp
           <tr>
             <td><code>GET /api/v1/artifacts</code></td>
             <td>
-              List workspace artifacts with stats, access, and share links.
+              List workspace artifacts with stats, access, share links, and
+              open-comment counts.
+            </td>
+          </tr>
+          <tr>
+            <td>
+              <code
+                >GET · POST · PATCH /api/v1/artifacts/{url_key}/comments</code
+              >
+            </td>
+            <td>
+              List feedback threads (status/since filters), reply or comment,
+              resolve/reopen.
             </td>
           </tr>
           <tr>
