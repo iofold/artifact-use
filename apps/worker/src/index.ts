@@ -17,7 +17,7 @@ import {
   renderTermsOfService,
 } from "./publisher";
 import { handleAgentToken, handleComments, servePublic } from "./serve";
-import { error, json, wantsHtml } from "./util";
+import { error, json, secureSystemResponse, wantsHtml } from "./util";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -32,16 +32,21 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
     const cors = corsHeaders(path);
-    if (request.method === "OPTIONS")
-      return new Response(
+    if (request.method === "OPTIONS") {
+      const response = new Response(
         null,
         cors ? { status: 204, headers: cors } : { status: 204 },
       );
-    const response = await htmlErrorAdapter(
-      request,
-      env,
+      return secureSystemResponse(path, response);
+    }
+    const response = secureSystemResponse(
       path,
-      await route(request, env, path),
+      await htmlErrorAdapter(
+        request,
+        env,
+        path,
+        await route(request, env, path),
+      ),
     );
     const headers = new Headers(response.headers);
     if (cors) for (const [k, v] of Object.entries(CORS)) headers.set(k, v);

@@ -187,6 +187,36 @@ export async function sha256Hex(input: string | Uint8Array): Promise<string> {
     .join("");
 }
 
+// Framing/opener defenses for first-party product surfaces (admin SPA, gate
+// and interstitial pages, homepage, legal, error pages). These keep a malicious
+// same-origin artifact at /go/* from iframing or popup-reading the admin
+// document to lift the CSRF cookie. Deliberately NOT applied to served artifact
+// content (serve.ts objectHeaders) — artifacts stay embeddable by design. The
+// CSP is scoped to frame-ancestors only so it never restricts the pages' own
+// inline script/style.
+export const SYSTEM_SECURITY_HEADERS: Record<string, string> = {
+  "X-Frame-Options": "DENY",
+  "Content-Security-Policy": "frame-ancestors 'none'",
+  "Cross-Origin-Opener-Policy": "same-origin",
+};
+
+export function secureSystemResponse(
+  path: string,
+  response: Response,
+): Response {
+  if (path !== "/admin" && !path.startsWith("/admin/")) return response;
+
+  const headers = new Headers(response.headers);
+  for (const [name, value] of Object.entries(SYSTEM_SECURITY_HEADERS)) {
+    headers.set(name, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
 export function htmlPage(title: string, body: string): Response {
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>
@@ -201,6 +231,7 @@ button{margin-top:18px;padding:11px 14px;border:0;border-radius:6px;background:#
         "Content-Type": "text/html; charset=utf-8",
         "Cache-Control": "private, no-store",
         "X-Robots-Tag": "noindex, nofollow",
+        ...SYSTEM_SECURITY_HEADERS,
       },
     },
   );

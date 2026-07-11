@@ -41,6 +41,7 @@ import {
   randomId,
   siteBaseUrl,
   slugify,
+  SYSTEM_SECURITY_HEADERS,
   wantsHtml,
 } from "./util";
 
@@ -663,6 +664,8 @@ async function spaShell(request: Request, env: Env): Promise<Response> {
   const headers = new Headers(asset.headers);
   headers.set("Cache-Control", "private, no-store");
   headers.set("X-Robots-Tag", "noindex, nofollow");
+  for (const [k, v] of Object.entries(SYSTEM_SECURITY_HEADERS))
+    headers.set(k, v);
   return new Response(asset.body, { status: asset.status, headers });
 }
 
@@ -2207,6 +2210,7 @@ function page(
   const headers: Record<string, string> = {
     "Content-Type": "text/html; charset=utf-8",
     "Cache-Control": "private, no-store",
+    ...SYSTEM_SECURITY_HEADERS,
   };
   if (opts.robots !== "index") headers["X-Robots-Tag"] = "noindex, nofollow";
   return new Response(
