@@ -198,7 +198,10 @@ function ArtifactTable({
   const q = query.trim().toLowerCase();
   const rows = artifacts.filter(
     (a) =>
-      !q || `${a.title} ${a.url_key} ${a.gate_level}`.toLowerCase().includes(q),
+      !q ||
+      `${a.title} ${a.url_key} ${a.gate_level} ${a.status}`
+        .toLowerCase()
+        .includes(q),
   );
   return (
     <section className="artifacts" aria-label="Artifacts">
@@ -239,6 +242,9 @@ function ArtifactTable({
               </span>
               <span className="art-gate">
                 <span className="pill">{artifact.gate_level}</span>
+                {artifact.status === "suspended" || artifact.org_suspended ? (
+                  <span className="pill danger">Suspended</span>
+                ) : null}
               </span>
               <span className="num">{formatNumber(artifact.total_views)}</span>
               <span className="num art-7d">
@@ -372,6 +378,12 @@ function ArtifactSheet({
   const recentViews = (overview?.recent || [])
     .filter((view) => view.artifact_id === artifact.id)
     .slice(0, 8);
+  const unavailable =
+    artifact.status === "suspended"
+      ? "This artifact is suspended"
+      : artifact.org_suspended
+        ? "This workspace is suspended"
+        : "";
 
   return (
     <>
@@ -400,6 +412,16 @@ function ArtifactSheet({
           </button>
         </header>
         <div className="sheet-body">
+          {unavailable ? (
+            <div className="moderation-notice" role="status">
+              <strong>{unavailable}</strong>
+              <span>
+                Public serving is disabled, but owner metadata remains visible.
+                Contact <a href="mailto:hello@iofold.com">hello@iofold.com</a>{" "}
+                if you believe this is a mistake.
+              </span>
+            </div>
+          ) : null}
           <div className="sheet-actions">
             <a
               className="button small"

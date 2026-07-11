@@ -14,9 +14,12 @@ export async function getArtifactByLegacyPath(
   slug: string,
 ): Promise<Artifact | null> {
   return env.DB.prepare(
-    `SELECT a.*
+    `SELECT a.*,
+       CASE WHEN os.org_id IS NULL THEN 0 ELSE 1 END AS org_suspended,
+       os.reason AS org_moderation_reason
      FROM legacy_artifact_paths p
      JOIN artifacts a ON a.id = p.artifact_id
+     LEFT JOIN org_suspensions os ON os.org_id = a.org_id
      WHERE p.legacy_prefix = ? AND p.legacy_slug = ?`,
   )
     .bind(legacyPrefix, slug)
@@ -27,7 +30,14 @@ export async function getArtifactByUrlKey(
   env: Env,
   urlKey: string,
 ): Promise<Artifact | null> {
-  return env.DB.prepare("SELECT * FROM artifacts WHERE url_key = ?")
+  return env.DB.prepare(
+    `SELECT a.*,
+       CASE WHEN os.org_id IS NULL THEN 0 ELSE 1 END AS org_suspended,
+       os.reason AS org_moderation_reason
+     FROM artifacts a
+     LEFT JOIN org_suspensions os ON os.org_id = a.org_id
+     WHERE a.url_key = ?`,
+  )
     .bind(urlKey)
     .first<Artifact>();
 }
@@ -36,7 +46,14 @@ export async function getArtifactById(
   env: Env,
   id: string,
 ): Promise<Artifact | null> {
-  return env.DB.prepare("SELECT * FROM artifacts WHERE id = ?")
+  return env.DB.prepare(
+    `SELECT a.*,
+       CASE WHEN os.org_id IS NULL THEN 0 ELSE 1 END AS org_suspended,
+       os.reason AS org_moderation_reason
+     FROM artifacts a
+     LEFT JOIN org_suspensions os ON os.org_id = a.org_id
+     WHERE a.id = ?`,
+  )
     .bind(id)
     .first<Artifact>();
 }
@@ -46,7 +63,14 @@ export async function getArtifactForOrg(
   orgId: string,
   slug: string,
 ): Promise<Artifact | null> {
-  return env.DB.prepare("SELECT * FROM artifacts WHERE org_id = ? AND slug = ?")
+  return env.DB.prepare(
+    `SELECT a.*,
+       CASE WHEN os.org_id IS NULL THEN 0 ELSE 1 END AS org_suspended,
+       os.reason AS org_moderation_reason
+     FROM artifacts a
+     LEFT JOIN org_suspensions os ON os.org_id = a.org_id
+     WHERE a.org_id = ? AND a.slug = ?`,
+  )
     .bind(orgId, slug)
     .first<Artifact>();
 }

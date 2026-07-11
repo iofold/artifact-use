@@ -26,6 +26,7 @@ import {
   upsertArtifact,
   upsertFileIfDraft,
 } from "./db";
+import { suspendedOrganizationResponse } from "./moderation";
 import {
   assertSlug,
   bearerToken,
@@ -64,6 +65,8 @@ export async function handlePublish(
       if (creatorOrResponse instanceof Response) return creatorOrResponse;
       const creator = creatorOrResponse;
       requirePermission(creator, env, "artifacts:publish");
+      const suspended = await suspendedOrganizationResponse(env, creator.orgId);
+      if (suspended) return suspended;
       const body = (await request.json()) as StartBody;
       return json(await createDraft(env, creator, body));
     }
@@ -76,6 +79,8 @@ export async function handlePublish(
       if (creatorOrResponse instanceof Response) return creatorOrResponse;
       const creator = creatorOrResponse;
       requirePermission(creator, env, "artifacts:publish");
+      const suspended = await suspendedOrganizationResponse(env, creator.orgId);
+      if (suspended) return suspended;
       const body = (await request.json()) as StartBody;
       const ttl = uploadSessionTtl(body.ttl_seconds);
       if (ttl instanceof Response) return ttl;
@@ -254,6 +259,8 @@ export async function handlePublish(
       if (creatorOrResponse instanceof Response) return creatorOrResponse;
       const creator = creatorOrResponse;
       requirePermission(creator, env, "artifacts:publish");
+      const suspended = await suspendedOrganizationResponse(env, creator.orgId);
+      if (suspended) return suspended;
       const body = (await request.json()) as StartBody & { html?: string };
       const html = String(body.html || "");
       if (!html) return error(400, "html_required", "html is required");

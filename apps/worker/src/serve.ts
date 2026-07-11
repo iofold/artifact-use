@@ -15,6 +15,7 @@ import {
   getVersion,
 } from "./db";
 import { getViewerSession, renderGate } from "./gate";
+import { unavailableArtifactResponse } from "./moderation";
 import { FEEDBACK_WIDGET_JS } from "./widget/feedback.generated";
 import {
   bearerToken,
@@ -52,6 +53,8 @@ export async function servePublic(
   if (!artifact && legacySlug) {
     artifact = await getArtifactByLegacyPath(env, urlKey || "", legacySlug);
     if (artifact) {
+      const unavailable = unavailableArtifactResponse(request, artifact);
+      if (unavailable) return unavailable;
       const url = new URL(request.url);
       url.pathname = publicArtifactPath(env, artifact.url_key) + rest.join("/");
       return Response.redirect(url.toString(), 301);
@@ -59,6 +62,8 @@ export async function servePublic(
   }
   if (!artifact || !artifact.current_version_id)
     return error(404, "artifact_not_found", "artifact not found");
+  const unavailable = unavailableArtifactResponse(request, artifact);
+  if (unavailable) return unavailable;
   if (
     (rest.length === 1 && rest[0] === artifact.slug) ||
     (rest.length === 0 && !path.endsWith("/"))
@@ -254,6 +259,8 @@ export async function handleComments(
     );
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
+    const unavailable = unavailableArtifactResponse(request, artifact);
+    if (unavailable) return unavailable;
     const author = await commentIdentity(request, env, artifact, "read");
     // Public artifacts allow open reading; gated ones still require a viewer
     // session or a workspace credential.
@@ -280,6 +287,8 @@ export async function handleComments(
     const artifact = await getArtifactByUrlKey(env, body.artifact_key || "");
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
+    const unavailable = unavailableArtifactResponse(request, artifact);
+    if (unavailable) return unavailable;
     const author = await commentIdentity(request, env, artifact, "write");
     if (!author) return commentsUnauthorized(env, artifact, "write");
     const result = await createComment(env, artifact, author, body);
@@ -296,6 +305,8 @@ export async function handleComments(
     const artifact = await getArtifactByUrlKey(env, body.artifact_key || "");
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
+    const unavailable = unavailableArtifactResponse(request, artifact);
+    if (unavailable) return unavailable;
     const author = await commentIdentity(request, env, artifact, "write");
     if (!author) return commentsUnauthorized(env, artifact, "write");
     const id = positiveInteger(body.id);
@@ -530,6 +541,8 @@ export async function handleAgentToken(
   };
   const artifact = await getArtifactByUrlKey(env, body.artifact_key || "");
   if (!artifact) return error(404, "artifact_not_found", "artifact not found");
+  const unavailable = unavailableArtifactResponse(request, artifact);
+  if (unavailable) return unavailable;
   const base = publicArtifactUrl(env, artifact.url_key);
   const site = siteBaseUrl(env);
   if (artifact.gate_level === "public") {

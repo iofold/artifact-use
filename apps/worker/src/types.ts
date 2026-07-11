@@ -65,6 +65,12 @@ export interface Artifact {
   created_by: string;
   created_at: number;
   updated_at: number;
+  status: "active" | "suspended";
+  moderation_reason: string | null;
+  moderated_by: string | null;
+  moderated_at: number | null;
+  org_suspended?: number;
+  org_moderation_reason?: string | null;
 }
 
 export interface ArtifactVersion {

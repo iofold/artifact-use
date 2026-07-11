@@ -1,7 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, postForm, type SuperArtifact, type SuperEvent } from "../api";
+import {
+  api,
+  postForm,
+  type SuperArtifact,
+  type SuperEvent,
+  type SuperModerationEvent,
+} from "../api";
 import {
   BarChart,
   CopyButton,
@@ -66,7 +72,7 @@ export default function SuperAdmin() {
     (a) =>
       (!orgFilter || a.org_id === orgFilter) &&
       (!q ||
-        `${a.title} ${a.url_key} ${a.org_id} ${a.created_by} ${a.gate_level}`
+        `${a.title} ${a.url_key} ${a.org_id} ${a.created_by} ${a.gate_level} ${a.status}`
           .toLowerCase()
           .includes(q)),
   );
@@ -154,6 +160,7 @@ export default function SuperAdmin() {
                 <strong>{formatNumber(org.artifacts)}</strong> artifacts ·{" "}
                 <strong>{formatNumber(org.views)}</strong> views ·{" "}
                 <strong>{formatNumber(org.feedback)}</strong> feedback
+                {org.suspended ? " · suspended" : ""}
               </span>
             </button>
           ))}
@@ -208,6 +215,9 @@ export default function SuperAdmin() {
               </span>
               <span className="art-gate">
                 <span className="pill">{artifact.gate_level}</span>
+                {artifact.status === "suspended" || artifact.org_suspended ? (
+                  <span className="pill danger">Suspended</span>
+                ) : null}
               </span>
               <span className="num">{formatNumber(artifact.total_views)}</span>
               <span className="num art-fb">
@@ -243,11 +253,39 @@ export default function SuperAdmin() {
         </section>
       ) : null}
 
+      {data.moderationEvents.length ? (
+        <section className="activity">
+          <p className="eyebrow">Moderation trail</p>
+          <h2>Recent suspension actions</h2>
+          <ul className="activity-feed">
+            {data.moderationEvents.slice(0, 30).map((event) => (
+              <li key={event.id}>
+                <span>
+                  <strong>
+                    {event.action} {event.artifact_title || event.org_id}
+                  </strong>
+                  <small>
+                    {event.scope} · by {event.actor_user_id}
+                    {event.reason ? ` · ${event.reason}` : ""}
+                  </small>
+                </span>
+                <time>{ago(event.created_at)}</time>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       {openArtifact ? (
         <SuperSheet
           artifact={openArtifact}
           events={data.events.filter(
             (event) => event.artifact_id === openArtifact.id,
+          )}
+          moderationEvents={data.moderationEvents.filter(
+            (event) =>
+              event.artifact_id === openArtifact.id ||
+              (event.scope === "org" && event.org_id === openArtifact.org_id),
           )}
           onClose={() => {
             params.delete("open");
@@ -262,7 +300,14 @@ export default function SuperAdmin() {
 function groupByOrg(artifacts: SuperArtifact[]) {
   const map = new Map<
     string,
-    { orgId: string; artifacts: number; views: number; feedback: number }
+    {
+      orgId: string;
+      artifacts: number;
+      views: number;
+      feedback: number;
+      suspended: boolean;
+      reason: string | null;
+    }
   >();
   for (const artifact of artifacts) {
     const entry = map.get(artifact.org_id) || {
@@ -270,10 +315,14 @@ function groupByOrg(artifacts: SuperArtifact[]) {
       artifacts: 0,
       views: 0,
       feedback: 0,
+      suspended: false,
+      reason: null,
     };
     entry.artifacts += 1;
     entry.views += artifact.total_views;
     entry.feedback += artifact.comment_count;
+    entry.suspended ||= artifact.org_suspended;
+    entry.reason ||= artifact.org_moderation_reason;
     map.set(artifact.org_id, entry);
   }
   return Array.from(map.values()).sort((a, b) => b.views - a.views);
@@ -282,10 +331,12 @@ function groupByOrg(artifacts: SuperArtifact[]) {
 function SuperSheet({
   artifact,
   events,
+  moderationEvents,
   onClose,
 }: {
   artifact: SuperArtifact;
   events: SuperEvent[];
+  moderationEvents: SuperModerationEvent[];
   onClose: () => void;
 }) {
   const queryClient = useQueryClient();
@@ -295,6 +346,7 @@ function SuperSheet({
     setTimeout(onClose, 170);
   };
   const [target, setTarget] = useState({ org: "", user: "" });
+  const [moderationReason, setModerationReason] = useState("");
   const transfer = useMutation({
     mutationFn: () =>
       postForm("/admin/super/transfer", {
@@ -307,6 +359,35 @@ function SuperSheet({
       void queryClient.invalidateQueries({ queryKey: ["super"] });
     },
   });
+  const moderation = useMutation({
+    mutationFn: (input: {
+      scope: "artifact" | "org";
+      action: "suspend" | "restore";
+    }) =>
+      postForm(`/admin/super/${input.scope}/${input.action}`, {
+        ...(input.scope === "artifact"
+          ? { artifact_id: artifact.id }
+          : { org_id: artifact.org_id }),
+        ...(input.action === "suspend" ? { reason: moderationReason } : {}),
+      }),
+    onSuccess: () => {
+      setModerationReason("");
+      void queryClient.invalidateQueries({ queryKey: ["super"] });
+    },
+  });
+  const requestSuspension = (scope: "artifact" | "org") => {
+    const target = scope === "artifact" ? artifact.title : artifact.org_id;
+    const impact =
+      scope === "artifact"
+        ? "this artifact"
+        : "every artifact in this workspace and block new publishes";
+    if (
+      window.confirm(
+        `Suspend ${target}? This will immediately block ${impact}.`,
+      )
+    )
+      moderation.mutate({ scope, action: "suspend" });
+  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") requestClose();
@@ -407,6 +488,125 @@ function SuperSheet({
             Published {dateLabel(artifact.completed_at)} · updated{" "}
             {ago(artifact.updated_at)}
           </p>
+          <h3>Availability controls</h3>
+          <div className="moderation-controls">
+            <div className="moderation-state">
+              <span>
+                Artifact: <strong>{artifact.status}</strong>
+              </span>
+              {artifact.moderation_reason ? (
+                <small>{artifact.moderation_reason}</small>
+              ) : null}
+              <span>
+                Workspace:{" "}
+                <strong>
+                  {artifact.org_suspended ? "suspended" : "active"}
+                </strong>
+              </span>
+              {artifact.org_moderation_reason ? (
+                <small>{artifact.org_moderation_reason}</small>
+              ) : null}
+            </div>
+            <label htmlFor="moderation-reason">
+              Reason for next suspension
+            </label>
+            <textarea
+              id="moderation-reason"
+              rows={3}
+              maxLength={500}
+              placeholder="Required for suspend actions; not used for restore"
+              value={moderationReason}
+              onChange={(event) => setModerationReason(event.target.value)}
+            />
+            <div className="moderation-actions">
+              <div className="moderation-action-row">
+                <span>
+                  <strong>Artifact only</strong>
+                  <small>{artifact.title}</small>
+                </span>
+                {artifact.status === "suspended" ? (
+                  <button
+                    type="button"
+                    className="button small ghost"
+                    onClick={() =>
+                      moderation.mutate({
+                        scope: "artifact",
+                        action: "restore",
+                      })
+                    }
+                    disabled={moderation.isPending}
+                  >
+                    Restore artifact
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="button small danger"
+                    onClick={() => requestSuspension("artifact")}
+                    disabled={
+                      moderation.isPending || !moderationReason.trim().length
+                    }
+                  >
+                    Suspend artifact
+                  </button>
+                )}
+              </div>
+              <div className="moderation-action-row workspace-action">
+                <span>
+                  <strong>Entire workspace</strong>
+                  <small>{artifact.org_id}</small>
+                </span>
+                {artifact.org_suspended ? (
+                  <button
+                    type="button"
+                    className="button small ghost"
+                    onClick={() =>
+                      moderation.mutate({ scope: "org", action: "restore" })
+                    }
+                    disabled={moderation.isPending}
+                  >
+                    Restore workspace
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    className="button small danger"
+                    onClick={() => requestSuspension("org")}
+                    disabled={
+                      moderation.isPending || !moderationReason.trim().length
+                    }
+                  >
+                    Suspend workspace
+                  </button>
+                )}
+              </div>
+            </div>
+            {moderation.isError ? (
+              <p className="error mini">
+                {(moderation.error as Error).message}
+              </p>
+            ) : null}
+          </div>
+          <h3>Moderation history</h3>
+          {moderationEvents.length ? (
+            <ul className="detail-list">
+              {moderationEvents.map((event) => (
+                <li key={event.id}>
+                  <span>
+                    <strong>
+                      {event.action} {event.scope}
+                    </strong>
+                    <small>
+                      {event.reason || "restored"} · by {event.actor_user_id}
+                    </small>
+                  </span>
+                  <time>{ago(event.created_at)}</time>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <div className="empty small-empty">No moderation actions.</div>
+          )}
           <h3>Move ownership</h3>
           <form
             className="transfer-form"

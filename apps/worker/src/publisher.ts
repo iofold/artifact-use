@@ -30,6 +30,7 @@ import {
   WorkosApiError,
 } from "./workos";
 import { createShareLink, updateArtifactAccess } from "./db";
+import { moderateArtifact, moderateOrganization } from "./moderation";
 import {
   artifactUrlCode,
   artifactPathPrefix,
@@ -653,6 +654,18 @@ export async function handlePublisherAdmin(
     return csrfFailed();
   if (path === "/admin/super/transfer" && request.method === "POST")
     return transferArtifactOwner(request, env, session);
+  if (
+    (path === "/admin/super/artifact/suspend" ||
+      path === "/admin/super/artifact/restore") &&
+    request.method === "POST"
+  )
+    return moderateArtifactAction(request, env, session, path);
+  if (
+    (path === "/admin/super/org/suspend" ||
+      path === "/admin/super/org/restore") &&
+    request.method === "POST"
+  )
+    return moderateOrganizationAction(request, env, session, path);
   if (path === "/admin/artifact/access" && request.method === "POST")
     return updateAccess(request, env, session);
   if (path === "/admin/artifact/share-link" && request.method === "POST")
@@ -763,7 +776,7 @@ async function adminSuperJson(
   if (!isSuperAdmin(session, env))
     return error(403, "forbidden", "super admin access is not configured");
   const since30 = nowSec() - 30 * 86400;
-  const [artifacts, dailyRows, eventRows] = await Promise.all([
+  const [artifacts, dailyRows, eventRows, moderationRows] = await Promise.all([
     artifactStatsRows(env, { orderBy: "a.updated_at DESC", limit: 500 }),
     env.DB.prepare(
       `SELECT date(ts, 'unixepoch') AS day, COUNT(*) AS n
@@ -788,6 +801,23 @@ async function adminSuperJson(
       artifact_title: string | null;
       artifact_url_key: string | null;
     }>(),
+    env.DB.prepare(
+      `SELECT me.*, a.title AS artifact_title, a.url_key AS artifact_url_key
+       FROM moderation_events me
+       LEFT JOIN artifacts a ON a.id = me.artifact_id
+       ORDER BY me.created_at DESC LIMIT 50`,
+    ).all<{
+      id: string;
+      actor_user_id: string;
+      scope: "artifact" | "org";
+      artifact_id: string | null;
+      org_id: string | null;
+      action: string;
+      reason: string | null;
+      created_at: number;
+      artifact_title: string | null;
+      artifact_url_key: string | null;
+    }>(),
   ]);
   return json({
     me: { sub: session.sub, email: session.email },
@@ -798,6 +828,12 @@ async function adminSuperJson(
       url_key: artifact.url_key,
       title: artifact.title,
       gate_level: artifact.gate_level,
+      status: artifact.status,
+      moderation_reason: artifact.moderation_reason,
+      moderated_by: artifact.moderated_by,
+      moderated_at: artifact.moderated_at,
+      org_suspended: Boolean(artifact.org_suspended),
+      org_moderation_reason: artifact.org_moderation_reason || null,
       org_id: artifact.org_id,
       created_by: artifact.created_by,
       path: publicArtifactPath(env, artifact.url_key),
@@ -820,6 +856,18 @@ async function adminSuperJson(
       from_org_id: event.from_org_id,
       to_org_id: event.to_org_id,
       to_user_id: event.to_user_id,
+      created_at: event.created_at,
+    })),
+    moderationEvents: (moderationRows.results || []).map((event) => ({
+      id: event.id,
+      actor_user_id: event.actor_user_id,
+      scope: event.scope,
+      artifact_id: event.artifact_id,
+      artifact_title: event.artifact_title,
+      artifact_url_key: event.artifact_url_key,
+      org_id: event.org_id,
+      action: event.action,
+      reason: event.reason,
       created_at: event.created_at,
     })),
   });
@@ -904,6 +952,8 @@ async function adminOverviewJson(
       url_key: artifact.url_key,
       title: artifact.title,
       gate_level: artifact.gate_level,
+      status: artifact.status,
+      org_suspended: Boolean(artifact.org_suspended),
       path: publicArtifactPath(env, artifact.url_key),
       url: publicArtifactUrl(env, artifact.url_key),
       total_views: Number(artifact.total_views || 0),
@@ -1554,6 +1604,8 @@ async function artifactStatsRows(
 ): Promise<ArtifactRow[]> {
   const stmt = env.DB.prepare(
     `SELECT a.*,
+      CASE WHEN MAX(os.org_id) IS NULL THEN 0 ELSE 1 END AS org_suspended,
+      MAX(os.reason) AS org_moderation_reason,
       av.file_count AS file_count,
       av.total_size AS total_size,
       av.completed_at AS completed_at,
@@ -1567,6 +1619,7 @@ async function artifactStatsRows(
         ELSE NULL
       END) AS open_comments
      FROM artifacts a
+     LEFT JOIN org_suspensions os ON os.org_id = a.org_id
      LEFT JOIN artifact_versions av ON av.id = a.current_version_id
      LEFT JOIN views v ON v.artifact_id = a.id
      LEFT JOIN share_links sl ON sl.artifact_id = a.id
@@ -1708,6 +1761,76 @@ async function workosUserInOrg(
       stringClaim(membership.status) === "active"
     );
   });
+}
+
+async function moderateArtifactAction(
+  request: Request,
+  env: Env,
+  session: PublisherSession,
+  path: string,
+): Promise<Response> {
+  if (!isSuperAdmin(session, env))
+    return error(403, "forbidden", "super admin access is not configured");
+  const form = await request.formData();
+  const artifactId = String(form.get("artifact_id") || "").trim();
+  if (!artifactId.startsWith("art_") || artifactId.length > 200)
+    return error(400, "artifact_id_required", "artifact id is required");
+  const action = path.endsWith("/suspend") ? "suspend" : "restore";
+  const reason = moderationReason(form, action === "suspend");
+  if (reason instanceof Response) return reason;
+  const found = await moderateArtifact(env, {
+    actorUserId: session.sub,
+    artifactId,
+    action,
+    reason,
+  });
+  if (!found) return error(404, "artifact_not_found", "artifact not found");
+  return redirect(`/admin/super?open=${encodeURIComponent(artifactId)}`);
+}
+
+async function moderateOrganizationAction(
+  request: Request,
+  env: Env,
+  session: PublisherSession,
+  path: string,
+): Promise<Response> {
+  if (!isSuperAdmin(session, env))
+    return error(403, "forbidden", "super admin access is not configured");
+  const form = await request.formData();
+  const orgId = String(form.get("org_id") || "").trim();
+  if (!orgId || orgId.length > 200)
+    return error(400, "org_id_required", "organization id is required");
+  const action = path.endsWith("/suspend") ? "suspend" : "restore";
+  const reason = moderationReason(form, action === "suspend");
+  if (reason instanceof Response) return reason;
+  await moderateOrganization(env, {
+    actorUserId: session.sub,
+    orgId,
+    action,
+    reason,
+  });
+  return redirect("/admin/super");
+}
+
+function moderationReason(
+  form: FormData,
+  required: boolean,
+): string | null | Response {
+  if (!required) return null;
+  const reason = String(form.get("reason") || "").trim();
+  if (!reason)
+    return error(
+      400,
+      "moderation_reason_required",
+      "a moderation reason is required",
+    );
+  if (reason.length > 500)
+    return error(
+      400,
+      "moderation_reason_too_long",
+      "moderation reason must be 500 characters or fewer",
+    );
+  return reason;
 }
 
 function isSuperAdmin(session: PublisherSession, env: Env): boolean {

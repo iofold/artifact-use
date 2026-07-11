@@ -8,6 +8,7 @@ import {
 } from "./auth";
 import { getArtifactById, getArtifactByUrlKey, insertView } from "./db";
 import { sendVerificationEmail } from "./mailer";
+import { unavailableArtifactResponse } from "./moderation";
 import {
   bearerToken,
   error,
@@ -76,6 +77,8 @@ export async function handleGateRoute(
       const artifact = await formArtifact(env, form);
       if (!artifact)
         return error(404, "artifact_not_found", "artifact not found");
+      const unavailable = unavailableArtifactResponse(request, artifact);
+      if (unavailable) return unavailable;
       const email = normalizeEmail(String(form.get("email") || ""));
       if (!email.includes("@"))
         return error(400, "invalid_email", "valid email required");
@@ -102,6 +105,8 @@ export async function handleGateRoute(
       const artifact = await formArtifact(env, form);
       if (!artifact)
         return error(404, "artifact_not_found", "artifact not found");
+      const unavailable = unavailableArtifactResponse(request, artifact);
+      if (unavailable) return unavailable;
       const email = normalizeEmail(String(form.get("email") || ""));
       if (!email.includes("@"))
         return error(400, "invalid_email", "valid email required");
@@ -174,6 +179,8 @@ ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${cod
       const artifact = await formArtifact(env, form);
       if (!artifact)
         return error(404, "artifact_not_found", "artifact not found");
+      const unavailable = unavailableArtifactResponse(request, artifact);
+      if (unavailable) return unavailable;
       const email = normalizeEmail(String(form.get("email") || ""));
       const code = String(form.get("code") || "").trim();
       const row = await env.DB.prepare(
@@ -223,6 +230,8 @@ ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${cod
       const artifact = await getArtifactById(env, row.artifact_id);
       if (!artifact)
         return error(404, "artifact_not_found", "artifact not found");
+      const unavailable = unavailableArtifactResponse(request, artifact);
+      if (unavailable) return unavailable;
       return await consumeVerified(
         request,
         env,

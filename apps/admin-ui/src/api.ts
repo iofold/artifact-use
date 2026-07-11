@@ -23,6 +23,8 @@ export type ArtifactRow = {
   url_key: string;
   title: string;
   gate_level: string;
+  status: "active" | "suspended";
+  org_suspended: boolean;
   path: string;
   url: string;
   total_views: number;
@@ -202,6 +204,12 @@ export type SuperArtifact = {
   url_key: string;
   title: string;
   gate_level: string;
+  status: "active" | "suspended";
+  moderation_reason: string | null;
+  moderated_by: string | null;
+  moderated_at: number | null;
+  org_suspended: boolean;
+  org_moderation_reason: string | null;
   org_id: string;
   created_by: string;
   path: string;
@@ -227,12 +235,26 @@ export type SuperEvent = {
   created_at: number;
 };
 
+export type SuperModerationEvent = {
+  id: string;
+  actor_user_id: string;
+  scope: "artifact" | "org";
+  artifact_id: string | null;
+  artifact_title: string | null;
+  artifact_url_key: string | null;
+  org_id: string | null;
+  action: "suspend" | "restore";
+  reason: string | null;
+  created_at: number;
+};
+
 export type SuperOverview = {
   me: { sub: string; email: string | null };
   site: Site;
   artifacts: SuperArtifact[];
   daily: { day: string; n: number }[];
   events: SuperEvent[];
+  moderationEvents: SuperModerationEvent[];
 };
 
 export const api = {
