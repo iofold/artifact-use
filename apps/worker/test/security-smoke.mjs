@@ -10,6 +10,7 @@ const publisherUserId =
   process.env.SECURITY_SMOKE_PUBLISHER_USER_ID || "user_security_smoke";
 const publisherOrgId =
   process.env.SECURITY_SMOKE_PUBLISHER_ORG_ID || "org_security_smoke";
+const runMarker = Date.now().toString(36);
 
 let assertions = 0;
 
@@ -114,7 +115,10 @@ for (const [path, init] of [
 
 const started = await expect("/api/v1/connect/start", 200, {
   method: "POST",
-  headers: { "Content-Type": "application/json" },
+  headers: {
+    "Content-Type": "application/json",
+    "CF-Connecting-IP": `security-smoke-bootstrap-${runMarker}`,
+  },
   body: JSON.stringify({ agent_label: "security smoke agent" }),
 });
 const connect = parsed(started.body, "/api/v1/connect/start");
@@ -171,6 +175,12 @@ if (claimedBody.status !== "approved" || !claimedBody.token)
   throw new Error("protected device approval did not deliver a token");
 assertions += 1;
 
+if (
+  ["localhost", "127.0.0.1", "::1"].includes(new URL(base).hostname) ||
+  process.env.SECURITY_SMOKE_RATE_LIMITS === "true"
+)
+  await connectRateLimitSmoke();
+
 const moderationArtifactId = process.env.SECURITY_SMOKE_MODERATION_ARTIFACT_ID;
 const moderationArtifactKey =
   process.env.SECURITY_SMOKE_MODERATION_ARTIFACT_KEY;
@@ -189,6 +199,29 @@ if (moderationArtifactId || moderationArtifactKey || moderationOrgId) {
 }
 
 console.log(`security smoke passed (${assertions} assertions against ${base})`);
+
+async function connectRateLimitSmoke() {
+  const ip = `security-smoke-limit-${runMarker}`;
+  const init = {
+    method: "POST",
+    headers: {
+      Accept: "application/json",
+      "Content-Type": "application/json",
+      "CF-Connecting-IP": ip,
+    },
+    body: JSON.stringify({ agent_label: "rate boundary smoke" }),
+  };
+  for (let attempt = 1; attempt <= 20; attempt += 1)
+    await expect("/api/v1/connect/start", 200, init);
+  const blocked = await expect("/api/v1/connect/start", 429, init);
+  expectCode(blocked.body, "rate_limited", "/api/v1/connect/start");
+  const retryAfter = Number(blocked.response.headers.get("Retry-After"));
+  if (!Number.isInteger(retryAfter) || retryAfter <= 0)
+    throw new Error(
+      `/api/v1/connect/start: invalid Retry-After ${blocked.response.headers.get("Retry-After")}`,
+    );
+  assertions += 1;
+}
 
 async function moderationSmoke({
   artifactId,

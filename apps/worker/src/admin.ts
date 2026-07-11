@@ -7,6 +7,7 @@ import {
   resolveComment,
 } from "./comments";
 import { agentSetupPrompt } from "./llms";
+import { commentWriteRateLimit } from "./rl";
 import {
   createShareLink,
   getArtifactByLegacyPath,
@@ -214,10 +215,13 @@ export async function handleAdminApi(
           page_path?: unknown;
           version_id?: unknown;
         };
+        const identity = creator.email || creator.sub;
+        const limited = await commentWriteRateLimit(request, env, identity);
+        if (limited) return limited;
         const result = await createComment(
           env,
           artifact,
-          { email: creator.email || creator.sub, viewId: null },
+          { email: identity, viewId: null },
           body,
         );
         if (!result.ok)
@@ -232,12 +236,15 @@ export async function handleAdminApi(
         };
         const id = positiveInteger(body.id);
         if (!id) return error(400, "invalid_comment", "comment id is required");
+        const identity = creator.email || creator.sub;
+        const limited = await commentWriteRateLimit(request, env, identity);
+        if (limited) return limited;
         const updated = await resolveComment(
           env,
           artifact,
           id,
           body.resolved !== false,
-          creator.email || creator.sub,
+          identity,
         );
         if (!updated)
           return error(404, "comment_not_found", "comment not found");

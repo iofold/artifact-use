@@ -16,6 +16,7 @@ import {
 } from "./db";
 import { getViewerSession, renderGate } from "./gate";
 import { unavailableArtifactResponse } from "./moderation";
+import { commentWriteRateLimit } from "./rl";
 import { FEEDBACK_WIDGET_JS } from "./widget/feedback.generated";
 import {
   bearerToken,
@@ -291,6 +292,8 @@ export async function handleComments(
     if (unavailable) return unavailable;
     const author = await commentIdentity(request, env, artifact, "write");
     if (!author) return commentsUnauthorized(env, artifact, "write");
+    const limited = await commentWriteRateLimit(request, env, author.email);
+    if (limited) return limited;
     const result = await createComment(env, artifact, author, body);
     if (!result.ok) return error(result.status, result.code, result.message);
     return json({ ok: true, comment: result.comment });
@@ -311,6 +314,8 @@ export async function handleComments(
     if (!author) return commentsUnauthorized(env, artifact, "write");
     const id = positiveInteger(body.id);
     if (!id) return error(400, "invalid_comment", "comment id is required");
+    const limited = await commentWriteRateLimit(request, env, author.email);
+    if (limited) return limited;
     if (body.target !== undefined) {
       const reanchored = await reanchorComment(env, artifact, id, body.target);
       if (reanchored === null)

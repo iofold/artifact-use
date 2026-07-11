@@ -356,9 +356,14 @@ test("device connect advertises only the protected admin approval URL", async ()
   const testEnv = {
     SITE_BASE_URL: "https://artifacts.example.com",
     DB: {
-      prepare: () => ({
+      prepare: (sql: string) => ({
         bind() {
           return this;
+        },
+        async first() {
+          return sql.includes("INSERT INTO rate_counters")
+            ? { count: 1 }
+            : null;
         },
         async run() {
           return { meta: { changes: 1 } };

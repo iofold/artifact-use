@@ -1,6 +1,7 @@
 import type { Env, PublisherSession } from "./types";
 import { mintCreatorToken } from "./auth";
 import { agentSetupPrompt } from "./llms";
+import { hashRateKey, rateLimit, rateLimitedResponse, requestIp } from "./rl";
 import { error, json, nowSec, randomId, siteBaseUrl } from "./util";
 
 // Device-code style handoff: an agent with no token and no browser requests a
@@ -43,6 +44,14 @@ async function startConnect(request: Request, env: Env): Promise<Response> {
     agent_label?: unknown;
   };
   const label = body.agent_label ? String(body.agent_label).slice(0, 80) : null;
+  const ipHash = await hashRateKey(requestIp(request));
+  const startLimit = await rateLimit(
+    env,
+    `connect:start:ip:hour:${ipHash}`,
+    20,
+    60 * 60,
+  );
+  if (!startLimit.allowed) return rateLimitedResponse(startLimit);
   const now = nowSec();
   const deviceCode = randomId("dc");
   const userCode = newUserCode();

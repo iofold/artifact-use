@@ -10,6 +10,13 @@ import { getArtifactById, getArtifactByUrlKey, insertView } from "./db";
 import { sendVerificationEmail } from "./mailer";
 import { unavailableArtifactResponse } from "./moderation";
 import {
+  clearRateLimit,
+  hashRateKey,
+  rateLimit,
+  rateLimitedResponse,
+  requestIp,
+} from "./rl";
+import {
   bearerToken,
   error,
   escapeHtml,
@@ -80,8 +87,17 @@ export async function handleGateRoute(
       const unavailable = unavailableArtifactResponse(request, artifact);
       if (unavailable) return unavailable;
       const email = normalizeEmail(String(form.get("email") || ""));
-      if (!email.includes("@"))
+      if (!validEmail(email))
         return error(400, "invalid_email", "valid email required");
+      const ipHash = await hashRateKey(requestIp(request));
+      const emailLimit = await rateLimit(
+        env,
+        `gate:email:ip:hour:${ipHash}`,
+        60,
+        60 * 60,
+      );
+      if (!emailLimit.allowed)
+        return rateLimitedResponse(emailLimit, request, artifact.title);
       const shareLinkId = String(form.get("share_link_id") || "") || null;
       const redirectTo = safeArtifactRedirect(
         env,
@@ -107,8 +123,14 @@ export async function handleGateRoute(
         return error(404, "artifact_not_found", "artifact not found");
       const unavailable = unavailableArtifactResponse(request, artifact);
       if (unavailable) return unavailable;
+      if (!requiresVerified(artifact.gate_level))
+        return error(
+          400,
+          "otp_not_required",
+          "this artifact does not require email verification",
+        );
       const email = normalizeEmail(String(form.get("email") || ""));
-      if (!email.includes("@"))
+      if (!validEmail(email))
         return error(400, "invalid_email", "valid email required");
       if (!isAllowed(artifact, email))
         return wantsHtml(request)
@@ -121,6 +143,22 @@ export async function handleGateRoute(
               "email_not_allowed",
               "this email is not allowed for this artifact",
             );
+      const emailHash = await hashRateKey(email);
+      const ipHash = await hashRateKey(requestIp(request));
+      for (const [bucket, limit, windowSec] of [
+        [`otp:start:email:hour:${emailHash}`, 3, 60 * 60],
+        [`otp:start:email:day:${emailHash}`, 10, 24 * 60 * 60],
+        [
+          `otp:start:artifact:day:${artifact.id.slice(0, 80)}`,
+          50,
+          24 * 60 * 60,
+        ],
+        [`otp:start:ip:hour:${ipHash}`, 20, 60 * 60],
+      ] as const) {
+        const result = await rateLimit(env, bucket, limit, windowSec);
+        if (!result.allowed)
+          return rateLimitedResponse(result, request, artifact.title);
+      }
       const redirectTo = safeArtifactRedirect(
         env,
         artifact,
@@ -128,6 +166,12 @@ export async function handleGateRoute(
         form.get("redirect_to"),
       );
       const shareLinkId = String(form.get("share_link_id") || "") || null;
+      await env.DB.prepare(
+        `UPDATE viewer_tokens SET used_at = ?
+         WHERE artifact_id = ? AND email = ? AND used_at IS NULL`,
+      )
+        .bind(nowSec(), artifact.id, email)
+        .run();
       const token = randomId("vt");
       const code = randomCode();
       await env.DB.prepare(
@@ -181,8 +225,30 @@ ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${cod
         return error(404, "artifact_not_found", "artifact not found");
       const unavailable = unavailableArtifactResponse(request, artifact);
       if (unavailable) return unavailable;
+      if (!requiresVerified(artifact.gate_level))
+        return error(
+          400,
+          "otp_not_required",
+          "this artifact does not require email verification",
+        );
       const email = normalizeEmail(String(form.get("email") || ""));
       const code = String(form.get("code") || "").trim();
+      if (!validEmail(email))
+        return error(400, "invalid_email", "valid email required");
+      if (!/^\d{6}$/.test(code))
+        return error(400, "invalid_code", "six-digit code required");
+      const identityBucket = `otp:verify:identity:15m:${artifact.id.slice(0, 80)}:${await hashRateKey(email)}`;
+      const identityLimit = await rateLimit(env, identityBucket, 6, 15 * 60);
+      if (!identityLimit.allowed)
+        return rateLimitedResponse(identityLimit, request, artifact.title);
+      const ipLimit = await rateLimit(
+        env,
+        `otp:verify:ip:10m:${await hashRateKey(requestIp(request))}`,
+        30,
+        10 * 60,
+      );
+      if (!ipLimit.allowed)
+        return rateLimitedResponse(ipLimit, request, artifact.title);
       const row = await env.DB.prepare(
         "SELECT token FROM viewer_tokens WHERE artifact_id = ? AND email = ? AND code = ? AND used_at IS NULL AND expires_at >= ? ORDER BY created_at DESC LIMIT 1",
       )
@@ -195,6 +261,7 @@ ${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${cod
               `<p class="error">Invalid or expired code.</p>`,
             )
           : error(401, "invalid_code", "invalid or expired code");
+      await clearRateLimit(env, identityBucket, 15 * 60);
       return await consumeVerified(
         request,
         env,
@@ -368,4 +435,8 @@ function isAllowed(artifact: Artifact, email: string): boolean {
   return (parsed.domains || []).some(
     (d) => d.replace(/^@/, "").toLowerCase() === domain,
   );
+}
+
+function validEmail(email: string): boolean {
+  return email.length <= 320 && /^[^\s@]+@[^\s@]+$/.test(email);
 }
