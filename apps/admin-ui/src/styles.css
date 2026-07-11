@@ -224,18 +224,56 @@ code {
   padding-bottom: 23px;
   border-bottom-color: var(--accent-deep);
 }
-.inline-arrow {
-  width: 15px;
-  height: 15px;
-  fill: none;
-  stroke: currentColor;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-  stroke-width: 1.7;
-}
 .approve-line {
   display: block;
   margin-top: 4px;
+}
+.connect-approval {
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--accent);
+  border-radius: 8px;
+  background: var(--panel);
+  padding: 18px;
+}
+.connect-approval h2 {
+  margin: 0 0 5px;
+  font-size: 23px;
+}
+.connect-approval .muted {
+  margin: 0;
+  max-width: 68ch;
+}
+.connect-code-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 280px) auto;
+  gap: 10px;
+  align-items: end;
+}
+.connect-code-form input {
+  font: 600 16px var(--mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.approval-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  border-top: 1px solid var(--line-soft);
+  padding-top: 14px;
+}
+.approval-result strong,
+.approval-result small {
+  display: block;
+}
+.approval-result small {
+  color: var(--muted);
+  margin-top: 2px;
+}
+.success-box {
+  color: var(--accent-deep);
 }
 .metrics {
   display: flex;
@@ -1171,6 +1209,7 @@ code {
     grid-template-columns: 1fr 1fr;
   }
   .setup-handoff,
+  .connect-code-form,
   .token-form,
   .team-panel,
   .team-grid,
@@ -1215,5 +1254,14 @@ code {
     padding: 6px 8px;
     font-size: 13.5px;
     white-space: nowrap;
+  }
+  .approval-result {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .approval-result button,
+  .connect-code-form button {
+    min-height: 44px;
+    width: 100%;
   }
 }

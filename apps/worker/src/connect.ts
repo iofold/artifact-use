@@ -53,7 +53,7 @@ async function startConnect(request: Request, env: Env): Promise<Response> {
   )
     .bind(deviceCode, userCode, label, now, now + CONNECT_TTL_SEC)
     .run();
-  const verificationUrl = `${siteBaseUrl(env)}/connect?code=${userCode}`;
+  const verificationUrl = `${siteBaseUrl(env)}/admin/connect?code=${userCode}`;
   return json({
     device_code: deviceCode,
     user_code: userCode,

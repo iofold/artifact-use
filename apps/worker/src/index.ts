@@ -151,6 +151,14 @@ async function dispatch(
       path === "/logout"
     )
       return handlePublisherAuth(request, env, path);
+    if (path.startsWith("/api/admin/"))
+      return error(
+        410,
+        "admin_api_retired",
+        "admin API moved under /admin/api",
+      );
+    if (path.startsWith("/admin/api/"))
+      return handleAdminUiApi(request, env, path);
     if (path === "/admin" || path.startsWith("/admin/"))
       return handlePublisherAdmin(request, env, path);
     if (path === "/health") return json({ ok: true, name: "artifact-use" });
@@ -161,8 +169,6 @@ async function dispatch(
     if (path.startsWith("/api/v1/publish/"))
       return handlePublish(request, env, path);
     if (path.startsWith("/api/v1/")) return handleAdminApi(request, env, path);
-    if (path.startsWith("/api/admin/"))
-      return handleAdminUiApi(request, env, path);
     if (path.startsWith("/_au/gate/"))
       return handleGateRoute(request, env, path);
     if (path === "/_au/comments") return handleComments(request, env, path);

@@ -1,4 +1,4 @@
-// Thin fetch layer over the worker's /api/admin/* JSON reads and the existing
+// Thin fetch layer over the worker's /admin/api/* JSON reads and the existing
 // form-POST write endpoints (same-origin session cookie auth on both).
 
 export type Me = {
@@ -89,7 +89,10 @@ export type ConnectInfo = {
   site: Site;
   quick: { prompt: string; expiresAt: number } | null;
   tokens: AgentToken[];
+  pending: { code: string; agentLabel: string | null } | null;
 };
+
+export type ApprovedConnect = { approved: true; label: string };
 
 export type TeamMember = {
   id: string;
@@ -118,8 +121,29 @@ export type TeamInfo = {
 
 export type MintedPrompt = { prompt: string; expiresAt: number; label: string };
 
+export function adminCsrfToken(cookieHeader = document.cookie): string {
+  for (const part of cookieHeader.split(";")) {
+    const [name, ...value] = part.trim().split("=");
+    if (name !== "au_admin_csrf") continue;
+    try {
+      return decodeURIComponent(value.join("="));
+    } catch {
+      return "";
+    }
+  }
+  return "";
+}
+
+function adminHeaders(init?: HeadersInit): Headers {
+  const headers = new Headers(init);
+  headers.set("X-CSRF-Token", adminCsrfToken());
+  return headers;
+}
+
 async function getJson<T>(url: string): Promise<T> {
-  const res = await fetch(url, { headers: { accept: "application/json" } });
+  const res = await fetch(url, {
+    headers: adminHeaders({ accept: "application/json" }),
+  });
   if (res.status === 401) {
     window.location.href = "/login";
     throw new Error("signed out");
@@ -136,6 +160,7 @@ export async function postForm(
 ): Promise<void> {
   const res = await fetch(action, {
     method: "POST",
+    headers: adminHeaders(),
     body: new URLSearchParams(fields),
   });
   if (res.status === 401) {
@@ -160,7 +185,7 @@ export async function postJson<T>(
 ): Promise<T> {
   const res = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: adminHeaders({ "content-type": "application/json" }),
     body: JSON.stringify(body),
   });
   if (res.status === 401) {
@@ -211,17 +236,22 @@ export type SuperOverview = {
 };
 
 export const api = {
-  overview: () => getJson<Overview>("/api/admin/overview"),
-  superOverview: () => getJson<SuperOverview>("/api/admin/super"),
+  overview: () => getJson<Overview>("/admin/api/overview"),
+  superOverview: () => getJson<SuperOverview>("/admin/api/super"),
   artifactDetail: (id: string) =>
     getJson<ArtifactDetail>(
-      `/api/admin/artifact-detail?id=${encodeURIComponent(id)}`,
+      `/admin/api/artifact-detail?id=${encodeURIComponent(id)}`,
     ),
-  connect: () => getJson<ConnectInfo>("/api/admin/connect"),
-  team: () => getJson<TeamInfo>("/api/admin/team"),
+  connect: (code = "") =>
+    getJson<ConnectInfo>(
+      `/admin/api/connect${code ? `?code=${encodeURIComponent(code)}` : ""}`,
+    ),
+  team: () => getJson<TeamInfo>("/admin/api/team"),
   mintPrompt: (label: string, expiresDays: string) =>
-    postJson<MintedPrompt>("/api/admin/agent-prompt", {
+    postJson<MintedPrompt>("/admin/api/agent-prompt", {
       label,
       expires_days: expiresDays,
     }),
+  approveConnect: (code: string) =>
+    postJson<ApprovedConnect>("/admin/api/connect/approve", { code }),
 };

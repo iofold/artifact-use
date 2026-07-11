@@ -147,9 +147,9 @@ function ConnectStrip({ data }: { data: Overview }) {
         <Link className="button small" to="/admin/connect">
           Get connect prompt
         </Link>
-        <a className="button small ghost" href="/connect">
+        <Link className="button small ghost" to="/admin/connect">
           Approve a code
-        </a>
+        </Link>
         <a className="button small ghost" href={data.site.docsUrl}>
           Docs
         </a>

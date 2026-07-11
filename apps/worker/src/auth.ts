@@ -6,12 +6,20 @@ import type {
   UploadSession,
   ViewerSession,
 } from "./types";
-import { bearerToken, json, nowSec, randomId } from "./util";
+import { bearerToken, json, nowSec, randomId, sha256Hex } from "./util";
 import { stringClaim, workosApiMaybe } from "./workos";
 
 let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
 let jwksUrlCache = "";
 export const CREATOR_TOKEN_PREFIX = "au_creator_";
+export const ADMIN_CSRF_COOKIE = "au_admin_csrf";
+
+type AdminCsrfPayload = {
+  typ: "admin_csrf";
+  session_hash: string;
+  nonce: string;
+  exp: number;
+};
 
 function getJwks(env: Env): ReturnType<typeof createRemoteJWKSet> {
   if (!jwksCache || jwksUrlCache !== env.WORKOS_JWKS_URL) {
@@ -249,6 +257,52 @@ export async function verifyPayload<T>(
   if (!payload || !sig) return null;
   if ((await hmac(env.SESSION_SECRET, payload)) !== sig) return null;
   return JSON.parse(new TextDecoder().decode(fromBase64Url(payload))) as T;
+}
+
+export async function issueAdminCsrfToken(
+  rawPublisherSession: string,
+  sessionExpiresAt: number,
+  env: Env,
+): Promise<{ token: string; cookie: string }> {
+  const exp = Math.max(nowSec(), Math.floor(sessionExpiresAt));
+  const token = await signPayload(
+    {
+      typ: "admin_csrf",
+      session_hash: await sha256Hex(rawPublisherSession),
+      nonce: randomId("csrf"),
+      exp,
+    } satisfies AdminCsrfPayload,
+    env,
+  );
+  const maxAge = Math.max(0, exp - nowSec());
+  return {
+    token,
+    cookie: `${ADMIN_CSRF_COOKIE}=${encodeURIComponent(token)}; Path=/admin; Max-Age=${maxAge}; Secure; SameSite=Strict`,
+  };
+}
+
+export async function verifyAdminCsrf(
+  request: Request,
+  rawPublisherSession: string,
+  env: Env,
+): Promise<boolean> {
+  const cookieToken = readCookie(request, ADMIN_CSRF_COOKIE);
+  const headerToken = request.headers.get("X-CSRF-Token");
+  if (!cookieToken || !headerToken || cookieToken !== headerToken) return false;
+
+  try {
+    const payload = await verifyPayload<AdminCsrfPayload>(cookieToken, env);
+    if (!payload || payload.typ !== "admin_csrf") return false;
+    if (!payload.exp || payload.exp < nowSec()) return false;
+    if (!payload.nonce || !payload.session_hash) return false;
+    return payload.session_hash === (await sha256Hex(rawPublisherSession));
+  } catch {
+    return false;
+  }
+}
+
+export function expireAdminCsrfCookie(): string {
+  return `${ADMIN_CSRF_COOKIE}=; Path=/admin; Max-Age=0; Secure; SameSite=Strict`;
 }
 
 export async function signViewerSession(

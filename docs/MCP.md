@@ -99,7 +99,7 @@ When the agent has no token and no browser, it can request one itself:
 
 1. Agent: `POST /api/v1/connect/start` with optional `{"agent_label": "..."}`
    → `device_code`, `user_code`, `verification_url`, `expires_in` (15 min).
-2. Human: open the `verification_url` (or `/connect`), review the label, and
+2. Human: open the `verification_url` (or `/admin/connect`), review the label, and
    approve the code from a signed-in publisher session.
 3. Agent: `POST /api/v1/connect/poll` with `{"device_code": "..."}` →
    `{"status": "pending"}` until approval, then the bearer token (delivered

@@ -6,12 +6,15 @@ import type {
   PublisherSession,
 } from "./types";
 import {
+  expireAdminCsrfCookie,
   extractStringArray,
   fromBase64Url,
+  issueAdminCsrfToken,
   mintCreatorToken,
   readCookie,
   signPayload,
   userScopedOrgId,
+  verifyAdminCsrf,
   verifyPayload,
 } from "./auth";
 import {
@@ -547,7 +550,7 @@ export async function renderHome(
           <div class="codeblock"><button class="copy-btn" type="button" data-copy="mcp-config">Copy</button><pre id="mcp-config">${escapeHtml(mcpConfig(env))}</pre></div>
           <div class="codeblock"><button class="copy-btn" type="button" data-copy="connect-snippet">Copy</button><pre id="connect-snippet"><span class="t-dim"># tokenless agents: device-style connect</span>
 POST ${escapeHtml(base)}/api/v1/connect/start
-<span class="t-dim"># -> human approves the code at ${escapeHtml(base)}/connect</span>
+<span class="t-dim"># -> human approves the code at ${escapeHtml(base)}/admin/connect</span>
 POST ${escapeHtml(base)}/api/v1/connect/poll
 <span class="t-dim"># -> bearer token + ready-to-run setup prompt</span></pre></div>
         </div>
@@ -608,6 +611,7 @@ export function renderPrivacyPolicy(..._args: unknown[]): Response {
     headers.append("Set-Cookie", expireCookie(SESSION_COOKIE));
     headers.append("Set-Cookie", expireCookie(STATE_COOKIE));
     headers.append("Set-Cookie", expireCookie(INVITE_COOKIE));
+    headers.append("Set-Cookie", expireAdminCsrfCookie());
     return redirect(
       session?.sessionId ? workosLogoutUrl(session.sessionId) : "/",
       headers,
@@ -621,13 +625,22 @@ export async function handlePublisherAdmin(
   env: Env,
   path: string,
 ): Promise<Response> {
-  const session = await getPublisherSession(request, env);
-  if (!session) {
+  const authenticated = await getPublisherSessionAuth(request, env);
+  if (!authenticated) {
     // Browsers get the sign-in redirect; agents get instructions instead of
     // a dead-end 302 (same pattern as the artifact gate JSON).
     if (!wantsHtml(request)) return adminGateJson(env);
-    return redirect("/login");
+    const headers = new Headers();
+    if (request.method === "GET") {
+      const url = new URL(request.url);
+      headers.append(
+        "Set-Cookie",
+        cookie(NEXT_COOKIE, `${url.pathname}${url.search}`, 15 * 60),
+      );
+    }
+    return redirect("/login", headers);
   }
+  const { raw, session } = authenticated;
   if (
     request.method === "GET" &&
     (path === "/admin" ||
@@ -635,7 +648,9 @@ export async function handlePublisherAdmin(
       path === "/admin/team" ||
       path === "/admin/super")
   )
-    return spaShell(request, env);
+    return spaShell(request, env, raw, session.exp);
+  if (request.method !== "GET" && !(await verifyAdminCsrf(request, raw, env)))
+    return csrfFailed();
   if (path === "/admin/super/transfer" && request.method === "POST")
     return transferArtifactOwner(request, env, session);
   if (path === "/admin/artifact/access" && request.method === "POST")
@@ -650,15 +665,18 @@ export async function handlePublisherAdmin(
     return createPublisherInvite(request, env, session);
   if (path === "/admin/team/invite/revoke" && request.method === "POST")
     return revokePublisherInvite(request, env, session);
-  if (path === "/admin/me" && request.method === "GET")
-    return json({ publisher: publicSession(session) });
   return error(404, "not_found", "publisher admin route not found");
 }
 
 // The admin UI is a React SPA served from Workers Static Assets; the worker
 // only gates it behind the publisher session and serves the shell for every
 // client-side route.
-async function spaShell(request: Request, env: Env): Promise<Response> {
+async function spaShell(
+  request: Request,
+  env: Env,
+  rawSession: string,
+  sessionExpiresAt: number,
+): Promise<Response> {
   const shellUrl = new URL("/admin-app/index.html", request.url);
   const asset = await env.ASSETS.fetch(new Request(shellUrl.toString()));
   const headers = new Headers(asset.headers);
@@ -666,22 +684,26 @@ async function spaShell(request: Request, env: Env): Promise<Response> {
   headers.set("X-Robots-Tag", "noindex, nofollow");
   for (const [k, v] of Object.entries(SYSTEM_SECURITY_HEADERS))
     headers.set(k, v);
+  const csrf = await issueAdminCsrfToken(rawSession, sessionExpiresAt, env);
+  headers.append("Set-Cookie", csrf.cookie);
   return new Response(asset.body, { status: asset.status, headers });
 }
 
-// JSON reads for the SPA. Writes reuse the existing form-POST endpoints above
-// (same session cookie); the SPA only needs data in a fetchable shape.
+// Protected JSON reads and token-mint/device-approval writes for the SPA.
+// Artifact/team mutations continue to reuse the form-POST endpoints above.
 export async function handleAdminUiApi(
   request: Request,
   env: Env,
   path: string,
 ): Promise<Response> {
-  const session = await getPublisherSession(request, env);
-  if (!session)
+  const authenticated = await getPublisherSessionAuth(request, env);
+  if (!authenticated)
     return error(401, "session_required", "sign in at /login to continue");
-  if (path === "/api/admin/overview" && request.method === "GET")
+  const { raw, session } = authenticated;
+  if (!(await verifyAdminCsrf(request, raw, env))) return csrfFailed();
+  if (path === "/admin/api/overview" && request.method === "GET")
     return adminOverviewJson(env, session);
-  if (path === "/api/admin/artifact-detail" && request.method === "GET") {
+  if (path === "/admin/api/artifact-detail" && request.method === "GET") {
     const id = new URL(request.url).searchParams.get("id") || "";
     if (!id.startsWith("art_"))
       return error(400, "artifact_id_required", "artifact id is required");
@@ -719,13 +741,17 @@ export async function handleAdminUiApi(
         })),
     });
   }
-  if (path === "/api/admin/connect" && request.method === "GET")
-    return adminConnectJson(env, session);
-  if (path === "/api/admin/team" && request.method === "GET")
+  if (path === "/admin/api/connect" && request.method === "GET") {
+    const code = new URL(request.url).searchParams.get("code") || "";
+    return adminConnectJson(env, session, code);
+  }
+  if (path === "/admin/api/connect/approve" && request.method === "POST")
+    return adminApproveConnectJson(request, env, session);
+  if (path === "/admin/api/team" && request.method === "GET")
     return adminTeamJson(env, session);
-  if (path === "/api/admin/agent-prompt" && request.method === "POST")
+  if (path === "/admin/api/agent-prompt" && request.method === "POST")
     return adminMintPromptJson(request, env, session);
-  if (path === "/api/admin/super" && request.method === "GET")
+  if (path === "/admin/api/super" && request.method === "GET")
     return adminSuperJson(env, session);
   return error(404, "not_found", "admin api route not found");
 }
@@ -900,16 +926,54 @@ async function adminOverviewJson(
 async function adminConnectJson(
   env: Env,
   session: PublisherSession,
+  code: string,
 ): Promise<Response> {
-  const [tokens, quick] = await Promise.all([
+  const [tokens, quick, pending] = await Promise.all([
     listAgentTokens(env, session.orgId),
     quickConnectPrompt(env, session),
+    code ? pendingConnectRequest(env, code) : null,
   ]);
   return json({
     site: siteJson(env),
     quick,
     tokens,
+    pending: pending
+      ? {
+          code: pending.user_code,
+          agentLabel: pending.agent_label,
+        }
+      : null,
   });
+}
+
+async function adminApproveConnectJson(
+  request: Request,
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  const body = (await request.json().catch(() => ({}))) as { code?: unknown };
+  const code = String(body.code || "");
+  if (!normalizeUserCode(code))
+    return error(
+      400,
+      "connect_code_required",
+      "a valid connect code is required",
+    );
+  const pending = await pendingConnectRequest(env, code);
+  if (!pending)
+    return error(
+      404,
+      "connect_not_found",
+      "connect request not found, expired, or already approved",
+    );
+  const approved = await approveConnectRequest(env, pending, session);
+  if (!approved.ok)
+    return error(
+      409,
+      "connect_already_approved",
+      "connect request was already approved",
+    );
+  return json({ approved: true, label: approved.label });
 }
 
 async function adminTeamJson(
@@ -986,7 +1050,7 @@ function adminGateJson(env: Env): Response {
       },
       access: {
         human: `sign in at ${base}/admin in a browser`,
-        agent_connect: `no token? POST ${base}/api/v1/connect/start, have your human approve the code at ${base}/connect, then POST ${base}/api/v1/connect/poll for a bearer token`,
+        agent_connect: `no token? POST ${base}/api/v1/connect/start, have your human approve the code at ${base}/admin/connect, then POST ${base}/api/v1/connect/poll for a bearer token`,
         api: `with a bearer token, use ${base}/api/v1/me, ${base}/api/v1/artifacts, and ${base}/mcp instead of /admin`,
         guide: `${base}/llms.txt`,
       },
@@ -1145,7 +1209,7 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
   );
   headers.append("Set-Cookie", expireCookie(STATE_COOKIE));
   headers.append("Set-Cookie", expireCookie(INVITE_COOKIE));
-  // Honor a pre-auth destination (e.g. /connect?code=...) set before the
+  // Honor a pre-auth destination (e.g. /admin/connect?code=...) set before the
   // sign-in redirect. Same-site relative paths only.
   const next = readCookie(request, NEXT_COOKIE);
   const dest = next && /^\/(?!\/)[\w\-./?=&%]*$/.test(next) ? next : "/admin";
@@ -1806,90 +1870,16 @@ async function revokeAgentToken(
   return redirect("/admin/connect");
 }
 
-// Human side of the device-code style agent connect flow. GET shows what is
-// being approved; POST mints the token onto the pending request.
+// Temporary compatibility redirect. Approval only exists inside the protected
+// admin namespace; this legacy path must never mutate state again.
 export async function handleConnectPage(
   request: Request,
-  env: Env,
+  _env: Env,
 ): Promise<Response> {
   const url = new URL(request.url);
-  const session = await getPublisherSession(request, env);
-  if (!session) {
-    const headers = new Headers();
-    headers.append(
-      "Set-Cookie",
-      cookie(NEXT_COOKIE, `/connect${url.search || ""}`, 15 * 60),
-    );
-    return redirect("/login", headers);
-  }
-  if (request.method === "POST") {
-    const form = await request.formData();
-    const code = String(form.get("code") || "");
-    const pending = await pendingConnectRequest(env, code);
-    if (!pending)
-      return connectPage({
-        code,
-        error:
-          "No pending request matches this code — it may have expired (codes last 15 minutes) or already been used. Ask the agent to start again.",
-      });
-    const approved = await approveConnectRequest(env, pending, session);
-    if (!approved.ok)
-      return connectPage({
-        code,
-        error: "This code was just approved in another window.",
-      });
-    return connectPage({ approvedLabel: approved.label });
-  }
-  const code = url.searchParams.get("code") || "";
-  const pending = code ? await pendingConnectRequest(env, code) : null;
-  return connectPage({
-    code,
-    pendingLabel: pending?.agent_label || null,
-    notFound: Boolean(code && normalizeUserCode(code) && !pending),
-  });
-}
-
-function connectPage(state: {
-  code?: string;
-  pendingLabel?: string | null;
-  notFound?: boolean;
-  error?: string;
-  approvedLabel?: string;
-}): Response {
-  const header = `<header class="top">
-    <a class="brand" href="/">Artifact Use</a>
-    <nav><a href="/admin">Admin</a><a href="/logout">Sign out</a></nav>
-  </header>`;
-  if (state.approvedLabel) {
-    return page(
-      "Agent approved",
-      `${header}
-      <main class="panel narrow">
-        <p class="eyebrow">Agent connect</p>
-        <h1>Approved.</h1>
-        <p class="muted"><strong>${escapeHtml(state.approvedLabel)}</strong> receives its token the next time it polls — usually within seconds. It can publish to your workspace for 30 days.</p>
-        <p class="muted">Change your mind? Revoke the token anytime under <a href="/admin#agent-setup"><strong>Agent setup</strong></a>.</p>
-        <div class="actions"><a class="button" href="/admin">Back to admin</a></div>
-      </main>`,
-    );
-  }
-  return page(
-    "Approve an agent",
-    `${header}
-    <main class="panel narrow">
-      <p class="eyebrow">Agent connect</p>
-      <h1>Approve an agent.</h1>
-      <p class="muted">An agent asked to publish to your workspace and showed you a code. Approving mints it a 30-day publish token${state.pendingLabel ? ` for <strong>${escapeHtml(state.pendingLabel)}</strong>` : ""}, scoped to your artifacts.</p>
-      ${state.error ? `<p class="error">${escapeHtml(state.error)}</p>` : ""}
-      ${state.notFound ? `<p class="error">No pending request matches this code — it may have expired (codes last 15 minutes) or already been used.</p>` : ""}
-      <form method="post" action="/connect">
-        <label for="code">Connect code</label>
-        <input id="code" class="code-input" name="code" value="${escapeHtml(state.code || "")}" placeholder="ABCD-2345" autocomplete="one-time-code" required>
-        <div class="actions"><button type="submit">Approve agent</button><a class="button ghost" href="/admin">Cancel</a></div>
-      </form>
-      <p class="mini">Only approve codes from an agent session you or a teammate started. Approval gives that agent publish access to this workspace.</p>
-    </main>`,
-  );
+  if (request.method !== "GET")
+    return error(405, "method_not_allowed", "method not allowed");
+  return redirect(`/admin/connect${url.search}`);
 }
 
 async function createPublisherInvite(
@@ -2070,6 +2060,13 @@ async function getPublisherSession(
   request: Request,
   env: Env,
 ): Promise<PublisherSession | null> {
+  return (await getPublisherSessionAuth(request, env))?.session || null;
+}
+
+async function getPublisherSessionAuth(
+  request: Request,
+  env: Env,
+): Promise<{ raw: string; session: PublisherSession } | null> {
   const raw = readCookie(request, SESSION_COOKIE);
   if (!raw) return null;
   const session = await verifyPayload<PublisherSession>(raw, env);
@@ -2077,20 +2074,11 @@ async function getPublisherSession(
   // ever verifying as a publisher session.
   if (!session || session.typ !== "publisher" || session.exp < nowSec())
     return null;
-  return session;
+  return { raw, session };
 }
 
-function publicSession(session: PublisherSession): Record<string, unknown> {
-  return {
-    sub: session.sub,
-    org_id: session.orgId,
-    email: session.email,
-    name: session.name,
-    role: session.role || null,
-    roles: session.roles || [],
-    permissions: session.permissions || [],
-    exp: session.exp,
-  };
+function csrfFailed(): Response {
+  return error(403, "csrf_failed", "admin CSRF validation failed");
 }
 
 function cookie(name: string, value: string, maxAge: number): string {

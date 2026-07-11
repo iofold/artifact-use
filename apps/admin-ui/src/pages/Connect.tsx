@@ -1,12 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { api, postForm, type MintedPrompt } from "../api";
+import { useSearchParams } from "react-router-dom";
+import { api, postForm, type ApprovedConnect, type MintedPrompt } from "../api";
 import { CopyButton, Shell, Skeleton, ago, dateLabel } from "../ui";
 
 export default function Connect() {
-  const { data, isPending } = useQuery({
-    queryKey: ["connect"],
-    queryFn: api.connect,
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialCode = searchParams.get("code") || "";
+  const [code, setCode] = useState(initialCode);
+  const [reviewCode, setReviewCode] = useState(initialCode);
+  const [approved, setApproved] = useState<ApprovedConnect | null>(null);
+  const { data, isPending, isFetching } = useQuery({
+    queryKey: ["connect", reviewCode],
+    queryFn: () => api.connect(reviewCode),
   });
   const queryClient = useQueryClient();
   const [label, setLabel] = useState("");
@@ -17,6 +23,16 @@ export default function Connect() {
     onSuccess: (result) => {
       setMinted(result);
       setLabel("");
+      void queryClient.invalidateQueries({ queryKey: ["connect"] });
+    },
+  });
+  const approve = useMutation({
+    mutationFn: () => api.approveConnect(data?.pending?.code || reviewCode),
+    onSuccess: (result) => {
+      setApproved(result);
+      setCode("");
+      setReviewCode("");
+      setSearchParams({}, { replace: true });
       void queryClient.invalidateQueries({ queryKey: ["connect"] });
     },
   });
@@ -36,18 +52,7 @@ export default function Connect() {
             Copy one compact handoff. The agent identifies its own harness and
             follows the matching path in <a href="/llms.txt">/llms.txt</a>.
             <span className="approve-line">
-              Agent already has a code?{" "}
-              <a href="/connect">
-                Approve an agent code
-                <svg
-                  className="inline-arrow"
-                  viewBox="0 0 16 16"
-                  aria-hidden="true"
-                  focusable="false"
-                >
-                  <path d="M3 8h9M8.5 4.5 12 8l-3.5 3.5" />
-                </svg>
-              </a>
+              Agent already has a code? Review it below.
             </span>
           </p>
         </div>
@@ -60,6 +65,85 @@ export default function Connect() {
           </div>
         ) : (
           <div className="setup-grid">
+            <section className="connect-approval">
+              <div>
+                <p className="eyebrow">Device approval</p>
+                <h2>Review an agent code</h2>
+                <p className="muted">
+                  Only approve a code from an agent session you or a teammate
+                  started. Approval grants that agent publish access for 30
+                  days.
+                </p>
+              </div>
+              <form
+                className="connect-code-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const nextCode = code.trim();
+                  setApproved(null);
+                  approve.reset();
+                  setReviewCode(nextCode);
+                  setSearchParams(nextCode ? { code: nextCode } : {}, {
+                    replace: true,
+                  });
+                }}
+              >
+                <div>
+                  <label htmlFor="connect-code">Connect code</label>
+                  <input
+                    id="connect-code"
+                    value={code}
+                    onChange={(event) => setCode(event.target.value)}
+                    placeholder="ABCD-2345"
+                    autoComplete="one-time-code"
+                    required
+                  />
+                </div>
+                <button type="submit" disabled={isFetching}>
+                  {isFetching ? "Checking…" : "Review code"}
+                </button>
+              </form>
+              {approved ? (
+                <div className="approval-result success-box" role="status">
+                  <span>
+                    <strong>{approved.label} approved</strong>
+                    <small>
+                      The agent receives its token on its next poll. You can
+                      revoke it below at any time.
+                    </small>
+                  </span>
+                </div>
+              ) : reviewCode && !isFetching && data.pending ? (
+                <div className="approval-result">
+                  <span>
+                    <strong>
+                      {data.pending.agentLabel || "Unnamed agent"}
+                    </strong>
+                    <small>
+                      Pending code {data.pending.code} · expires 15 minutes
+                      after the request started
+                    </small>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => approve.mutate()}
+                    disabled={approve.isPending}
+                  >
+                    {approve.isPending ? "Approving…" : "Approve agent"}
+                  </button>
+                </div>
+              ) : reviewCode && !isFetching ? (
+                <p className="error-box" role="alert">
+                  No pending request matches this code. It may have expired or
+                  already been approved.
+                </p>
+              ) : null}
+              {approve.isError ? (
+                <p className="error-box" role="alert">
+                  The code could not be approved. Review it again and retry.
+                </p>
+              ) : null}
+            </section>
             {data.quick ? (
               <section className="setup-handoff">
                 <div>

@@ -582,7 +582,7 @@ POST https://artifacts.iofold.com/api/v1/connect/start
 <span class="c"># → { device_code, user_code, verification_url, expires_in }</span>
 
 <span class="c"># human approves the code (15-minute window)</span>
-<span class="u">https://artifacts.iofold.com/connect?code=ABCD-2345</span>
+<span class="u">https://artifacts.iofold.com/admin/connect?code=ABCD-2345</span>
 
 <span class="c"># agent polls every 3s until approved</span>
 POST https://artifacts.iofold.com/api/v1/connect/poll

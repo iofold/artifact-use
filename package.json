@@ -18,6 +18,7 @@
     "test": "npm run test:worker && npm run typecheck",
     "test:worker": "node --import tsx --test apps/worker/test/*.test.ts",
     "test:setup-prompts": "node --import tsx --test apps/worker/test/setup-prompts.test.ts",
+    "test:security-smoke": "node --import tsx apps/worker/test/security-smoke.mjs",
     "format": "prettier --write .",
     "check": "prettier --check . && diff -r skills/artifact-use plugins/codex/artifact-use/skills/artifact-use && npm run typecheck",
     "worker:dev": "npm --workspace apps/worker run dev",

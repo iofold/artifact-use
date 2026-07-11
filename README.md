@@ -140,7 +140,7 @@ need a browser:
 
 ```text
 POST /api/v1/connect/start            -> device_code + user_code + verification_url
-(human approves the code at /connect)
+(human approves the code at /admin/connect)
 POST /api/v1/connect/poll             -> bearer token + short handoff prompt
 ```
 

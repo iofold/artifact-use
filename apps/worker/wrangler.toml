@@ -91,9 +91,6 @@ zone_name = "example.com"
 pattern = "artifacts.example.com/admin-app/*"
 zone_name = "example.com"
 [[routes]]
-pattern = "artifacts.example.com/api/admin*"
-zone_name = "example.com"
-[[routes]]
 pattern = "artifacts.example.com/connect*"
 zone_name = "example.com"
 
