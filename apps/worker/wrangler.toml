@@ -108,6 +108,10 @@ database_name = "artifact-use"
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
 
+[[send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["artifacts@example.com"]
+
 [vars]
 SITE_BASE_URL = "https://artifacts.example.com"
 ARTIFACT_PUBLIC_PATH_PREFIX = "/go"
@@ -133,7 +137,6 @@ ARTIFACT_USE_DOCS_URL = ""
 
 # Secrets:
 #   SESSION_SECRET
-#   RESEND_API_KEY       optional unless using verified_email gates
 #   WORKOS_CLIENT_ID     required for publisher web auth
 #   WORKOS_API_KEY       required for publisher web auth and team invites
 #   DEV_AUTH_TOKEN       optional local development escape hatch

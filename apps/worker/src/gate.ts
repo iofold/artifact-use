@@ -7,7 +7,7 @@ import {
   viewerCookieName,
 } from "./auth";
 import { getArtifactById, getArtifactByUrlKey, insertView } from "./db";
-import { sendVerificationEmail } from "./mailer";
+import { EmailDeliveryError, sendVerificationEmail } from "./mailer";
 import { unavailableArtifactResponse } from "./moderation";
 import {
   clearRateLimit,
@@ -189,7 +189,17 @@ export async function handleGateRoute(
         )
         .run();
       const verifyUrl = `${env.SITE_BASE_URL}/_au/gate/verify?t=${encodeURIComponent(token)}`;
-      await sendVerificationEmail(env, artifact, email, code, verifyUrl);
+      try {
+        await sendVerificationEmail(env, artifact, email, code, verifyUrl);
+      } catch (deliveryError) {
+        if (!(deliveryError instanceof EmailDeliveryError)) throw deliveryError;
+        await env.DB.prepare(
+          "UPDATE viewer_tokens SET used_at = ? WHERE token = ? AND used_at IS NULL",
+        )
+          .bind(nowSec(), token)
+          .run();
+        return emailDeliveryUnavailable(request, env, artifact);
+      }
       // Agent OTP self-serve: tell a non-browser caller how to verify the code.
       if (!wantsHtml(request))
         return json({
@@ -391,6 +401,26 @@ function redirectWithCookie(url: string, cookie: string): Response {
       "Set-Cookie": cookie,
     },
   });
+}
+
+function emailDeliveryUnavailable(
+  request: Request,
+  env: Env,
+  artifact: Artifact,
+): Response {
+  if (!wantsHtml(request))
+    return error(
+      503,
+      "email_temporarily_unavailable",
+      "verification email could not be sent; try again later",
+    );
+  const page = htmlPage(
+    artifact.title,
+    `<h1>Email temporarily unavailable</h1>
+<p class="error">No code was sent. Please try again later or ask the person who shared this artifact for help.</p>
+<p><a href="${escapeHtml(publicArtifactPath(env, artifact.url_key))}">Back to the artifact</a></p>`,
+  );
+  return new Response(page.body, { status: 503, headers: page.headers });
 }
 
 function safeArtifactRedirect(

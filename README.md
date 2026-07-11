@@ -216,20 +216,21 @@ Artifact Use is designed to run on Cloudflare with your own resources:
 
 1. Create a Cloudflare D1 database and R2 bucket.
 2. Configure `apps/worker/wrangler.toml` for your account, domain, routes,
-   D1 database, and R2 bucket.
+   D1 database, R2 bucket, and Email Sending binding.
 3. Apply the D1 baseline migration.
-4. Set Worker secrets for sessions, WorkOS, and optional Resend email.
-5. Deploy the Worker.
+4. Enable a Cloudflare Email Sending domain if you use `verified_email` gates.
+5. Set Worker secrets for sessions and WorkOS.
+6. Deploy the Worker.
 
 ```bash
 cd apps/worker
 npx wrangler d1 create artifact-use
 npx wrangler r2 bucket create artifact-use
 npx wrangler d1 migrations apply artifact-use --remote
+npx wrangler email sending enable updates.example.com
 npx wrangler secret put SESSION_SECRET
 npx wrangler secret put WORKOS_CLIENT_ID
 npx wrangler secret put WORKOS_API_KEY
-npx wrangler secret put RESEND_API_KEY
 npx wrangler deploy
 ```
 
@@ -240,8 +241,8 @@ configuration, MCP auth settings, and Cloudflare route notes.
 
 The code is MIT licensed. The public repository contains the Worker, schema,
 CLI, MCP server, skill, plugin bundle, and docs. Hosted-service configuration
-such as WorkOS applications, Cloudflare account IDs, R2/D1 resources, Resend
-keys, and production secrets remain deploy-time configuration.
+such as WorkOS applications, Cloudflare account IDs, R2/D1 resources, Email
+Sending domains, and production secrets remain deploy-time configuration.
 
 Before publishing your own fork or hosted instance, replace the example routes
 and WorkOS/AuthKit values in `apps/worker/wrangler.toml` and `.env` files with

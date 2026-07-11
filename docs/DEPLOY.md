@@ -8,8 +8,8 @@ by WorkOS/AuthKit.
 - Cloudflare Workers
 - Cloudflare D1
 - Cloudflare R2
+- Cloudflare Email Sending if you enable `verified_email` gates
 - WorkOS/AuthKit for creator and publisher auth
-- Resend or another email provider if you enable `verified_email` gates
 - A monitored abuse mailbox with a primary and backup owner
 
 ## Create Cloudflare Resources
@@ -26,6 +26,7 @@ Update `apps/worker/wrangler.toml` with:
 - your route patterns and zone name
 - the D1 `database_id`
 - the R2 bucket name
+- the `EMAIL` binding and an allowed `MAIL_FROM` address
 - your public `SITE_BASE_URL`
 - your public `ABUSE_EMAIL` mailbox
 - your WorkOS/AuthKit issuer, audience, and JWKS URL
@@ -47,11 +48,34 @@ npx wrangler d1 migrations apply artifact-use --remote
 npx wrangler secret put SESSION_SECRET
 npx wrangler secret put WORKOS_CLIENT_ID
 npx wrangler secret put WORKOS_API_KEY
-npx wrangler secret put RESEND_API_KEY
 ```
 
-`RESEND_API_KEY` is optional for `email` gates but required for production
-`verified_email` gates.
+## Email Sending
+
+`verified_email` gates send codes through Cloudflare's native Worker binding;
+there is no separate mail API key. Enable a dedicated sending domain or
+subdomain, verify its DNS status, and allow the exact sender in the binding:
+
+```bash
+npx wrangler email sending enable updates.example.com
+npx wrangler email sending settings updates.example.com
+npx wrangler email sending dns get updates.example.com
+```
+
+```toml
+[[send_email]]
+name = "EMAIL"
+allowed_sender_addresses = ["artifacts@updates.example.com"]
+
+[vars]
+MAIL_FROM = "artifacts@updates.example.com"
+MAIL_FROM_NAME = "Artifact Use"
+```
+
+Cloudflare permits arbitrary recipients on Workers Paid. New sending accounts
+start with conservative daily quotas, so check the Email Sending dashboard and
+request a quota increase before opening a high-volume gate. The application's
+OTP rate limits still apply when delivery fails.
 
 ## WorkOS/AuthKit
 

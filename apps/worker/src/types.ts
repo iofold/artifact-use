@@ -4,6 +4,7 @@ export interface Env {
   DB: D1Database;
   BUCKET: R2Bucket;
   ASSETS: Fetcher;
+  EMAIL?: SendEmail;
   SITE_BASE_URL: string;
   ARTIFACT_PUBLIC_PATH_PREFIX?: string;
   WORKOS_AUTHKIT_URL: string;
@@ -26,7 +27,6 @@ export interface Env {
   HTTP_MCP_INLINE_FILE_LIMIT_BYTES?: string;
   ALLOW_DEBUG_CODES?: string;
   SESSION_SECRET: string;
-  RESEND_API_KEY?: string;
   DEV_AUTH_TOKEN?: string;
   DEV_AUTH_USER_ID?: string;
   DEV_AUTH_ORG_ID?: string;

@@ -26,6 +26,37 @@ test("a new OTP invalidates earlier unused codes before inserting", async () => 
   assert.match(state.tokenWrites[0].sql, /used_at IS NULL/i);
 });
 
+test("failed email delivery returns a stable 503 and invalidates its OTP", async () => {
+  const state = gateEnv("verified_email", {
+    emailError: new Error('Cloudflare 429 {"message":"daily quota"}'),
+  });
+  const response = await startOtp(state.env);
+  const body = await response.text();
+
+  assert.equal(response.status, 503);
+  assert.equal(JSON.parse(body).error.code, "email_temporarily_unavailable");
+  assert.doesNotMatch(body, /cloudflare|quota|429/i);
+  assert.deepEqual(
+    state.tokenWrites.map((entry) => entry.kind),
+    ["invalidate", "insert", "invalidate"],
+  );
+  assert.match(state.tokenWrites.at(-1)?.sql || "", /WHERE token = \?/i);
+});
+
+test("browser email failures render a branded recovery page", async () => {
+  const state = gateEnv("verified_email", {
+    emailError: new Error('Cloudflare 429 {"message":"daily quota"}'),
+  });
+  const response = await startOtp(state.env, "Viewer@Example.com", "text/html");
+  const body = await response.text();
+
+  assert.equal(response.status, 503);
+  assert.match(response.headers.get("Content-Type") || "", /text\/html/);
+  assert.match(body, /email.*temporarily unavailable/i);
+  assert.match(body, /no code was sent/i);
+  assert.doesNotMatch(body, /cloudflare|daily quota|statusCode|gate_failed/i);
+});
+
 test("OTP start enforces email, artifact, and IP windows before token writes", async () => {
   for (const [bucketPart, blockedCount] of [
     ["otp:start:email:hour:", 4],
@@ -222,6 +253,7 @@ function gateEnv(
   options: {
     rateCount?: (bucket: string) => number;
     token?: string;
+    emailError?: Error;
   } = {},
 ): {
   env: Env;
@@ -305,6 +337,15 @@ function gateEnv(
       ARTIFACT_PUBLIC_PATH_PREFIX: "/go",
       SESSION_SECRET: "gate-test-secret",
       ALLOW_DEBUG_CODES: "true",
+      ...(options.emailError
+        ? {
+            EMAIL: {
+              async send() {
+                throw options.emailError;
+              },
+            },
+          }
+        : {}),
     } as unknown as Env,
     get tokenWrites() {
       return state.tokenWrites;
