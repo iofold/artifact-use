@@ -5,6 +5,7 @@ import type {
   GateLevel,
   PublisherSession,
 } from "./types";
+import { abuseMailbox, abuseMailto } from "./abuse";
 import {
   expireAdminCsrfCookie,
   extractStringArray,
@@ -567,6 +568,7 @@ POST ${escapeHtml(base)}/api/v1/connect/poll
           <a href="${GITHUB_URL}">GitHub</a>
           <a href="/privacy">Privacy</a>
           <a href="/terms">Terms</a>
+          ${reportAbuseAnchor(env)}
           <a href="/llms.txt">llms.txt</a>
           <a href="/llms-full.txt">Agent guide</a>
           <a href="/mcp"><code>MCP endpoint</code></a>
@@ -593,7 +595,12 @@ export function renderPrivacyPolicy(..._args: unknown[]): Response {
     });
   }
   
-  export async function handlePublisherAuth(
+  function reportAbuseAnchor(env: Env): string {
+  const href = abuseMailto(env);
+  return href ? `<a href="${escapeHtml(href)}">Report abuse</a>` : "";
+}
+
+export async function handlePublisherAuth(
   request: Request,
   env: Env,
   path: string,

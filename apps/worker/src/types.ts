@@ -17,6 +17,7 @@ export interface Env {
   ARTIFACT_USE_AUTH_SCOPES?: string;
   ARTIFACT_USE_READ_SCOPES?: string;
   ARTIFACT_USE_WRITE_SCOPES?: string;
+  ABUSE_EMAIL?: string;
   MAIL_FROM?: string;
   MAIL_FROM_NAME?: string;
   DEFAULT_PACKAGE_LIMIT_BYTES?: string;

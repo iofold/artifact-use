@@ -5,7 +5,7 @@
  * scripts/build-feedback-widget.mjs (wired through wrangler [build]).
  *
  * Runtime config is read from window.__AU_FEEDBACK__ (set by injectWidget):
- *   { artifactKey: string }
+ *   { artifactKey: string, abuseUrl?: string }
  *
  * Phase 1 scope (see docs/FEEDBACK_UX_PLAN.md):
  *   - Non-destructive close (minimize only; never removes the launcher).
@@ -38,6 +38,7 @@
   var artifactKey = CFG.artifactKey || "";
   if (!artifactKey) return;
   var versionId = CFG.versionId || "";
+  var abuseUrl = String(CFG.abuseUrl || "");
 
   // ---- state ----
   var target = null; // element chosen for a NEW comment
@@ -140,6 +141,7 @@
     '<button class="au-link" data-email-cancel>Cancel</button></div>' +
     "</div>" +
     "</div>" +
+    '<div class="au-foot"><a class="au-report" data-report-abuse>Report abuse</a></div>' +
     '<div class="au-agent" data-agent-panel>' +
     '<div class="au-agent-head"><strong>🤖 Hand to your agent</strong>' +
     '<button class="au-link" data-agent-close>Close</button></div>' +
@@ -152,6 +154,10 @@
   banner.innerHTML =
     '<span class="au-banner-text">Click an element to attach feedback</span>' +
     '<button class="au-banner-cancel" data-cancel-select>Esc to cancel</button>';
+
+  var reportAbuse = $("[data-report-abuse]");
+  if (abuseUrl.indexOf("mailto:") === 0) reportAbuse.href = abuseUrl;
+  else reportAbuse.parentNode.hidden = true;
 
   // ---- accessibility roles ----
   panel.setAttribute("role", "dialog");
@@ -1303,6 +1309,9 @@
       ".au-emailgate{display:none;margin-top:10px;padding-top:10px;border-top:1px solid #eef2f1;flex-direction:column;gap:8px}",
       ".au-emailgate.is-on{display:flex}",
       ".au-emailinput{width:100%;border:1px solid #c9d5d1;border-radius:6px;padding:9px 10px;font:inherit;height:40px}",
+      ".au-foot{flex:0 0 auto;min-height:44px;border-top:1px solid #eef2f1;padding:0 10px max(0px,env(safe-area-inset-bottom));display:flex;justify-content:flex-end;align-items:center;background:#fafcfb}",
+      ".au-report{min-height:44px;padding:0 4px;display:inline-flex;align-items:center;color:#52625d;font-size:13px;font-weight:700;text-decoration:none}",
+      ".au-report:hover{text-decoration:underline;color:#0f6b6f}",
       ".au-agent{position:absolute;left:0;right:0;top:46px;bottom:0;display:none;flex-direction:column;gap:10px;padding:12px;background:#fff;z-index:2}",
       ".au-agent.is-open{display:flex}",
       ".au-agent-head{display:flex;align-items:center;justify-content:space-between;font-weight:800}",

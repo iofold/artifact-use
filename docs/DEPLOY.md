@@ -10,6 +10,7 @@ by WorkOS/AuthKit.
 - Cloudflare R2
 - WorkOS/AuthKit for creator and publisher auth
 - Resend or another email provider if you enable `verified_email` gates
+- A monitored abuse mailbox with a primary and backup owner
 
 ## Create Cloudflare Resources
 
@@ -26,6 +27,7 @@ Update `apps/worker/wrangler.toml` with:
 - the D1 `database_id`
 - the R2 bucket name
 - your public `SITE_BASE_URL`
+- your public `ABUSE_EMAIL` mailbox
 - your WorkOS/AuthKit issuer, audience, and JWKS URL
 
 Keep these environment-specific values out of the public repo: copy
@@ -99,6 +101,62 @@ Set `ARTIFACT_USE_SUPER_ADMIN_USER_IDS` to a comma-separated list of WorkOS
 `user_...` IDs that may access `/admin/super` and move artifacts between WorkOS
 organizations. Ownership moves always set `created_by` to the target WorkOS
 user.
+
+## Abuse operations
+
+Set a non-secret Worker variable for the mailbox shown on the homepage, legal
+pages, and injected artifact widget:
+
+```toml
+ABUSE_EMAIL = "abuse@example.com"
+```
+
+Before deploying those links, send an external test message and complete the
+prerequisites in [the abuse response runbook](ABUSE_RESPONSE.md). A configured
+address is not enough by itself: the mailbox needs named primary and backup
+owners, and the public legal text and formal-notice procedure need human legal
+review.
+
+## Selective Browser Integrity Check bypass
+
+Browser Integrity Check can reject legitimate command-line and agent clients with
+non-browser user agents. Keep it enabled for the rest of the zone and add one
+**zone-level custom skip rule** for only the product paths that must be
+machine-readable:
+
+```text
+(http.request.uri.path wildcard "/api/v1/*") or
+(http.request.uri.path eq "/mcp") or
+(http.request.uri.path wildcard "/.well-known/oauth-*") or
+(http.request.uri.path eq "/llms.txt") or
+(http.request.uri.path eq "/llms-full.txt") or
+(http.request.uri.path wildcard "/go/*") or
+(http.request.uri.path wildcard "/_au/*") or
+(http.request.uri.path eq "/health")
+```
+
+Choose the **Skip** action and select only **Browser Integrity Check** (API product
+value `bic`). Leave rule logging enabled. Do not skip managed WAF rules, rate-limit
+phases, security level, user-agent blocking, or all remaining custom rules. Do not
+include `/admin`, `/login`, `/callback`, or other publisher/auth paths.
+
+Cloudflare documents BIC as a product that can be selectively disabled by a custom
+skip rule; `bic` is the product identifier in the Ruleset Engine. See
+[Browser Integrity Check](https://developers.cloudflare.com/waf/tools/browser-integrity-check/)
+and [skip options](https://developers.cloudflare.com/waf/custom-rules/skip/options/).
+
+After the rule is applied, verify from a network outside the Cloudflare dashboard
+session:
+
+```bash
+curl -fsS https://artifacts.example.com/health
+curl -fsS https://artifacts.example.com/llms.txt >/dev/null
+python3 -c 'import urllib.request; print(urllib.request.urlopen("https://artifacts.example.com/health").status)'
+```
+
+Also read one public artifact with curl, Codex, and Claude. Admin/auth pages should
+retain their normal Cloudflare protections, and application auth, gates, CSRF,
+moderation, and D1 limits remain in force on skipped product paths.
 
 ## Deploy
 

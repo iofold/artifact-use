@@ -138,8 +138,8 @@ async function dispatch(
       return json(await authorizationServerMetadata(env));
     }
     if (path === "/") return renderHome(request, env);
-    if (path === "/privacy") return renderPrivacyPolicy();
-    if (path === "/terms") return renderTermsOfService();
+    if (path === "/privacy") return renderPrivacyPolicy(env);
+    if (path === "/terms") return renderTermsOfService(env);
     if (path === "/llms.txt") return llmsTxt(env);
     if (path === "/llms-full.txt") return llmsFullTxt(env);
     if (

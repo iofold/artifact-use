@@ -1,4 +1,5 @@
 import type { Artifact, ArtifactVersion, Env, PublishManifest } from "./types";
+import { abuseMailto } from "./abuse";
 import { getCreator, requirePermission, signViewerSession } from "./auth";
 import {
   type CommentAuthor,
@@ -152,7 +153,7 @@ export async function servePublic(
     const html = await bodyObj.text();
     // Only inject the feedback widget for real browsers; agents get clean HTML.
     const body = wantsHtml(request)
-      ? injectWidget(html, artifact, version.id)
+      ? injectWidget(html, artifact, version.id, env)
       : html;
     return new Response(body, { headers });
   }
@@ -611,15 +612,20 @@ export async function handleAgentToken(
   });
 }
 
-function injectWidget(
+export function injectWidget(
   html: string,
   artifact: Artifact,
   versionId: string,
+  env: Env,
 ): string {
   const config = JSON.stringify({
     artifactKey: artifact.url_key,
     versionId,
     gateLevel: artifact.gate_level,
+    abuseUrl: abuseMailto(env, {
+      artifactKey: artifact.url_key,
+      artifactUrl: publicArtifactUrl(env, artifact.url_key),
+    }),
   });
   const widget = FEEDBACK_WIDGET_JS.replace(/<\/(script)/gi, "<\\/$1");
   const script = `<script>window.__AU_FEEDBACK__=${config};</script><script>${widget}</script>`;
