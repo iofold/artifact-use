@@ -54,6 +54,19 @@ const SESSION_COOKIE = "au_pub";
 const STATE_COOKIE = "au_state";
 const INVITE_COOKIE = "au_invite";
 const NEXT_COOKIE = "au_next";
+// Redirect-loop breaker. WorkOS is configured to send broken sign-in states
+// (expired authorization sessions, post-logout hops) back to /login, and
+// /login re-enters WorkOS — so any persistent AuthKit-side failure would
+// otherwise become an infinite login→authorize→bootstrap ring and the browser
+// dies with ERR_TOO_MANY_REDIRECTS. /login is the only hop we control in that
+// ring: after LOOP_LIMIT automatic entries inside LOOP_WINDOW_SEC we stop
+// redirecting and render a static page instead.
+const LOOP_COOKIE = "au_loop";
+const LOOP_LIMIT = 3;
+const LOOP_WINDOW_SEC = 60;
+// Same-site relative destinations only (pre-auth deep links, e.g.
+// /admin/connect?code=...).
+const SAFE_NEXT_RE = /^\/(?!\/)[\w\-./?=&%]*$/;
 const TEAM_ADMIN_ROLES = new Set(["admin", "owner"]);
 const TEAM_MANAGE_PERMISSIONS = new Set([
   "artifacts:admin",
@@ -605,10 +618,24 @@ export async function handlePublisherAuth(
   env: Env,
   path: string,
 ): Promise<Response> {
-  if ((path === "/login" || path === "/signin") && request.method === "GET")
-    return startAuth(env, "sign-in");
-  if (path === "/signup" && request.method === "GET")
-    return startAuth(env, "sign-up");
+  if (
+    (path === "/login" || path === "/signin" || path === "/signup") &&
+    request.method === "GET"
+  ) {
+    // Already signed in: go home instead of back into the OAuth ring. Without
+    // this, a signed-in browser bounced to /login (logout URI, initiate-login
+    // URI, admin gate) re-enters WorkOS and silent SSO loops it right back.
+    const session = await getPublisherSession(request, env);
+    if (session) {
+      const headers = new Headers();
+      headers.append("Set-Cookie", expireCookie(LOOP_COOKIE));
+      const next = readCookie(request, NEXT_COOKIE);
+      const dest = next && SAFE_NEXT_RE.test(next) ? next : "/admin";
+      if (next) headers.append("Set-Cookie", expireCookie(NEXT_COOKIE));
+      return redirect(dest, headers);
+    }
+    return startAuth(request, env, path === "/signup" ? "sign-up" : "sign-in");
+  }
   if (path === "/invite" && request.method === "GET")
     return startInviteAuth(request, env);
   if (path === "/callback" && request.method === "GET")
@@ -619,6 +646,7 @@ export async function handlePublisherAuth(
     headers.append("Set-Cookie", expireCookie(SESSION_COOKIE));
     headers.append("Set-Cookie", expireCookie(STATE_COOKIE));
     headers.append("Set-Cookie", expireCookie(INVITE_COOKIE));
+    headers.append("Set-Cookie", expireCookie(LOOP_COOKIE));
     headers.append("Set-Cookie", expireAdminCsrfCookie());
     return redirect(
       session?.sessionId ? workosLogoutUrl(session.sessionId) : "/",
@@ -1120,12 +1148,15 @@ function adminGateJson(env: Env): Response {
 }
 
 async function startAuth(
+  request: Request,
   env: Env,
   screenHint: "sign-in" | "sign-up",
   invitationToken?: string | null,
 ): Promise<Response> {
   if (!env.WORKOS_CLIENT_ID)
     return error(500, "workos_not_configured", "WORKOS_CLIENT_ID is missing");
+  const hops = Number.parseInt(readCookie(request, LOOP_COOKIE) || "0", 10);
+  if (Number.isFinite(hops) && hops >= LOOP_LIMIT) return signInInterrupted();
   const state = randomId("st");
   const url = new URL("https://api.workos.com/user_management/authorize");
   url.searchParams.set("provider", "authkit");
@@ -1138,6 +1169,14 @@ async function startAuth(
     url.searchParams.set("invitation_token", invitationToken);
   const headers = new Headers();
   headers.append("Set-Cookie", cookie(STATE_COOKIE, state, 10 * 60));
+  headers.append(
+    "Set-Cookie",
+    cookie(
+      LOOP_COOKIE,
+      String((Number.isFinite(hops) ? hops : 0) + 1),
+      LOOP_WINDOW_SEC,
+    ),
+  );
   if (invitationToken)
     headers.append(
       "Set-Cookie",
@@ -1146,11 +1185,29 @@ async function startAuth(
   return redirect(url.toString(), headers);
 }
 
+// The static page that terminates a sign-in redirect loop. Rendering a 200
+// resets the browser's redirect budget; the button starts a fresh, counted
+// attempt (the cleared cookie allows LOOP_LIMIT more automatic hops).
+function signInInterrupted(): Response {
+  const response = page(
+    "Sign in",
+    `<main class="panel narrow">
+      <p class="eyebrow">Sign in</p>
+      <h1>Sign-in kept bouncing, so we paused it.</h1>
+      <p class="muted">The sign-in service and this site redirected each other repeatedly without finishing. That usually means a stale sign-in session; continuing starts a clean attempt.</p>
+      <div class="actions"><a class="button" href="/login">Continue to sign in</a><a class="button ghost" href="/">Go to homepage</a></div>
+    </main>`,
+  );
+  response.headers.append("Set-Cookie", expireCookie(LOOP_COOKIE));
+  response.headers.append("Set-Cookie", expireCookie(STATE_COOKIE));
+  return response;
+}
+
 async function startInviteAuth(request: Request, env: Env): Promise<Response> {
   const token = new URL(request.url).searchParams.get("invitation_token") || "";
   if (!token)
     return error(400, "invitation_token_required", "invitation token required");
-  return startAuth(env, "sign-up", token);
+  return startAuth(request, env, "sign-up", token);
 }
 
 async function finishAuth(request: Request, env: Env): Promise<Response> {
@@ -1166,14 +1223,12 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
   const state = url.searchParams.get("state") || "";
   if (!code)
     return authFailure(error(400, "code_required", "code is required"));
+  // A state mismatch means this callback belongs to a dead sign-in attempt
+  // (expired 10-minute state cookie, replayed link, parallel tab). The code is
+  // never exchanged; restarting at /login is safe and self-heals via silent
+  // SSO. The /login loop breaker caps how often this can recur automatically.
   if (!state || state !== readCookie(request, STATE_COOKIE))
-    return authFailure(
-      error(
-        400,
-        "invalid_state",
-        "This sign-in link was already used or has expired. Signing in again gets you a fresh one.",
-      ),
-    );
+    return authFailure(redirect("/login"));
   if (!env.WORKOS_CLIENT_ID || !env.WORKOS_API_KEY)
     return error(500, "workos_not_configured", "WorkOS auth is not configured");
 
@@ -1266,10 +1321,11 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
   );
   headers.append("Set-Cookie", expireCookie(STATE_COOKIE));
   headers.append("Set-Cookie", expireCookie(INVITE_COOKIE));
+  headers.append("Set-Cookie", expireCookie(LOOP_COOKIE));
   // Honor a pre-auth destination (e.g. /admin/connect?code=...) set before the
-  // sign-in redirect. Same-site relative paths only.
+  // sign-in redirect.
   const next = readCookie(request, NEXT_COOKIE);
-  const dest = next && /^\/(?!\/)[\w\-./?=&%]*$/.test(next) ? next : "/admin";
+  const dest = next && SAFE_NEXT_RE.test(next) ? next : "/admin";
   if (next) headers.append("Set-Cookie", expireCookie(NEXT_COOKIE));
   return redirect(dest, headers);
 }
