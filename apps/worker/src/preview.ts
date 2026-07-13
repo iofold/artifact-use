@@ -83,7 +83,7 @@ export function renderArtifactPreviewDocument(
   const description = previewDescription(artifact);
   const type = previewTypeLabel(contentType);
   const access = accessLabel(artifact.gate_level);
-  const body = `<!doctype html><html lang="en"><head></head><body><main><p>ARTIFACT USE · ${escapeHtml(type)}</p><h1>${escapeHtml(artifact.title)}</h1><p>${escapeHtml(description)}</p><p>${escapeHtml(access)}</p></main></body></html>`;
+  const body = `<!doctype html><html lang="en"><head><title>${escapeHtml(artifact.title)}</title></head><body><main><p>ARTIFACT USE · ${escapeHtml(type)}</p><h1>${escapeHtml(artifact.title)}</h1><p>${escapeHtml(description)}</p><p>${escapeHtml(access)}</p></main></body></html>`;
   return new Response(
     injectArtifactMetadata(body, env, artifact, contentType),
     {

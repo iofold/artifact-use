@@ -201,6 +201,7 @@ test("gated crawler response is a 200 preview envelope and never leaks tracked-s
   assert.equal(response.status, 200);
   assert.match(response.headers.get("Content-Type") || "", /text\/html/);
   assert.match(body, /property="og:image"/);
+  assert.match(body, /<title>Launch brief &amp; next steps<\/title>/);
   assert.match(body, /Launch brief &amp; next steps/);
   assert.doesNotMatch(body, /viewer@example\.com|share-secret/);
   assert.equal(state.bucketReads, 0);
