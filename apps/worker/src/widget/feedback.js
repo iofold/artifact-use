@@ -1755,6 +1755,10 @@
     return [
       ':host{font:13px ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#17201d;letter-spacing:0;line-height:1.4}',
       "*{box-sizing:border-box}",
+      // The hidden attribute must always win: several containers set their
+      // own display (flex/grid), which silently overrides the UA default and
+      // once left a dead, href-less "Report abuse" link visible.
+      "[hidden]{display:none!important}",
       "button{font:inherit;color:inherit}",
       "[popover]{position:fixed;inset:auto;margin:0;padding:0;border:0;overflow:visible;background:transparent;width:auto;height:auto;max-width:none;max-height:none}",
       ".au-launch{position:fixed;right:18px;bottom:18px;z-index:2147483647;display:flex;align-items:center;gap:8px;border:0;border-radius:8px;background:#12383b;color:#fff;padding:10px 14px;font-weight:750;box-shadow:0 10px 30px rgba(0,0,0,.2);cursor:pointer}",
