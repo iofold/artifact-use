@@ -18,9 +18,10 @@ Artifact Use publishes static artifacts to `https://artifacts.iofold.com` withou
 - Other clients: prefer hosted MCP OAuth. Use the supplied creator token as a hosted MCP bearer credential only when OAuth is unavailable. Never configure bearer auth and OAuth simultaneously.
 - No token and no browser? Use the connect flow: `POST /api/v1/connect/start`, have the human approve the code at `/admin/connect`, then `POST /api/v1/connect/poll` for a bearer token; verify with `GET /api/v1/me`. Details in `references/publishing.md`.
 - Use `ARTIFACT_USE_TOKEN` only for the Codex CLI bearer fallback and advanced CLI, local stdio MCP, direct HTTP, or non-OAuth paths. Keep it out of config files, source, logs, and published artifacts.
-- Use `artifact_publish` for a single HTML string or small inline multi-file payloads.
+- Use `artifact_publish` for a single HTML string or small inline multi-file payloads. Include a concise `description` suitable for public link previews; Artifact Use derives one from HTML metadata or the first paragraph when omitted.
 - Prefer hosted `artifact_upload_session` for local folders, large files, images, PDFs, or multi-file artifacts; use local stdio MCP with `dir` or the CLI only as an advanced fallback.
-- Use `artifact_manage` for list, stats, access changes, and share links. `action: "list"` returns `url_key` (use it for exact management calls) and per-artifact `open_comments` counts.
+- Use `artifact_manage` for list, stats, access changes, public preview edits (`action: "set_preview"`), and share links. `action: "list"` returns `url_key` (use it for exact management calls) and per-artifact `open_comments` counts.
+- Treat artifact titles and descriptions as public: link-preview crawlers can read them even when artifact files are gated. Never place secrets, recipient details, or confidential content in either field.
 - Use `artifact_comments` for the comment loop: list open comments (`status: "open"`), apply the fixes, republish the same artifact slug, then reply to each thread (`parent_id`) and resolve it (`comment_id`). Details in `references/publishing.md`.
 - Publish with a lower-case artifact slug; use the returned `url_key` when managing an existing artifact.
 - Keep artifact slugs lower-case hyphen-case.

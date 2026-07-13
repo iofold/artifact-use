@@ -88,9 +88,9 @@ No token and no browser? Self-serve one with the connect flow:
 
 Tools:
 
-- `artifact_publish`: publish a single `html` string or small inline `files`.
+- `artifact_publish`: publish a single `html` string or small inline `files`; pass public-safe `description` copy when available.
 - `artifact_upload_session`: create a 6-hour direct upload token for shell/curl uploads.
-- `artifact_manage`: list artifacts, get stats, change access, or create share links.
+- `artifact_manage`: list artifacts, get stats, change access, edit public preview copy with `set_preview`, or create share links.
 - `artifact_comments`: list, post/reply, resolve, or reopen comments.
 
 ## Artifact Slug And URL Key Rules
@@ -109,7 +109,7 @@ https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/
 - Single self-contained HTML: use `artifact_publish` with `html`.
 - Small multi-file artifact where all file contents are already in context: use `artifact_publish` with `files`.
 - Local folder or large files: prefer hosted `artifact_upload_session`; use local stdio MCP with `dir` or CLI `publish-folder` only when hosted MCP is unavailable or the shell workflow specifically requires it.
-- Existing artifact stats/access/share links: use `artifact_manage`.
+- Existing artifact stats/access/preview copy/share links: use `artifact_manage`.
 - Reading or acting on viewer comments: use `artifact_comments`.
 
 ## Comment Loop

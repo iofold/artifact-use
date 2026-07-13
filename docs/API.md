@@ -54,12 +54,13 @@ POST /api/v1/publish/html
 {
   "artifact": "claims-demo",
   "title": "Claims Demo",
+  "description": "A review-ready claims workflow and evidence summary.",
   "gate_level": "email",
   "html": "<!doctype html>..."
 }
 ```
 
-The response includes `artifact.url_key` and `url`. Public URLs use `/go/{artifact-slug}-{six-character-code}/`.
+The response includes `artifact.url_key` and `url`. Public URLs use `/go/{artifact-slug}-{six-character-code}/`. `description` is public link-preview copy even when the artifact is gated; keep it free of confidential details. When it is omitted for HTML, Artifact Use derives up to 200 characters from authored description metadata or the first paragraph.
 
 ## Publish Folder
 
@@ -70,6 +71,7 @@ POST /api/v1/publish/start
 {
   "artifact": "claims-demo",
   "title": "Claims Demo",
+  "description": "A review-ready claims workflow and evidence summary.",
   "gate_level": "email",
   "entrypoint": "index.html"
 }
@@ -82,6 +84,7 @@ POST /api/v1/publish/upload-session
 {
   "artifact": "claims-demo",
   "title": "Claims Demo",
+  "description": "A review-ready claims workflow and evidence summary.",
   "gate_level": "email",
   "entrypoint": "index.html",
   "ttl_seconds": 21600
@@ -146,6 +149,18 @@ GET /api/v1/artifacts/{artifact_key}/comments
 ```
 
 For compatibility during migration, old `/api/v1/artifacts/{legacy_prefix}/{artifact}` paths are still accepted when they map to an artifact owned by the authenticated org.
+
+Update the public link-preview envelope without republishing file bytes:
+
+```http
+PATCH /api/v1/artifacts/{artifact_key}
+{
+  "title": "Claims review workspace",
+  "description": "A concise public summary shown in link previews."
+}
+```
+
+The title, description, generated thumbnail, and favicon are intentionally available to link-preview crawlers. Access gates continue to protect every artifact file.
 
 Gate levels:
 

@@ -8,6 +8,7 @@ agent / CLI / MCP
   -> Artifact Use REST API
   -> Cloudflare Worker
   -> D1 metadata + R2 static files
+  -> Browser Rendering + R2-cached social preview images
   -> stable public artifact URL
 ```
 
@@ -39,6 +40,12 @@ Every publish creates a draft row in `artifact_versions`.
 Files upload into that draft.
 `complete` validates file existence and flips `artifacts.current_version_id`.
 Readers never see partial uploads.
+
+## Public Preview Envelope
+
+Artifact title and description are explicitly public metadata. The Worker injects Open Graph, X card, canonical, and artifact-favicon tags at the start of HTML heads. Known link-preview crawlers receive a small metadata document for every artifact type; they never receive gated artifact bytes, viewer sessions, tracked-share recipients, or share capability IDs.
+
+Preview images are deterministic 1200×630 proof sheets rendered through the `BROWSER` binding and cached in R2 under a versioned metadata revision. Title, description, gate label, and entrypoint type are the only artifact details rendered into the card.
 
 ## Folder Artifacts
 

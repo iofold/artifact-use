@@ -62,11 +62,13 @@ where they were generated.
 - **Immutable versions** with atomic current-version promotion.
 - **Cloudflare-native storage** using Workers, R2, and D1.
 - **Access gates**: `public`, `email`, `verified_email`, and `allowlist`.
+- **Rich link previews** with public-safe Open Graph/X metadata, branded
+  1200×630 cards, and a distinct artifact favicon—even when content is gated.
 - **Viewer attribution** through email gates and share links.
 - **Comments** with replies, resolve/reopen, and targeted
   element selection.
 - **Publisher dashboard** with artifact lists, stats, recent views, share links,
-  access controls, and team invitations.
+  access controls, editable link previews, and team invitations.
 - **Hosted HTTP MCP endpoint** with OAuth and bearer authentication.
 - **Local stdio MCP server** for agents that need to walk and publish folders
   from disk.
@@ -176,7 +178,8 @@ Hosted MCP exposes these main tools:
 - `artifact_upload_session`: create a short-lived direct upload session for
   folders and large or multi-file artifacts.
 - `artifact_manage`: list artifacts, fetch stats, update access, and create
-  share links. Use the returned `url_key` for exact management calls.
+  share links, or use `set_preview` to edit the public title and summary. Use
+  the returned `url_key` for exact management calls.
 - `artifact_comments`: list, reply to, resolve, and reopen comment threads.
 
 For large artifacts, use the direct upload flow. The server creates a short-lived
@@ -214,9 +217,9 @@ ARTIFACT_USE_TOKEN=... npm run cli -- schema --all
 
 Artifact Use is designed to run on Cloudflare with your own resources:
 
-1. Create a Cloudflare D1 database and R2 bucket.
+1. Create a Cloudflare D1 database and R2 bucket, and enable Browser Rendering.
 2. Configure `apps/worker/wrangler.toml` for your account, domain, routes,
-   D1 database, R2 bucket, and Email Sending binding.
+   D1 database, R2 bucket, Browser Rendering binding, and Email Sending binding.
 3. Apply the D1 baseline migration.
 4. Enable a Cloudflare Email Sending domain if you use `verified_email` gates.
 5. Set Worker secrets for sessions and WorkOS.

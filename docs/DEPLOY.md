@@ -8,6 +8,7 @@ by WorkOS/AuthKit.
 - Cloudflare Workers
 - Cloudflare D1
 - Cloudflare R2
+- Cloudflare Browser Rendering for branded Open Graph/X preview images
 - Cloudflare Email Sending if you enable `verified_email` gates
 - WorkOS/AuthKit for creator and publisher auth
 - A monitored abuse mailbox with a primary and backup owner
@@ -26,6 +27,7 @@ Update `apps/worker/wrangler.toml` with:
 - your route patterns and zone name
 - the D1 `database_id`
 - the R2 bucket name
+- the `BROWSER` Browser Rendering binding
 - the `EMAIL` binding and an allowed `MAIL_FROM` address
 - your public `SITE_BASE_URL`
 - your public `ABUSE_EMAIL` mailbox
@@ -35,6 +37,17 @@ Keep these environment-specific values out of the public repo: copy
 `apps/worker/.env.deploy.example` to `apps/worker/.env.deploy` (gitignored) as a
 single reference, and keep the real, operative `wrangler.prod.toml` /
 `wrangler.staging.toml` gitignored alongside it.
+
+The preview renderer uses the native Browser Run binding:
+
+```toml
+[browser]
+binding = "BROWSER"
+```
+
+Generated PNGs are cached in the configured R2 bucket. Without this binding,
+artifact and gate pages still render but the social image endpoint returns a
+temporary `503` rather than exposing artifact content as a fallback.
 
 Then apply the baseline schema:
 

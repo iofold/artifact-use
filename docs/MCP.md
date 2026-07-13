@@ -127,7 +127,7 @@ lives under `plugins/codex/artifact-use`.
 
 - `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP.
 - `artifact_upload_session`: create a draft and receive a 6-hour upload token for direct HTTP file upload from a shell/curl-capable agent.
-- `artifact_manage`: list artifacts, fetch stats, update access, or create share links. Use the returned `url_key` from `action: "list"` for exact management calls.
+- `artifact_manage`: list artifacts, fetch stats, update access, edit public preview copy with `set_preview`, or create share links. Use the returned `url_key` from `action: "list"` for exact management calls.
 - `artifact_comments`: list, reply to, resolve, or reopen comment threads.
 
 ## File Publishing Over MCP
@@ -140,6 +140,17 @@ HTTP MCP cannot read local files by itself. Use one of these paths:
 - As an advanced fallback, local stdio MCP `artifact_publish` with `dir`, or the CLI `publish-folder`, for large folders. In this mode the tool reads files from disk and streams bytes to the hosted API; the model only sees the path, manifest, and final URL.
 
 Do not guess public URL keys. Publish with a lower-case artifact slug, then use the returned `url_key` for stats, access changes, and share links.
+
+Pass a concise `description` when publishing. It becomes public link-preview copy even for gated artifacts; HTML publishes derive it from page metadata or the first paragraph when omitted. Edit it later with:
+
+```json
+{
+  "action": "set_preview",
+  "artifact": "claims-demo-a1b2c3",
+  "title": "Claims review workspace",
+  "description": "A concise public summary for reviewers."
+}
+```
 
 Direct upload session sketch:
 
