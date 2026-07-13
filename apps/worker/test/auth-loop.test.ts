@@ -85,7 +85,10 @@ test("/login with a valid publisher session goes to /admin, not WorkOS", async (
 
 test("/login with a session honors a safe pre-auth destination", async () => {
   const cookie = `${await publisherCookie()}; au_next=${encodeURIComponent("/admin/connect?code=ABCD-2345")}`;
-  const response = await worker.fetch(browserRequest("/login", cookie), testEnv);
+  const response = await worker.fetch(
+    browserRequest("/login", cookie),
+    testEnv,
+  );
   assert.equal(response.status, 302);
   assert.equal(
     response.headers.get("Location"),
@@ -95,7 +98,10 @@ test("/login with a session honors a safe pre-auth destination", async () => {
 
 test("callback with a mismatched state restarts sign-in instead of dead-ending", async () => {
   const response = await worker.fetch(
-    browserRequest("/callback?code=01TESTCODE&state=st_stale", "au_state=st_other"),
+    browserRequest(
+      "/callback?code=01TESTCODE&state=st_stale",
+      "au_state=st_other",
+    ),
     testEnv,
   );
   assert.equal(response.status, 302);
