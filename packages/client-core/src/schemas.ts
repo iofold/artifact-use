@@ -30,6 +30,12 @@ export const artifactPublishTool: ToolSchema = {
     properties: {
       artifact: { type: "string", description: "Artifact slug to publish." },
       title: { type: "string" },
+      description: {
+        type: "string",
+        maxLength: 200,
+        description:
+          "A one- or two-sentence public summary for link previews. This is visible even when the artifact is gated. If omitted for HTML, Artifact Use derives a summary from page metadata or the first paragraph.",
+      },
       gate_level: { type: "string", enum: [...GATE_LEVELS] },
       entrypoint: { type: "string", default: "index.html" },
       html: { type: "string" },
@@ -62,6 +68,12 @@ export const artifactUploadSessionTool: ToolSchema = {
     properties: {
       artifact: { type: "string", description: "Artifact slug to publish." },
       title: { type: "string" },
+      description: {
+        type: "string",
+        maxLength: 200,
+        description:
+          "A one- or two-sentence public summary for link previews. This is visible even when the artifact is gated. If omitted for HTML, Artifact Use derives a summary from page metadata or the first paragraph.",
+      },
       gate_level: { type: "string", enum: [...GATE_LEVELS] },
       entrypoint: { type: "string", default: "index.html" },
       ttl_seconds: {
@@ -76,20 +88,30 @@ export const artifactUploadSessionTool: ToolSchema = {
 export const artifactManageTool: ToolSchema = {
   name: "artifact_manage",
   description:
-    "List artifacts, fetch stats, update access, or create a tracked share link.",
+    "List artifacts, fetch stats, update access or public link-preview details, or create a tracked share link.",
   inputSchema: {
     type: "object",
     required: ["action"],
     properties: {
       action: {
         type: "string",
-        enum: ["list", "stats", "set_access", "share_link"],
+        enum: ["list", "stats", "set_access", "set_preview", "share_link"],
       },
       artifact: {
         type: "string",
         description: "Artifact url_key from list output, or artifact slug.",
       },
       gate_level: { type: "string", enum: [...GATE_LEVELS] },
+      title: {
+        type: "string",
+        description: "set_preview: the public artifact title.",
+      },
+      description: {
+        type: "string",
+        maxLength: 200,
+        description:
+          "set_preview: the public link-preview summary. Visible even when the artifact is gated; pass an empty string to clear it.",
+      },
       allowlist: { type: "object" },
       recipient_email: { type: "string" },
       recipient_label: { type: "string" },

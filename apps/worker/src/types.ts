@@ -3,6 +3,7 @@ export type GateLevel = "public" | "email" | "verified_email" | "allowlist";
 export interface Env {
   DB: D1Database;
   BUCKET: R2Bucket;
+  BROWSER?: BrowserRun;
   ASSETS: Fetcher;
   EMAIL?: SendEmail;
   SITE_BASE_URL: string;

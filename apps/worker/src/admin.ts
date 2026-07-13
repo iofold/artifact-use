@@ -15,7 +15,9 @@ import {
   getArtifactForOrg,
   listArtifactsForOrg,
   updateArtifactAccess,
+  updateArtifactPreview,
 } from "./db";
+import { normalizeArtifactDescription } from "./preview";
 import {
   error,
   GATE_LEVELS,
@@ -115,6 +117,7 @@ export async function handleAdminApi(
       requirePermission(creator, env, "artifacts:manage_access");
       const body = (await request.json()) as {
         title?: string;
+        description?: string | null;
         gate_level?: GateLevel;
         allowlist?: unknown;
       };
@@ -125,13 +128,26 @@ export async function handleAdminApi(
         body.allowlist === undefined
           ? undefined
           : JSON.stringify(body.allowlist);
-      const updated = await updateArtifactAccess(
-        env,
-        artifact,
-        body.title || null,
-        level,
-        allowlistJson,
-      );
+      let updated = artifact;
+      if (level || allowlistJson !== undefined) {
+        updated = await updateArtifactAccess(
+          env,
+          updated,
+          null,
+          level,
+          allowlistJson,
+        );
+      }
+      if (body.title !== undefined || body.description !== undefined) {
+        updated = await updateArtifactPreview(
+          env,
+          updated,
+          body.title === undefined ? undefined : String(body.title),
+          body.description === undefined
+            ? undefined
+            : normalizeArtifactDescription(body.description),
+        );
+      }
       return json({ artifact: updated });
     }
 

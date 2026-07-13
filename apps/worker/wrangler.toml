@@ -26,6 +26,11 @@ command = "node scripts/build-feedback-widget.mjs && cd ../admin-ui && npm run b
 directory = "./public"
 binding = "ASSETS"
 
+# Cloudflare Browser Rendering turns the deterministic HTML proof sheet into
+# the 1200x630 PNG used by Open Graph and X link previews.
+[browser]
+binding = "BROWSER"
+
 # Replace these routes with your own zone/domain before deploying.
 [[routes]]
 pattern = "artifacts.example.com/"

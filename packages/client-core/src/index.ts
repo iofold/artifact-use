@@ -193,6 +193,7 @@ export async function publishFolder(
       dry_run: true,
       artifact: input.artifact,
       title: input.title,
+      description: input.description,
       gate_level: input.gate_level || "email",
       entrypoint,
       file_count: files.length,
@@ -203,6 +204,7 @@ export async function publishFolder(
   const start = (await api(conf, "POST", "/api/v1/publish/start", {
     artifact: input.artifact,
     title: input.title,
+    description: input.description,
     gate_level: input.gate_level || "email",
     entrypoint,
   })) as PublishStart;

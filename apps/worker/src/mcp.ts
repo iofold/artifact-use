@@ -161,6 +161,16 @@ async function callTool(
           method: "PATCH",
         },
       },
+      set_preview: {
+        path: `/api/v1/artifacts/${ref}`,
+        init: {
+          ...postJson({
+            title: args.title,
+            description: args.description,
+          }),
+          method: "PATCH",
+        },
+      },
       share_link: {
         path: `/api/v1/artifacts/${ref}/share-links`,
         init: postJson(args),
@@ -261,6 +271,7 @@ async function publishInlineFiles(
       postJsonInit(headers, {
         artifact: args.artifact,
         title: args.title,
+        description: args.description,
         gate_level: args.gate_level,
         entrypoint: args.entrypoint || "index.html",
       }),

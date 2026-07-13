@@ -77,6 +77,11 @@ async function manageArtifact(args: Record<string, unknown>): Promise<unknown> {
       gate_level: args.gate_level,
       allowlist: args.allowlist,
     });
+  if (action === "set_preview")
+    return api(conf, "PATCH", `/api/v1/artifacts/${artifactRef}`, {
+      title: args.title,
+      description: args.description,
+    });
   if (action === "share_link")
     return api(
       conf,
@@ -141,6 +146,7 @@ async function publishFiles(args: Record<string, unknown>): Promise<unknown> {
   const start = (await api(conf, "POST", "/api/v1/publish/start", {
     artifact: args.artifact,
     title: args.title,
+    description: args.description,
     gate_level: args.gate_level || "email",
     entrypoint,
   })) as PublishStart;

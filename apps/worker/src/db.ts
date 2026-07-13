@@ -80,16 +80,18 @@ export async function upsertArtifact(
   creator: Creator,
   artifactSlug: string,
   title: string | null,
+  description: string | null,
   gateLevel: GateLevel | null,
 ): Promise<Artifact> {
   const existing = await getArtifactForOrg(env, creator.orgId, artifactSlug);
-  const now = nowSec();
+  const now = Math.max(nowSec(), Number(existing?.updated_at || 0) + 1);
   if (existing) {
     await env.DB.prepare(
-      "UPDATE artifacts SET title = ?, gate_level = ?, updated_at = ? WHERE id = ?",
+      "UPDATE artifacts SET title = ?, description = ?, gate_level = ?, updated_at = ? WHERE id = ?",
     )
       .bind(
         title || existing.title,
+        description || existing.description,
         gateLevel || existing.gate_level,
         now,
         existing.id,
@@ -101,8 +103,8 @@ export async function upsertArtifact(
   const urlKey = artifactUrlKey(artifactSlug, id);
   await env.DB.prepare(
     `INSERT INTO artifacts
-      (id, org_id, slug, url_key, title, gate_level, created_by, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      (id, org_id, slug, url_key, title, description, gate_level, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id,
@@ -110,6 +112,7 @@ export async function upsertArtifact(
       artifactSlug,
       urlKey,
       title || artifactSlug,
+      description,
       gateLevel || "email",
       creator.sub,
       now,
@@ -293,7 +296,7 @@ export async function updateArtifactAccess(
   gateLevel: GateLevel | null,
   allowlistJson: string | null | undefined,
 ): Promise<Artifact> {
-  const now = nowSec();
+  const now = Math.max(nowSec(), Number(artifact.updated_at || 0) + 1);
   await env.DB.prepare(
     "UPDATE artifacts SET title = COALESCE(?, title), gate_level = COALESCE(?, gate_level), allowlist_json = COALESCE(?, allowlist_json), updated_at = ? WHERE id = ?",
   )
@@ -304,6 +307,31 @@ export async function updateArtifactAccess(
       now,
       artifact.id,
     )
+    .run();
+  return (await getArtifactById(env, artifact.id)) as Artifact;
+}
+
+export async function updateArtifactPreview(
+  env: Env,
+  artifact: Artifact,
+  title: string | undefined,
+  description: string | null | undefined,
+): Promise<Artifact> {
+  const nextTitle = title === undefined ? artifact.title : title.trim();
+  if (!nextTitle) throw new Error("title is required");
+  if (nextTitle.length > 160)
+    throw new Error("title must be 160 characters or fewer");
+  if (description && description.length > 200)
+    throw new Error("description must be 200 characters or fewer");
+  const nextDescription =
+    description === undefined ? artifact.description : description;
+  // A version publish and a metadata edit may land in the same second. Keep
+  // the revision monotonic so the immutable image URL always changes.
+  const updatedAt = Math.max(nowSec(), Number(artifact.updated_at || 0) + 1);
+  await env.DB.prepare(
+    "UPDATE artifacts SET title = ?, description = ?, updated_at = ? WHERE id = ?",
+  )
+    .bind(nextTitle, nextDescription, updatedAt, artifact.id)
     .run();
   return (await getArtifactById(env, artifact.id)) as Artifact;
 }

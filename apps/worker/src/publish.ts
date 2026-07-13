@@ -23,10 +23,15 @@ import {
   getVersionForOrg,
   listFilesForVersion,
   revertVersionToDraft,
+  updateArtifactPreview,
   upsertArtifact,
   upsertFileIfDraft,
 } from "./db";
 import { suspendedOrganizationResponse } from "./moderation";
+import {
+  extractArtifactDescription,
+  normalizeArtifactDescription,
+} from "./preview";
 import {
   assertSlug,
   bearerToken,
@@ -44,6 +49,7 @@ import {
 interface StartBody {
   artifact: string;
   title?: string;
+  description?: string;
   gate_level?: GateLevel;
   entrypoint?: string;
   ttl_seconds?: number;
@@ -236,11 +242,14 @@ export async function handlePublish(
           validation.manifest.files.length,
         );
         completed = true;
-        const artifact = await env.DB.prepare(
+        let artifact = await env.DB.prepare(
           "SELECT * FROM artifacts WHERE id = ?",
         )
           .bind(version.artifact_id)
           .first<Artifact>();
+        if (artifact && !artifact.description) {
+          artifact = await addGeneratedDescription(env, artifact, version);
+        }
         return json({
           ok: true,
           artifact,
@@ -268,10 +277,12 @@ export async function handlePublish(
       if (bytes.byteLength > readLimit(env, "file"))
         return error(413, "file_too_large", "html exceeds file limit");
       // Pin the entrypoint after the spread so a caller-supplied one stays ignored.
-      const { artifact, version } = await createDraft(env, creator, {
-        ...body,
-        entrypoint: "index.html",
-      });
+      const draftBody = { ...body, entrypoint: "index.html" };
+      if (body.description === undefined) {
+        const generatedDescription = extractArtifactDescription(html);
+        if (generatedDescription) draftBody.description = generatedDescription;
+      }
+      const { artifact, version } = await createDraft(env, creator, draftBody);
       const storageKey = `orgs/${creator.orgId}/artifacts/${version.artifact_id}/versions/${version.id}/files/index.html`;
       await env.BUCKET.put(storageKey, bytes, {
         httpMetadata: { contentType: "text/html; charset=utf-8" },
@@ -345,6 +356,7 @@ async function createDraft(
     creator,
     artifactSlug,
     body.title || null,
+    normalizeArtifactDescription(body.description),
     gateLevel,
   );
   const version = await createDraftVersion(env, creator, artifact, entrypoint);
@@ -358,6 +370,35 @@ async function createDraft(
       file_count: readLimit(env, "count"),
     },
   };
+}
+
+async function addGeneratedDescription(
+  env: Env,
+  artifact: Artifact,
+  version: ArtifactVersion,
+): Promise<Artifact> {
+  const file = await getFile(env, version.id, version.entrypoint);
+  if (!file || !isHtml(file.content_type, file.path)) return artifact;
+  try {
+    const object = await env.BUCKET.get(file.storage_key, {
+      range: { offset: 0, length: Math.min(file.size, 65_536) },
+    });
+    if (!object || !("body" in object)) return artifact;
+    const description = extractArtifactDescription(await object.text());
+    if (!description) return artifact;
+    return updateArtifactPreview(env, artifact, undefined, description);
+  } catch {
+    // Summary generation is best-effort and must never make a successful
+    // artifact publication fail.
+    return artifact;
+  }
+}
+
+function isHtml(contentType: string, path: string): boolean {
+  return (
+    contentType.split(";", 1)[0]?.trim().toLowerCase() === "text/html" ||
+    /\.html?$/i.test(path)
+  );
 }
 
 async function publishActorForVersion(

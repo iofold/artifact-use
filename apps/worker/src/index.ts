@@ -6,6 +6,7 @@ import { llmsFullTxt, llmsTxt } from "./llms";
 import { handleMcp } from "./mcp";
 import { handleConnectApi } from "./connect";
 import { handlePublish } from "./publish";
+import { handleArtifactPreviewAsset } from "./preview";
 import {
   errorPage,
   handleAdminUiApi,
@@ -176,6 +177,8 @@ async function dispatch(
     if (path.startsWith("/api/v1/")) return handleAdminApi(request, env, path);
     if (path.startsWith("/_au/gate/"))
       return handleGateRoute(request, env, path);
+    if (path === "/_au/artifact-icon.svg" || path.startsWith("/_au/preview/"))
+      return handleArtifactPreviewAsset(request, env, path);
     if (path === "/_au/comments") return handleComments(request, env, path);
     if (path === "/_au/artifact-context")
       return handleArtifactContext(request, env);

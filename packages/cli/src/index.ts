@@ -9,6 +9,7 @@ const SCHEMAS = {
     properties: {
       artifact: { type: "string" },
       title: { type: "string" },
+      description: { type: "string", maxLength: 200 },
       dir: { type: "string" },
       gate_level: {
         type: "string",
@@ -23,10 +24,28 @@ const SCHEMAS = {
     properties: {
       artifact: { type: "string" },
       title: { type: "string" },
+      description: { type: "string", maxLength: 200 },
       html: { type: "string" },
       gate_level: {
         type: "string",
         enum: ["public", "email", "verified_email", "allowlist"],
+      },
+    },
+  },
+  preview: {
+    type: "object",
+    required: ["artifact"],
+    properties: {
+      artifact: {
+        type: "string",
+        description: "Artifact url_key from list output, or artifact slug.",
+      },
+      title: { type: "string" },
+      description: {
+        type: "string",
+        maxLength: 200,
+        description:
+          "Public link-preview summary; visible even when the artifact is gated.",
       },
     },
   },
@@ -165,6 +184,16 @@ async function main(): Promise<void> {
           allowlist: input.allowlist,
           title: input.title,
         },
+      ),
+    );
+  }
+  if (command === "preview") {
+    return output(
+      await api(
+        conf,
+        "PATCH",
+        `/api/v1/artifacts/${encodeURIComponent(String(input.artifact || ""))}`,
+        { title: input.title, description: input.description },
       ),
     );
   }

@@ -18,6 +18,11 @@ import {
 import { getViewerSession, renderGate } from "./gate";
 import { getPublisherSessionAuth } from "./publisher";
 import { unavailableArtifactResponse } from "./moderation";
+import {
+  injectArtifactMetadata,
+  isLinkPreviewRequest,
+  renderArtifactPreviewDocument,
+} from "./preview";
 import { commentWriteRateLimit } from "./rl";
 import { FEEDBACK_WIDGET_JS } from "./widget/feedback.generated";
 import {
@@ -75,31 +80,49 @@ export async function servePublic(
     url.pathname = publicArtifactPath(env, artifact.url_key);
     return Response.redirect(url.toString(), 301);
   }
-  const url = new URL(request.url);
-  const share = await sharePrefill(env, artifact, url.searchParams.get("v"));
+  const linkPreview = isLinkPreviewRequest(request);
   if (artifact.gate_level !== "public") {
     const session = await getViewerSession(request, env, artifact);
     if (
       !session ||
       (requiresVerified(artifact.gate_level) && !session.verified)
     ) {
+      if (linkPreview) {
+        return headOnly(
+          request,
+          renderArtifactPreviewDocument(
+            env,
+            artifact,
+            await entrypointContentType(env, artifact),
+          ),
+        );
+      }
       // Machine-readable gate: a non-browser fetch gets a 401 + JSON describing
       // how to get in, instead of a 200 HTML email form.
       if (!wantsHtml(request)) return gateJson(env, artifact);
+      const url = new URL(request.url);
+      const share = await sharePrefill(
+        env,
+        artifact,
+        url.searchParams.get("v"),
+      );
       const gate = renderGate(
         artifact,
         path,
         share.email || "",
         share.id || "",
       );
-      if (request.method === "HEAD") {
-        return new Response(null, {
-          status: gate.status,
-          statusText: gate.statusText,
-          headers: gate.headers,
-        });
-      }
-      return gate;
+      const gateHtml = injectArtifactMetadata(
+        await gate.text(),
+        env,
+        artifact,
+        await entrypointContentType(env, artifact),
+      );
+      return new Response(request.method === "HEAD" ? null : gateHtml, {
+        status: gate.status,
+        statusText: gate.statusText,
+        headers: gate.headers,
+      });
     }
   }
   const version = await getVersion(env, artifact.current_version_id);
@@ -117,6 +140,12 @@ export async function servePublic(
   const row = await getFile(env, version.id, assetPath);
   if (!row) return error(404, "file_not_found", "file not found");
   const rowType = row.content_type || mimeFor(row.path);
+  if (linkPreview) {
+    return headOnly(
+      request,
+      renderArtifactPreviewDocument(env, artifact, rowType),
+    );
+  }
   const isHtmlPath =
     mediaType(rowType) === "text/html" || /\.html?$/i.test(row.path);
   const getOptions: R2GetOptions = {};
@@ -151,7 +180,12 @@ export async function servePublic(
       `<${publicArtifactUrl(env, artifact.url_key)}_au/index.json>; rel="describedby"; type="application/json"`,
     );
     if (request.method === "HEAD") return new Response(null, { headers });
-    const html = await bodyObj.text();
+    const html = injectArtifactMetadata(
+      await bodyObj.text(),
+      env,
+      artifact,
+      contentType,
+    );
     // Only inject the feedback widget for real browsers; agents get clean HTML.
     const body = wantsHtml(request)
       ? injectWidget(html, artifact, version.id, env)
@@ -173,6 +207,31 @@ export async function servePublic(
   return new Response(request.method === "HEAD" ? null : bodyObj.body, {
     status: range ? 206 : 200,
     headers,
+  });
+}
+
+async function entrypointContentType(
+  env: Env,
+  artifact: Artifact,
+): Promise<string> {
+  if (!artifact.current_version_id) return "application/octet-stream";
+  const version = await getVersion(env, artifact.current_version_id);
+  if (!version || version.status !== "complete")
+    return "application/octet-stream";
+  const file = await getFile(
+    env,
+    version.id,
+    version.entrypoint || "index.html",
+  );
+  return file?.content_type || mimeFor(version.entrypoint || "index.html");
+}
+
+function headOnly(request: Request, response: Response): Response {
+  if (request.method !== "HEAD") return response;
+  return new Response(null, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
   });
 }
 
