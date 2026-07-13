@@ -68,7 +68,7 @@ test("/login stops redirecting after the loop limit and renders a page", async (
   }
   assert.ok(response);
   assert.equal(response.status, 200, "the ring must terminate in a 200 page");
-  assert.equal(hops, 3, "exactly LOOP_LIMIT automatic redirects are allowed");
+  assert.equal(hops, 2, "exactly LOOP_LIMIT automatic redirects are allowed");
   assert.match(await response.text(), /Continue to sign in/);
   // The stop page resets the counter so a human click gets a fresh budget.
   assert.match(setCookieValue(response, "au_loop") || "", /Max-Age=0/);

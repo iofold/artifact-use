@@ -60,9 +60,12 @@ const NEXT_COOKIE = "au_next";
 // otherwise become an infinite login→authorize→bootstrap ring and the browser
 // dies with ERR_TOO_MANY_REDIRECTS. /login is the only hop we control in that
 // ring: after LOOP_LIMIT automatic entries inside LOOP_WINDOW_SEC we stop
-// redirecting and render a static page instead.
+// redirecting and render a static page instead. The limit must keep
+// LOOP_LIMIT+1 ring cycles under the browser's ~20-redirect budget even for
+// the longest observed cycle (7 hops when AuthKit adds a refresh-token hop),
+// or the browser kills the navigation before the breaker fires.
 const LOOP_COOKIE = "au_loop";
-const LOOP_LIMIT = 3;
+const LOOP_LIMIT = 2;
 const LOOP_WINDOW_SEC = 60;
 // Same-site relative destinations only (pre-auth deep links, e.g.
 // /admin/connect?code=...).
