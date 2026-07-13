@@ -7,7 +7,12 @@ import type {
   ViewerSession,
 } from "./types";
 import { bearerToken, json, nowSec, randomId, sha256Hex } from "./util";
-import { stringClaim, workosApiMaybe } from "./workos";
+import {
+  ensurePublisherOrganization,
+  stringClaim,
+  workosApiMaybe,
+} from "./workos";
+import { migratePublisherDataToOrg } from "./db";
 
 let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
 let jwksUrlCache = "";
@@ -82,6 +87,7 @@ export async function getCreator(
   const orgId =
     rawOrgId ||
     (await defaultWorkosOrgForUser(env, sub)) ||
+    (await provisionCreatorOrg(env, sub, email)) ||
     userScopedOrgId(sub);
   const permissions = new Set<string>();
   for (const claimName of ["permissions", "scope", "scp", "roles", "role"]) {
@@ -201,10 +207,54 @@ async function defaultWorkosOrgForUser(
   return stringClaim(organization?.id);
 }
 
+// A creator whose token carries no org claim and who has no per-user WorkOS
+// org yet is on their first credentialed request — typically MCP OAuth
+// onboarding, which never runs the browser /callback bootstrap. Provision the
+// same per-user organization the browser flow creates and re-home anything
+// already written under the synthetic fallback ids. Never throws: on a WorkOS
+// failure the caller falls back to userScopedOrgId and the next request heals.
+async function provisionCreatorOrg(
+  env: Env,
+  sub: string,
+  email: string | null,
+): Promise<string | null> {
+  if (!env.WORKOS_API_KEY) return null;
+  try {
+    const orgId = await ensurePublisherOrganization(env, sub, email, "");
+    if (orgId)
+      await migratePublisherDataToOrg(
+        env,
+        publisherFallbackOrgIds(sub, email),
+        orgId,
+        sub,
+      );
+    return orgId;
+  } catch {
+    return null;
+  }
+}
+
 function isWorkosUserId(value: string): boolean {
   return /^user_[A-Za-z0-9]+$/.test(value);
 }
 
+// Synthetic org ids a publisher's rows may have been written under before
+// their real WorkOS org existed, oldest scheme first. Kept in sync with
+// userScopedOrgId/legacy formats; migratePublisherDataToOrg drains them.
+export function publisherFallbackOrgIds(
+  userId: string,
+  email: string | null,
+): string[] {
+  return [
+    userId ? `user:${userId}` : "",
+    userId ? userScopedOrgId(userId) : "",
+    email ? `email:${email}` : "",
+  ].filter(Boolean);
+}
+
+// Historical format: subs are always "user_..." WorkOS ids, so this yields a
+// doubled "user_user_..." prefix. The value is persisted in existing rows and
+// listed in publisherFallbackOrgIds — do not change the format.
 export function userScopedOrgId(sub: string): string {
   return `user_${sub.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
 }

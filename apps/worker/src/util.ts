@@ -111,6 +111,10 @@ export function isSlug(s: string): boolean {
   return /^[a-z0-9][a-z0-9-]{0,62}$/.test(s);
 }
 
+export function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
 export function slugify(value: string, fallback = "publisher"): string {
   const slug = value
     .toLowerCase()

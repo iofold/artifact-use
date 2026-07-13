@@ -362,3 +362,32 @@ export async function insertView(
     .run();
   return Number(result.meta.last_row_id);
 }
+
+// Re-home rows written under synthetic pre-organization org ids (see
+// publisherFallbackOrgIds in auth.ts) into the user's real WorkOS org. Runs
+// from both onboarding paths; a no-op when nothing was written under a
+// fallback id.
+export async function migratePublisherDataToOrg(
+  env: Env,
+  fromOrgIds: string[],
+  toOrgId: string,
+  userId: string,
+): Promise<void> {
+  const unique = [...new Set(fromOrgIds.filter((id) => id && id !== toOrgId))];
+  const now = nowSec();
+  for (const fromOrgId of unique) {
+    await env.DB.batch([
+      env.DB.prepare(
+        "UPDATE artifact_versions SET org_id = ?, created_by = ? WHERE org_id = ?",
+      ).bind(toOrgId, userId, fromOrgId),
+      env.DB.prepare(
+        `UPDATE share_links
+         SET created_by = ?
+         WHERE artifact_id IN (SELECT id FROM artifacts WHERE org_id = ?)`,
+      ).bind(userId, fromOrgId),
+      env.DB.prepare(
+        "UPDATE artifacts SET org_id = ?, created_by = ?, updated_at = ? WHERE org_id = ?",
+      ).bind(toOrgId, userId, now, fromOrgId),
+    ]);
+  }
+}

@@ -12,9 +12,9 @@ import {
   fromBase64Url,
   issueAdminCsrfToken,
   mintCreatorToken,
+  publisherFallbackOrgIds,
   readCookie,
   signPayload,
-  userScopedOrgId,
   verifyAdminCsrf,
   verifyPayload,
 } from "./auth";
@@ -25,16 +25,22 @@ import {
 } from "./connect";
 import { agentSetupPrompt } from "./llms";
 import {
+  ensurePublisherOrganization,
   stringClaim,
   workosApi,
   workosApiMaybe,
   WorkosApiError,
 } from "./workos";
-import { createShareLink, updateArtifactAccess } from "./db";
+import {
+  createShareLink,
+  migratePublisherDataToOrg,
+  updateArtifactAccess,
+} from "./db";
 import { moderateArtifact, moderateOrganization } from "./moderation";
 import {
   artifactUrlCode,
   artifactPathPrefix,
+  asArray,
   error,
   escapeHtml,
   GATE_LEVELS,
@@ -1264,11 +1270,7 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
   const userId = stringClaim(user.id) || stringClaim(auth.user_id);
   const email = stringClaim(user.email) || stringClaim(auth.email);
   const accessClaims = decodeJwtClaims(stringClaim(auth.access_token)) || {};
-  const fallbackOrgIds = [
-    userId ? legacyPublisherUserOrgId(userId) : "",
-    userId ? userScopedOrgId(userId) : "",
-    email ? `email:${email}` : "",
-  ].filter(Boolean);
+  const fallbackOrgIds = publisherFallbackOrgIds(userId || "", email);
   const authOrgId =
     stringClaim(auth.organization_id) ||
     stringClaim(auth.organizationId) ||
@@ -1362,69 +1364,6 @@ async function exchangeCode(
   }
 }
 
-async function ensurePublisherOrganization(
-  env: Env,
-  userId: string,
-  email: string | null,
-  name: string,
-): Promise<string | null> {
-  if (!env.WORKOS_API_KEY) return null;
-  const externalId = `artifact-use:${userId}`;
-  const existing = await workosApiMaybe(
-    env,
-    `/organizations/external_id/${encodeURIComponent(externalId)}`,
-  );
-  const organization =
-    existing ||
-    (await workosApi(env, {
-      path: "/organizations",
-      method: "POST",
-      body: {
-        name: name || email || "Artifact Use publisher",
-        external_id: externalId,
-        metadata: {
-          artifact_use_owner_user_id: userId,
-          artifact_use_owner_email: email || "",
-        },
-      },
-    }));
-  const orgId = stringClaim(organization.id);
-  if (!orgId) return null;
-  await ensureWorkosMembership(env, orgId, userId, "admin");
-  return orgId;
-}
-
-async function ensureWorkosMembership(
-  env: Env,
-  orgId: string,
-  userId: string,
-  roleSlug: string,
-): Promise<void> {
-  const params = new URLSearchParams({
-    organization_id: orgId,
-    user_id: userId,
-    limit: "10",
-  });
-  const memberships = await workosApi(env, {
-    path: `/user_management/organization_memberships?${params}`,
-  });
-  const existing = asArray(memberships.data).find(
-    (row) =>
-      stringClaim((row as Record<string, unknown>).organization_id) === orgId &&
-      stringClaim((row as Record<string, unknown>).user_id) === userId,
-  );
-  if (existing) return;
-  await workosApi(env, {
-    path: "/user_management/organization_memberships",
-    method: "POST",
-    body: {
-      organization_id: orgId,
-      user_id: userId,
-      role_slug: roleSlug,
-    },
-  });
-}
-
 async function isOwnedPublisherOrganization(
   env: Env,
   orgId: string,
@@ -1444,31 +1383,6 @@ async function isOwnedPublisherOrganization(
     stringClaim(organization.external_id) === `artifact-use:${userId}` ||
     stringClaim(metadata.artifact_use_owner_user_id) === userId
   );
-}
-
-async function migratePublisherDataToOrg(
-  env: Env,
-  fromOrgIds: string[],
-  toOrgId: string,
-  userId: string,
-): Promise<void> {
-  const unique = [...new Set(fromOrgIds.filter((id) => id && id !== toOrgId))];
-  const now = nowSec();
-  for (const fromOrgId of unique) {
-    await env.DB.batch([
-      env.DB.prepare(
-        "UPDATE artifact_versions SET org_id = ?, created_by = ? WHERE org_id = ?",
-      ).bind(toOrgId, userId, fromOrgId),
-      env.DB.prepare(
-        `UPDATE share_links
-         SET created_by = ?
-         WHERE artifact_id IN (SELECT id FROM artifacts WHERE org_id = ?)`,
-      ).bind(userId, fromOrgId),
-      env.DB.prepare(
-        "UPDATE artifacts SET org_id = ?, created_by = ?, updated_at = ? WHERE org_id = ?",
-      ).bind(toOrgId, userId, now, fromOrgId),
-    ]);
-  }
 }
 
 type AgentTokenRow = {
@@ -2207,14 +2121,6 @@ function decodeJwtClaims(token: string | null): Record<string, unknown> | null {
   } catch {
     return null;
   }
-}
-
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : [];
-}
-
-function legacyPublisherUserOrgId(userId: string): string {
-  return `user:${userId}`;
 }
 
 async function publisherArtifact(
