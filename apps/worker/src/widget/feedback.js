@@ -128,7 +128,7 @@
     '<div class="au-list" data-list></div>' +
     '<button class="au-new" data-new>+ New comment</button>' +
     '<div class="au-composer" data-composer>' +
-    '<div class="au-actions"><button class="au-action" data-select>Select element</button>' +
+    '<div class="au-actions"><button class="au-action au-action-primary" data-select>⌖ Select element</button>' +
     '<button class="au-action" data-clear>Clear target</button></div>' +
     '<div class="au-target" data-target></div>' +
     '<textarea class="au-text" data-body placeholder="Leave a comment"></textarea>' +
@@ -315,30 +315,55 @@
   function renderTarget() {
     var box = $("[data-target]");
     box.innerHTML = "";
+    box.classList.toggle("is-empty", !target);
     box.appendChild(el("strong", "", "Target"));
     box.appendChild(
       el(
         "span",
         target ? "" : "au-muted",
-        target ? target.label : "No element selected",
+        target ? target.label : "No element selected — click to pick one",
       ),
     );
+    // The empty target row doubles as a select-mode affordance.
+    if (!target) {
+      box.setAttribute("role", "button");
+      box.setAttribute("tabindex", "0");
+    } else {
+      box.removeAttribute("role");
+      box.removeAttribute("tabindex");
+    }
+    $("[data-clear]").style.display = target ? "" : "none";
     update();
+  }
+  function focusBody() {
+    var t = $("[data-body]");
+    if (!t) return;
+    setTimeout(function () {
+      try {
+        t.focus({ preventScroll: true });
+      } catch (e) {
+        t.focus();
+      }
+    }, 0);
   }
   function clearTarget() {
     target = null;
     active = null;
     renderTarget();
   }
+  var pickHintKey = "au_pick_hint_" + artifactKey;
   function openComposer(open) {
     $("[data-composer]").classList.toggle("is-open", open !== false);
     $("[data-new]").style.display = open === false ? "" : "none";
     if (open !== false) {
-      var t = $("[data-body]");
-      if (t)
-        setTimeout(function () {
-          t.focus();
-        }, 0);
+      // One-time attention pulse on the select control per artifact, until
+      // the viewer uses select mode once.
+      var hinted = false;
+      try {
+        hinted = localStorage.getItem(pickHintKey) === "1";
+      } catch (e) {}
+      if (!hinted && !target) $("[data-select]").classList.add("au-hint");
+      focusBody();
     }
   }
 
@@ -963,6 +988,8 @@
     }
     target = picked;
     active = target;
+    // endSelect() hands focus back to the open composer, so the picked
+    // element can be commented on without a second click.
     endSelect();
     renderTarget();
   }
@@ -987,6 +1014,10 @@
   function startSelect() {
     if (selecting) return;
     selecting = true;
+    $("[data-select]").classList.remove("au-hint");
+    try {
+      localStorage.setItem(pickHintKey, "1");
+    } catch (e) {}
     if (!reanchorFor) openComposer(true);
     banner.querySelector(".au-banner-text").textContent = reanchorFor
       ? "Click the new location for this comment"
@@ -999,6 +1030,7 @@
     document.addEventListener("keydown", onKey, true);
   }
   function endSelect() {
+    var wasComposing = selecting && !reanchorFor;
     selecting = false;
     reanchorFor = null;
     document.documentElement.classList.remove("au-selecting");
@@ -1009,6 +1041,9 @@
     document.removeEventListener("mouseover", over, true);
     document.removeEventListener("click", pick, true);
     document.removeEventListener("keydown", onKey, true);
+    // Esc/cancel strands focus on the page; return it to the open composer.
+    if (wasComposing && $("[data-composer]").classList.contains("is-open"))
+      focusBody();
   }
 
   // ---- open / close (close == minimize; launcher is never removed) ----
@@ -1098,6 +1133,15 @@
   };
   $("[data-clear]").onclick = clearTarget;
   $("[data-select]").onclick = startSelect;
+  $("[data-target]").onclick = function () {
+    if (!target) startSelect();
+  };
+  $("[data-target]").onkeydown = function (e) {
+    if (!target && (e.key === "Enter" || e.key === " ")) {
+      e.preventDefault();
+      startSelect();
+    }
+  };
   banner.querySelector("[data-cancel-select]").onclick = endSelect;
   $("[data-hide-resolved]").onchange = function (e) {
     hideResolved = !!e.target.checked;
@@ -1301,7 +1345,13 @@
       ".au-composer.is-open{display:grid}",
       ".au-actions{display:flex;gap:8px}",
       ".au-action{border:1px solid #becbc7;background:#fff;border-radius:6px;padding:8px 10px;cursor:pointer}",
+      ".au-action-primary{border-color:#0f6b6f;color:#0c585b;font-weight:800;background:#f2f9f8}",
+      ".au-action-primary:hover{background:#e2f1ef;border-color:#0c585b}",
+      "@keyframes au-hint{0%,100%{box-shadow:0 0 0 0 rgba(15,107,111,0)}50%{box-shadow:0 0 0 5px rgba(15,107,111,.25)}}",
+      ".au-action.au-hint{animation:au-hint 1.6s ease-in-out 2}",
       ".au-target{border:1px solid #dbe4e1;background:#fff;border-radius:6px;padding:9px}",
+      ".au-target.is-empty{cursor:pointer;border-style:dashed}",
+      ".au-target.is-empty:hover{border-color:#0f6b6f;background:#f6fbfa}",
       ".au-target strong{display:block;font-size:12px;color:#52625d;margin-bottom:3px}",
       ".au-text{width:100%;border:1px solid #c9d5d1;border-radius:6px;padding:9px 10px;resize:vertical;min-height:76px;font:inherit}",
       ".au-smalltext{min-height:54px}",
@@ -1370,7 +1420,7 @@
       // Mobile: the panel becomes a bottom sheet (dvh keeps it above the keyboard).
       "@media (max-width:640px){.au-panel{left:0;right:0;bottom:0;top:auto;width:100%;height:82dvh;max-height:82dvh;border-radius:16px 16px 0 0;border-bottom:0}.au-panel::before{content:'';position:absolute;left:50%;top:7px;transform:translateX(-50%);width:38px;height:4px;border-radius:2px;background:#cdd9d5}.au-head{padding-top:8px}.au-launch{right:12px;bottom:12px}.au-cta{right:12px;bottom:64px;max-width:calc(100vw - 24px)}.au-banner{left:8px;right:8px;max-width:none}.au-toolbar{flex-wrap:wrap}}",
       // Respect reduced-motion preferences.
-      "@media (prefers-reduced-motion:reduce){.au-mark.au-pulse,.au-skel-line,.au-panel.is-busy .au-loadbar,.au-pin:hover,.au-cta.is-on{animation:none;transition:none}}",
+      "@media (prefers-reduced-motion:reduce){.au-mark.au-pulse,.au-skel-line,.au-panel.is-busy .au-loadbar,.au-pin:hover,.au-cta.is-on,.au-action.au-hint{animation:none;transition:none}}",
     ].join("");
   }
 })();
