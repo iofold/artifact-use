@@ -141,6 +141,12 @@
     '<button class="au-link" data-email-cancel>Cancel</button></div>' +
     "</div>" +
     "</div>" +
+    '<div class="au-abusebox" data-abusebox>' +
+    "<strong>Report abuse</strong>" +
+    '<p class="au-abuse-line">Email <a class="au-abuse-mail" data-abuse-mail></a> with this artifact’s link and what’s wrong.</p>' +
+    '<div class="au-composer-actions"><button class="au-send" data-abuse-copyaddr>Copy address</button>' +
+    '<button class="au-link" data-abuse-close>Close</button></div>' +
+    "</div>" +
     '<div class="au-foot"><a class="au-report" data-report-abuse>Report abuse</a></div>' +
     '<div class="au-agent" data-agent-panel>' +
     '<div class="au-agent-head"><strong>🤖 Hand to your agent</strong>' +
@@ -157,9 +163,30 @@
     '<span class="au-banner-text">Click the new location for this comment</span>' +
     '<button class="au-banner-cancel" data-cancel-select>Esc to cancel</button>';
 
+  // A bare mailto: looks broken on machines without a mail client (the click
+  // "does nothing"). The footer link therefore opens an in-panel block with
+  // the address in copyable text; the mailto stays as a secondary path.
   var reportAbuse = $("[data-report-abuse]");
-  if (abuseUrl.indexOf("mailto:") === 0) reportAbuse.href = abuseUrl;
-  else reportAbuse.parentNode.hidden = true;
+  if (abuseUrl.indexOf("mailto:") === 0) {
+    var abuseAddr = abuseUrl.slice(7).split("?")[0];
+    var abuseMail = $("[data-abuse-mail]");
+    abuseMail.href = abuseUrl;
+    abuseMail.textContent = abuseAddr;
+    reportAbuse.href = abuseUrl;
+    reportAbuse.onclick = function (e) {
+      e.preventDefault();
+      $("[data-abusebox]").classList.toggle("is-on");
+    };
+    $("[data-abuse-close]").onclick = function () {
+      $("[data-abusebox]").classList.remove("is-on");
+    };
+    $("[data-abuse-copyaddr]").onclick = function () {
+      copyText(abuseAddr);
+    };
+  } else {
+    reportAbuse.parentNode.hidden = true;
+    $("[data-abusebox]").hidden = true;
+  }
 
   // ---- accessibility roles ----
   panel.setAttribute("role", "dialog");
@@ -1803,6 +1830,11 @@
       ".au-composer.is-email .au-selectbar,.au-composer.is-email .au-targetrow,.au-composer.is-email .au-main-actions{display:none}",
       ".au-composer.is-email .au-text[data-body]{opacity:.55;min-height:44px}",
       ".au-emailinput{width:100%;border:1px solid #c9d5d1;border-radius:6px;padding:9px 10px;font:inherit;height:40px}",
+      ".au-abusebox{display:none;flex:0 0 auto;border-top:1px solid #eef2f1;padding:10px 12px;background:#fffdf4;gap:6px}",
+      ".au-abusebox.is-on{display:grid}",
+      ".au-abusebox strong{font-size:12px;color:#52625d}",
+      ".au-abuse-line{margin:0;font-size:12px;color:#3a4a45}",
+      ".au-abuse-mail{color:#0c585b;font-weight:700}",
       ".au-foot{flex:0 0 auto;min-height:44px;border-top:1px solid #eef2f1;padding:0 10px max(0px,env(safe-area-inset-bottom));display:flex;justify-content:flex-end;align-items:center;background:#fafcfb}",
       ".au-report{min-height:44px;padding:0 4px;display:inline-flex;align-items:center;color:#52625d;font-size:13px;font-weight:700;text-decoration:none}",
       ".au-report:hover{text-decoration:underline;color:#0f6b6f}",
