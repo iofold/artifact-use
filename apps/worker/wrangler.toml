@@ -7,6 +7,13 @@ compatibility_date = "2026-06-01"
 # keys cannot follow a TOML table header.)
 account_id = "00000000000000000000000000000000"
 
+# Workers Logs: persisted invocation logs (status, URL, console output) in the
+# Cloudflare dashboard, so auth/redirect incidents can be reconstructed after
+# the fact. 100% sampling; free tier covers 200k events/day.
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 # Regenerate the injected feedback widget (src/widget/feedback.js ->
 # feedback.generated.ts) and build the React admin SPA (apps/admin-ui ->
 # public/admin-app) before bundling, on both `wrangler dev` and deploy.
