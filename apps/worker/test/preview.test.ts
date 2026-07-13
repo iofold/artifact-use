@@ -137,6 +137,19 @@ test("preview card and favicon use the Artifact Use visual language", () => {
   assert.match(ARTIFACT_FAVICON_SVG, /<path/);
 });
 
+test("preview card compacts long deployment hosts without an accidental ellipsis", () => {
+  const card = renderPreviewCardHtml(
+    {
+      ...baseEnv(),
+      SITE_BASE_URL: "https://artifact-use-staging.example.workers.dev",
+    },
+    artifact,
+    "text/html",
+  );
+  assert.match(card, /artifact-use-staging · workers\.dev/);
+  assert.doesNotMatch(card, /artifact-use-staging\.yashg2\.workers\.dev/);
+});
+
 test("link-preview clients are detected without treating normal browsers as crawlers", () => {
   for (const userAgent of [
     "Slackbot-LinkExpanding 1.0 (+https://api.slack.com/robots)",

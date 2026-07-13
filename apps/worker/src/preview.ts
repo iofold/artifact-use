@@ -120,7 +120,7 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,
 h1{margin:50px 0 21px;max-width:760px;font-family:Iowan Old Style,Palatino Linotype,Book Antiqua,Georgia,serif;font-size:66px;line-height:.98;letter-spacing:-.047em;font-weight:700;text-wrap:balance;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .summary{margin:0;max-width:735px;color:#4e5d56;font-size:25px;line-height:1.32;letter-spacing:-.015em;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .ledger{margin-top:auto;padding-top:24px;border-top:2px solid #132420;display:flex;gap:11px;align-items:center;color:#132420;font:750 16px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.045em;text-transform:uppercase}
-.pill{border:1.5px solid #132420;padding:9px 12px;background:#f6f4ec}.pill.access{background:#d8ff4a}.slug{margin-left:auto;max-width:370px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#68726c;font-size:14px;text-transform:none;letter-spacing:0}
+.pill{flex:none;white-space:nowrap;border:1.5px solid #132420;padding:9px 12px;background:#f6f4ec}.pill.access{background:#d8ff4a}.slug{margin-left:auto;max-width:370px;overflow:hidden;white-space:nowrap;color:#68726c;font-size:14px;text-transform:none;letter-spacing:0}
 .mark{position:relative;z-index:1;display:flex;align-items:center;justify-content:center}
 .document{position:relative;width:266px;height:356px;background:#f6f4ec;border:3px solid #132420;box-shadow:11px 11px 0 #d8ff4a}
 .document:before{content:"";position:absolute;right:-3px;top:-3px;width:85px;height:85px;background:linear-gradient(45deg,#fffdf7 0 48%,#132420 49% 51%,#0b5d52 52%);clip-path:polygon(0 0,100% 100%,0 100%);transform:rotate(180deg)}
@@ -243,7 +243,15 @@ function accessLabel(level: Artifact["gate_level"]): string {
 
 function safeHost(env: Env): string {
   try {
-    return new URL(siteBaseUrl(env)).host;
+    const host = new URL(siteBaseUrl(env)).host;
+    if (host.length <= 38) return host;
+    const parts = host.split(".");
+    if (parts.length >= 3) {
+      const service = parts.slice(-2).join(".");
+      const deployment = parts[0]?.slice(0, 22) || "artifact";
+      return `${deployment} · ${service}`;
+    }
+    return host.slice(-38);
   } catch {
     return "artifact.use";
   }
