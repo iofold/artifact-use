@@ -22,11 +22,13 @@ export type ArtifactRow = {
   slug: string;
   url_key: string;
   title: string;
+  description: string | null;
   gate_level: string;
   status: "active" | "suspended";
   org_suspended: boolean;
   path: string;
   url: string;
+  preview_image_url: string;
   total_views: number;
   unique_viewers: number;
   last_view_ts: number | null;

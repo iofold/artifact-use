@@ -334,6 +334,25 @@ function ArtifactSheet({
     onSettled: invalidate,
   });
   const [gate, setGate] = useState(artifact.gate_level);
+  const [preview, setPreview] = useState({
+    title: artifact.title,
+    description: artifact.description || "",
+  });
+  useEffect(() => {
+    setPreview({
+      title: artifact.title,
+      description: artifact.description || "",
+    });
+  }, [artifact.id, artifact.title, artifact.description]);
+  const previewMutation = useMutation({
+    mutationFn: () =>
+      postForm("/admin/artifact/preview", {
+        artifact_key: artifact.url_key,
+        title: preview.title,
+        description: preview.description,
+      }),
+    onSettled: invalidate,
+  });
   const [allowlist, setAllowlist] = useState(artifact.allowlist_lines);
   const allowlistMutation = useMutation({
     mutationFn: () =>
@@ -431,24 +450,89 @@ function ArtifactSheet({
             >
               Open artifact ↗
             </a>
-            <div className="access">
-              <select value={gate} onChange={(e) => setGate(e.target.value)}>
-                {GATE_LEVELS.map((level) => (
-                  <option key={level} value={level}>
-                    {level}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                className="small"
-                disabled={gateMutation.isPending}
-                onClick={() => gateMutation.mutate(gate)}
-              >
-                {gateMutation.isPending ? "Saving…" : "Update"}
-              </button>
+            <div className="access-control">
+              <label htmlFor={`artifact-access-${artifact.id}`}>Access</label>
+              <div className="access">
+                <select
+                  id={`artifact-access-${artifact.id}`}
+                  value={gate}
+                  onChange={(e) => setGate(e.target.value)}
+                >
+                  {GATE_LEVELS.map((level) => (
+                    <option key={level} value={level}>
+                      {level}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="small"
+                  disabled={gateMutation.isPending}
+                  onClick={() => gateMutation.mutate(gate)}
+                >
+                  {gateMutation.isPending ? "Saving…" : "Update"}
+                </button>
+              </div>
             </div>
           </div>
+          <h3>Link preview</h3>
+          <section className="preview-editor">
+            <a
+              className="preview-card-link"
+              href={artifact.preview_image_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="Open link-preview image"
+            >
+              <img
+                src={artifact.preview_image_url}
+                alt={`Link preview for ${artifact.title}`}
+              />
+            </a>
+            <p className="preview-note">
+              This title, summary, and image are public—even when access to the
+              artifact is gated.
+            </p>
+            <form
+              className="preview-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                previewMutation.mutate();
+              }}
+            >
+              <label>
+                <span>Title</span>
+                <input
+                  required
+                  maxLength={160}
+                  value={preview.title}
+                  onChange={(event) =>
+                    setPreview({ ...preview, title: event.target.value })
+                  }
+                />
+              </label>
+              <label>
+                <span>
+                  Summary <small>{preview.description.length}/200</small>
+                </span>
+                <textarea
+                  rows={4}
+                  maxLength={200}
+                  placeholder="A short, inviting description of this artifact."
+                  value={preview.description}
+                  onChange={(event) =>
+                    setPreview({ ...preview, description: event.target.value })
+                  }
+                />
+              </label>
+              <button
+                type="submit"
+                disabled={previewMutation.isPending || !preview.title.trim()}
+              >
+                {previewMutation.isPending ? "Saving…" : "Save preview"}
+              </button>
+            </form>
+          </section>
           <div className="sheet-stats">
             <div>
               <strong>{formatNumber(artifact.total_views)}</strong>

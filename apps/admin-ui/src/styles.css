@@ -971,6 +971,13 @@ code {
   flex: 1;
   min-width: 220px;
 }
+.access-control {
+  flex: 1;
+  min-width: 220px;
+}
+.access-control > label {
+  margin: 0 0 5px;
+}
 .sheet-actions .access select,
 .sheet-actions .access button {
   min-height: 32px;
@@ -980,6 +987,65 @@ code {
   display: grid;
   grid-template-columns: 1fr auto;
   gap: 8px;
+}
+.preview-editor {
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: var(--panel);
+}
+.preview-card-link {
+  display: block;
+  overflow: hidden;
+  border: 1px solid var(--ink);
+  border-radius: 5px;
+  background: var(--paper);
+  box-shadow: 4px 4px 0 var(--accent);
+}
+.preview-card-link:focus-visible {
+  outline: 3px solid var(--lume);
+  outline-offset: 3px;
+}
+.preview-card-link img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1200 / 630;
+  object-fit: cover;
+}
+.preview-note {
+  margin: 13px 2px 11px;
+  color: var(--muted);
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+.preview-form {
+  display: grid;
+  gap: 9px;
+}
+.preview-form label {
+  display: grid;
+  gap: 5px;
+  color: var(--ink);
+  font: 650 11px var(--mono);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+.preview-form label > span {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.preview-form label small {
+  color: var(--muted);
+  font: inherit;
+  letter-spacing: 0;
+}
+.preview-form textarea {
+  resize: vertical;
+  min-height: 104px;
+}
+.preview-form button {
+  justify-self: end;
 }
 .sheet-stats {
   display: grid;

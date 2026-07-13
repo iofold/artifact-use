@@ -35,8 +35,13 @@ import {
   createShareLink,
   migratePublisherDataToOrg,
   updateArtifactAccess,
+  updateArtifactPreview,
 } from "./db";
 import { moderateArtifact, moderateOrganization } from "./moderation";
+import {
+  artifactPreviewImageUrl,
+  normalizeArtifactDescription,
+} from "./preview";
 import {
   artifactUrlCode,
   artifactPathPrefix,
@@ -712,6 +717,8 @@ export async function handlePublisherAdmin(
     return moderateOrganizationAction(request, env, session, path);
   if (path === "/admin/artifact/access" && request.method === "POST")
     return updateAccess(request, env, session);
+  if (path === "/admin/artifact/preview" && request.method === "POST")
+    return updatePreview(request, env, session);
   if (path === "/admin/artifact/share-link" && request.method === "POST")
     return createAdminShareLink(request, env, session);
   if (path === "/admin/artifact/share-link/revoke" && request.method === "POST")
@@ -871,6 +878,7 @@ async function adminSuperJson(
       slug: artifact.slug,
       url_key: artifact.url_key,
       title: artifact.title,
+      description: artifact.description,
       gate_level: artifact.gate_level,
       status: artifact.status,
       moderation_reason: artifact.moderation_reason,
@@ -882,6 +890,7 @@ async function adminSuperJson(
       created_by: artifact.created_by,
       path: publicArtifactPath(env, artifact.url_key),
       url: publicArtifactUrl(env, artifact.url_key),
+      preview_image_url: artifactPreviewImageUrl(env, artifact),
       total_views: Number(artifact.total_views || 0),
       share_links: Number(artifact.share_links || 0),
       comment_count: Number(artifact.comment_count || 0),
@@ -995,11 +1004,13 @@ async function adminOverviewJson(
       slug: artifact.slug,
       url_key: artifact.url_key,
       title: artifact.title,
+      description: artifact.description,
       gate_level: artifact.gate_level,
       status: artifact.status,
       org_suspended: Boolean(artifact.org_suspended),
       path: publicArtifactPath(env, artifact.url_key),
       url: publicArtifactUrl(env, artifact.url_key),
+      preview_image_url: artifactPreviewImageUrl(env, artifact),
       total_views: Number(artifact.total_views || 0),
       unique_viewers: Number(artifact.unique_viewers || 0),
       last_view_ts: artifact.last_view_ts || null,
@@ -1906,6 +1917,22 @@ async function updateAccess(
     gateLevel,
     parseAllowlist(form.get("allowlist_lines")),
   );
+  return redirect(`/admin?open=${encodeURIComponent(artifact.id)}`);
+}
+
+async function updatePreview(
+  request: Request,
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  const form = await request.formData();
+  const artifact = await publisherArtifact(env, session, form);
+  if (!artifact) return error(404, "artifact_not_found", "artifact not found");
+  const title = String(form.get("title") || "").trim();
+  const description = normalizeArtifactDescription(
+    String(form.get("description") || ""),
+  );
+  await updateArtifactPreview(env, artifact, title, description);
   return redirect(`/admin?open=${encodeURIComponent(artifact.id)}`);
 }
 
