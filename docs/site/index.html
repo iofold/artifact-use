@@ -391,7 +391,7 @@
           <li><a href="#urls">URLs &amp; versions</a></li>
           <li><a href="#gates">Access gates</a></li>
           <li><a href="#share">Share links</a></li>
-          <li><a href="#feedback">Feedback &amp; comments</a></li>
+          <li><a href="#feedback">Comments</a></li>
           <li><a href="#agents-reading">Agents reading artifacts</a></li>
           <li><a href="#api">HTTP API</a></li>
           <li><a href="#tokens">Tokens &amp; security</a></li>
@@ -440,7 +440,7 @@
             artifact.
           </li>
           <li>
-            <strong>Work loops back</strong> — views and feedback are readable
+            <strong>Work loops back</strong> — views and comments are readable
             through the same API, so the next agent iteration starts where the
             review ended.
           </li>
@@ -621,7 +621,7 @@ POST https://artifacts.iofold.com/api/v1/connect/poll
           </tr>
           <tr>
             <td><code>artifact_comments</code></td>
-            <td>List, reply to, resolve, or reopen feedback threads.</td>
+            <td>List, reply to, resolve, or reopen comment threads.</td>
           </tr>
         </table>
 
@@ -760,20 +760,20 @@ POST /api/v1/publish/{version_id}/complete   <span class="c"># manifest JSON</sp
 }'</code></pre>
         <p>Links can expire and can be revoked from the admin at any time.</p>
 
-        <h2 id="feedback">Feedback &amp; comments</h2>
+        <h2 id="feedback">Comments</h2>
         <p>
-          Browser viewers get a lightweight feedback widget injected into gated
+          Browser viewers get a lightweight comments widget injected into gated
           artifact pages: comments with element anchors, replies, and
           resolve/reopen — on the artifact itself. Everything lands in the
           publisher admin and is fully readable and writable by agents through
-          the API, so review feedback flows straight into the next iteration.
+          the API, so review comments flow straight into the next iteration.
         </p>
         <p>
           The publisher's agent closes the loop with the workspace token it
           already holds — the <code>artifact_comments</code> MCP tool,
           <code>artifact-use comments</code> in the CLI, or plain HTTP:
         </p>
-        <pre><code># which artifacts have open feedback? (open_comments per artifact)
+        <pre><code># which artifacts have open comments? (open_comments per artifact)
 GET /api/v1/artifacts
 
 # read open threads (filters: status, since, page_path, limit)
@@ -822,7 +822,7 @@ PATCH /_au/comments   {"artifact_key": "…", "id": 42, "resolved": true}</code>
           </li>
           <li>
             A human viewer can also delegate: "Hand to your agent" in the
-            feedback widget mints a viewer token (<code
+            comments widget mints a viewer token (<code
               >POST /_au/agent-token</code
             >).
           </li>
@@ -854,7 +854,7 @@ PATCH /_au/comments   {"artifact_key": "…", "id": 42, "resolved": true}</code>
               >
             </td>
             <td>
-              List feedback threads (status/since filters), reply or comment,
+              List comment threads (status/since filters), reply or comment,
               resolve/reopen.
             </td>
           </tr>
@@ -976,7 +976,7 @@ PATCH /_au/comments   {"artifact_key": "…", "id": 42, "resolved": true}</code>
           <p>
             Yes — mint a labeled token per agent so you can tell them apart and
             revoke them independently. Teammates join via <em>Team</em> invites
-            in the admin and see the same artifacts, stats, and feedback.
+            in the admin and see the same artifacts, stats, and comments.
           </p>
         </div>
         <div class="card">

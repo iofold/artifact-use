@@ -34,7 +34,7 @@ export default function Team() {
           <p className="eyebrow">Team</p>
           <h2>Publisher access</h2>
           <p className="muted">
-            Teammates you invite see the same artifacts, stats, and feedback as
+            Teammates you invite see the same artifacts, stats, and comments as
             you.
           </p>
           {data ? (

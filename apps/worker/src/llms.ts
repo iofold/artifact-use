@@ -19,8 +19,8 @@ Use Artifact Use when an agent needs to create, polish, publish, gate, share, or
 Consuming an artifact (no browser needed):
 - A gated artifact returns 401 JSON to non-browser requests (Accept without text/html) describing how to authenticate.
 - Machine descriptor (structure/files): GET {artifact-url}_au/index.json
-- Read any page/file directly with GET; HTML is fine to read as-is (the feedback widget is not injected for agent requests).
-- Auth with a viewer-session bearer token: email gates self-serve via POST /_au/gate/email (Accept: application/json); verified_email/allowlist gates self-serve if you can read the inbox (POST /_au/gate/start, read the one-time code, POST /_au/gate/verify), or are delegated by the human via "Hand to your agent" in the feedback widget (POST /_au/agent-token). The 401 JSON on any gated artifact spells out the exact path.
+- Read any page/file directly with GET; HTML is fine to read as-is (the comments widget is not injected for agent requests).
+- Auth with a viewer-session bearer token: email gates self-serve via POST /_au/gate/email (Accept: application/json); verified_email/allowlist gates self-serve if you can read the inbox (POST /_au/gate/start, read the one-time code, POST /_au/gate/verify), or are delegated by the human via "Hand to your agent" in the comments widget (POST /_au/agent-token). The 401 JSON on any gated artifact spells out the exact path.
 - Comments (read + write, same bearer as reads): GET {site}/_au/comments?artifact_key={key}&status=open|resolved|all&since=<unix> lists threads; POST {artifact_key, body, parent_id?, page_path?, target?} comments or replies and returns the created comment id; PATCH {artifact_key, id, resolved:true|false} resolves/reopens a thread.
 - Publishers close the loop with their own token: artifact_comments MCP tool, CLI \`artifact-use comments\`, or /api/v1/artifacts/{url_key}/comments (GET with the same filters, POST to reply, PATCH {id, resolved}). Owner tokens also work directly on /_au/comments.
 
@@ -31,7 +31,7 @@ Agent setup — identify the current harness and follow exactly one path:
 - Claude Code (OAuth; do not use the creator token): Run \`claude mcp add --transport http artifact-use ${base}/mcp\`, then open /mcp, select artifact-use, and Authenticate in the browser.
 - Other harnesses: Prefer hosted MCP OAuth when supported. Otherwise configure ${base}/mcp with the supplied creator token as its bearer credential. See ${base}/llms-full.txt for client-neutral config and non-MCP fallbacks.
 
-After connection, prefer the MCP tools: artifact_publish for one HTML string or small inline files; artifact_upload_session for local folders or large/multi-file artifacts; artifact_manage for stats/access/share links; artifact_comments for feedback. Never use Wrangler, Cloudflare API tokens, direct R2, or direct D1 for publishing.
+After connection, prefer the MCP tools: artifact_publish for one HTML string or small inline files; artifact_upload_session for local folders or large/multi-file artifacts; artifact_manage for stats/access/share links; artifact_comments for comment threads. Never use Wrangler, Cloudflare API tokens, direct R2, or direct D1 for publishing.
 
 No token yet? POST ${base}/api/v1/connect/start, ask the human to approve its code, then poll ${base}/api/v1/connect/poll. A human can also mint or revoke creator tokens at ${base}/admin/connect.
 `);
@@ -172,7 +172,7 @@ Artifact Use publishes static artifacts to ${base} without exposing Cloudflare c
 - Use artifact_publish for a single HTML string or small inline multi-file payloads.
 - Use artifact_upload_session, local stdio MCP with dir, or the CLI for local folders, large files, images, PDFs, or multi-file artifacts.
 - Use artifact_manage for list, stats, access changes, and share links. action: "list" returns artifact url_key values for exact management calls, plus open_comments counts.
-- Use artifact_comments for the feedback loop: list open feedback (status "open"), apply the fixes, republish the same artifact slug, then reply to each thread and resolve it.
+- Use artifact_comments for the comment loop: list open comments (status "open"), apply the fixes, republish the same artifact slug, then reply to each thread and resolve it.
 - Use artifact slugs when publishing; use the returned url_key when managing an existing artifact.
 - Keep artifact slugs lower-case hyphen-case.
 - Default gate is email; use verified_email when inbox control matters, allowlist for restricted customer material, and public only when intentionally low sensitivity.
@@ -200,7 +200,7 @@ plugins/codex/artifact-use/skills/artifact-use/
 - \`artifact_publish\`: publish one HTML string or small inline \`files\`.
 - \`artifact_upload_session\`: create a 6-hour upload token for direct shell/curl upload of local files.
 - \`artifact_manage\`: list artifacts, get stats, set access, or create share links. \`list\` includes per-artifact \`open_comments\` counts.
-- \`artifact_comments\`: list, post/reply, resolve, or reopen feedback comments on an artifact.
+- \`artifact_comments\`: list, post/reply, resolve, or reopen comments on an artifact.
 
 Selection:
 
@@ -209,13 +209,13 @@ Selection:
 - Local folder, large images/PDFs, vendored libraries, or many files: \`artifact_upload_session\`, local stdio MCP with \`dir\`, or CLI \`publish-folder\`.
 - Anything comment-related: \`artifact_comments\` (or the HTTP endpoints below).
 
-## 5. Feedback loop (comments)
+## 5. Comment loop
 
 Viewers comment on the artifact page through the built-in widget; comments are
 threaded and can be anchored to a specific on-page element. The publisher's
 agent closes the loop:
 
-1. Find work: \`artifact_manage\` action \`list\` -> artifacts with \`open_comments > 0\`, or \`artifact_comments\` action \`list\` with \`status: "open"\` (add \`since: <unix>\` to see only new feedback).
+1. Find work: \`artifact_manage\` action \`list\` -> artifacts with \`open_comments > 0\`, or \`artifact_comments\` action \`list\` with \`status: "open"\` (add \`since: <unix>\` to see only new comments).
 2. Read each thread: roots carry the request; replies hang off \`parent_comment_id\`; \`target\` (when present) describes the anchored element (\`selector\`, \`label\`, \`text\`, \`path\`).
 3. Fix the artifact and republish the SAME slug — the URL stays stable, viewers just see the new version.
 4. Reply to each thread (\`action: "post"\` with \`parent_id\`) saying what changed, then resolve it (\`action: "resolve"\` with \`comment_id\`). Use \`reopen\` if you resolved by mistake.

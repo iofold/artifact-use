@@ -173,7 +173,7 @@ export default function Connect() {
                 <p className="mini">
                   <span>
                     Valid until {dateLabel(data.quick.expiresAt)} · publish,
-                    read, access, stats, and feedback
+                    read, access, stats, and comments
                   </span>
                   <span>To rotate, revoke “Quick connect” below.</span>
                 </p>

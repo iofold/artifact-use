@@ -91,7 +91,7 @@ Tools:
 - `artifact_publish`: publish a single `html` string or small inline `files`.
 - `artifact_upload_session`: create a 6-hour direct upload token for shell/curl uploads.
 - `artifact_manage`: list artifacts, get stats, change access, or create share links.
-- `artifact_comments`: list, post/reply, resolve, or reopen feedback comments.
+- `artifact_comments`: list, post/reply, resolve, or reopen comments.
 
 ## Artifact Slug And URL Key Rules
 
@@ -110,16 +110,16 @@ https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/
 - Small multi-file artifact where all file contents are already in context: use `artifact_publish` with `files`.
 - Local folder or large files: prefer hosted `artifact_upload_session`; use local stdio MCP with `dir` or CLI `publish-folder` only when hosted MCP is unavailable or the shell workflow specifically requires it.
 - Existing artifact stats/access/share links: use `artifact_manage`.
-- Reading or acting on viewer feedback: use `artifact_comments`.
+- Reading or acting on viewer comments: use `artifact_comments`.
 
-## Feedback Loop (Comments)
+## Comment Loop
 
 Viewers comment on the artifact page through the built-in widget; comments are
 threaded and may be anchored to a specific on-page element. Close the loop:
 
 1. Find work: `artifact_manage action:"list"` → artifacts with `open_comments > 0`,
    or `artifact_comments action:"list", status:"open"` (add `since:<unix>` for
-   only-new feedback).
+   only-new comments).
 2. Read each thread: roots carry the request; replies hang off
    `parent_comment_id`; `target` (when present) describes the anchored element
    (`selector`, `label`, `text`, `path`).

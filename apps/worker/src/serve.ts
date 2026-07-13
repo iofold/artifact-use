@@ -393,7 +393,7 @@ function commentsUnauthorized(
           ? `if you can read the inbox: POST form {artifact_key:"${artifact.url_key}", email} to ${site}/_au/gate/start (the email must be allowlisted for allowlist gates), read the one-time code from that email, then POST form {artifact_key, email, code} to ${site}/_au/gate/verify with header 'Accept: application/json' to receive a token`
           : null,
         delegated: needsOtp
-          ? "or ask the human who shared this to use 'Hand to your agent' in the feedback widget for a scoped token"
+          ? "or ask the human who shared this to use 'Hand to your agent' in the comments widget for a scoped token"
           : null,
         workspace:
           "agents of the publishing workspace: your Artifact Use bearer token (au_creator_... or MCP OAuth) works on this route directly",
@@ -461,7 +461,7 @@ function gateJson(env: Env, artifact: Artifact): Response {
           ? `if you can read the inbox: POST form {artifact_key:"${artifact.url_key}", email} to ${site}/_au/gate/start (the email must be allowlisted for allowlist gates), read the one-time code from that email, then POST form {artifact_key, email, code} to ${site}/_au/gate/verify with header 'Accept: application/json' to receive a token`
           : null,
         delegated: needsOtp
-          ? "or ask the human who shared this to use 'Hand to your agent' in the feedback widget for a scoped token"
+          ? "or ask the human who shared this to use 'Hand to your agent' in the comments widget for a scoped token"
           : null,
         mcp: `${site}/mcp`,
       },
@@ -565,7 +565,7 @@ export async function handleAgentToken(
         ``,
         `1. GET  ${base}_au/index.json   -> title, pages, files, entrypoint, content-types`,
         `2. GET  ${base}<file>           -> any page/asset (HTML is fine to read directly)`,
-        `3. GET  ${site}/_au/comments?artifact_key=${artifact.url_key}&status=open   -> read the feedback threads`,
+        `3. GET  ${site}/_au/comments?artifact_key=${artifact.url_key}&status=open   -> read the comment threads`,
         `4. POST ${site}/_au/comments  {artifact_key:"${artifact.url_key}", body, parent_id?, target?}   -> comment or reply; returns the comment id (you'll be asked for an email once)`,
         `5. PATCH ${site}/_au/comments  {artifact_key:"${artifact.url_key}", id, resolved:true}   -> resolve a thread once addressed`,
         ``,
@@ -590,14 +590,14 @@ export async function handleAgentToken(
     env,
   );
   const prompt = [
-    `You have temporary access to a published artifact. Explore it via its API (no browser needed), read the feedback discussion, leave any issues as comments, and resolve threads you have addressed.`,
+    `You have temporary access to a published artifact. Explore it via its API (no browser needed), read the comment threads, leave any issues as comments, and resolve threads you have addressed.`,
     ``,
     `Artifact: "${artifact.title}" — ${base}`,
     `Auth header for every call:  Authorization: Bearer ${token}   (read+comment, this artifact only, expires ${new Date(exp * 1000).toISOString()})`,
     ``,
     `1. GET  ${base}_au/index.json   -> title, pages, files, entrypoint, content-types`,
     `2. GET  ${base}<file>           -> any page/asset (HTML is fine to read directly)`,
-    `3. GET  ${site}/_au/comments?artifact_key=${artifact.url_key}&status=open   -> read the feedback threads`,
+    `3. GET  ${site}/_au/comments?artifact_key=${artifact.url_key}&status=open   -> read the comment threads`,
     `4. POST ${site}/_au/comments  {artifact_key:"${artifact.url_key}", body, parent_id?, target?}   -> comment or reply; returns the comment id`,
     `5. PATCH ${site}/_au/comments  {artifact_key:"${artifact.url_key}", id, resolved:true}   -> resolve a thread once addressed`,
     ``,

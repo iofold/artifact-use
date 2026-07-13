@@ -6,7 +6,7 @@ Artifact Use is an open-source artifact store for coding agents and small teams.
 Agents publish HTML tools, product prototypes, PDFs, images, videos, and complete
 static folders through an MCP server or CLI. Artifact Use stores the files on
 Cloudflare R2, tracks versions and viewer activity in D1, serves stable links,
-and adds access gates plus feedback on top.
+and adds access gates plus comments on top.
 
 The hosted dogfood deployment runs at:
 
@@ -40,13 +40,13 @@ the version atomically.
 
 ![Claim workflow screenshot](docs/assets/readme/claims-document-workflow.png)
 
-### Review And Feedback On The Artifact Itself
+### Review And Comments On The Artifact Itself
 
-Artifact Use adds a lightweight feedback layer on top of hosted artifacts.
+Artifact Use adds a lightweight comments layer on top of hosted artifacts.
 Reviewers can leave targeted comments, reply, and mark threads resolved without
 the artifact needing to implement its own collaboration backend.
 
-![Feedback widget screenshot](docs/assets/readme/feedback-widget.png)
+![Comments widget screenshot](docs/assets/readme/feedback-widget.png)
 
 ### Research Briefs, Tools, And Interactive Documents
 
@@ -63,7 +63,7 @@ where they were generated.
 - **Cloudflare-native storage** using Workers, R2, and D1.
 - **Access gates**: `public`, `email`, `verified_email`, and `allowlist`.
 - **Viewer attribution** through email gates and share links.
-- **Feedback collection** with comments, replies, resolve/reopen, and targeted
+- **Comments** with replies, resolve/reopen, and targeted
   element selection.
 - **Publisher dashboard** with artifact lists, stats, recent views, share links,
   access controls, and team invitations.
@@ -177,7 +177,7 @@ Hosted MCP exposes these main tools:
   folders and large or multi-file artifacts.
 - `artifact_manage`: list artifacts, fetch stats, update access, and create
   share links. Use the returned `url_key` for exact management calls.
-- `artifact_comments`: list, reply to, resolve, and reopen feedback threads.
+- `artifact_comments`: list, reply to, resolve, and reopen comment threads.
 
 For large artifacts, use the direct upload flow. The server creates a short-lived
 upload session, the agent uploads bytes with `PUT`, and the final manifest flips

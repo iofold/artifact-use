@@ -126,7 +126,7 @@ function Metrics({ data }: { data: Overview }) {
       </div>
       <div>
         <strong>{formatNumber(data.totals.feedback)}</strong>
-        <span>Feedback</span>
+        <span>Comments</span>
       </div>
     </div>
   );
@@ -224,7 +224,7 @@ function ArtifactTable({
           <span className="art-gate">Gate</span>
           <span className="num">Views</span>
           <span className="num art-7d">7d</span>
-          <span className="num art-fb">Feedback</span>
+          <span className="num art-fb">Comments</span>
           <span className="art-date">Updated</span>
         </div>
         {rows.map((artifact) => {
@@ -460,7 +460,7 @@ function ArtifactSheet({
             </div>
             <div>
               <strong>{formatNumber(artifact.comment_count)}</strong>
-              <span>Feedback</span>
+              <span>Comments</span>
             </div>
             <div>
               <strong>{formatBytes(artifact.total_size)}</strong>
@@ -555,7 +555,7 @@ function ArtifactSheet({
               {shareMutation.isPending ? "Creating…" : "Create link"}
             </button>
           </form>
-          <h3>Feedback</h3>
+          <h3>Comments</h3>
           {isPending ? (
             <Skeleton style={{ height: 46 }} />
           ) : detail?.comments.length ? (
@@ -573,7 +573,7 @@ function ArtifactSheet({
               ))}
             </ul>
           ) : (
-            <div className="empty small-empty">No feedback yet.</div>
+            <div className="empty small-empty">No comments yet.</div>
           )}
           <h3>Allowlist</h3>
           <form

@@ -23,7 +23,7 @@ somewhere stable instead of leaving work inside an LLM sandbox.
 - Use stable responsive constraints: grid tracks, `minmax()`, `aspect-ratio`, `min-height`, `max-width`, and explicit overflow behavior.
 - Make mobile deliberate. Do not collapse a dense desktop dashboard into unreadable stacked blocks.
 - Avoid generic AI defaults: purple/blue gradient wash, decorative card grids, oversized empty heroes, arbitrary glowing accents, and placeholder filler.
-- Avoid placing primary controls in the lower-right corner because hosted artifacts may include a floating feedback/comment control.
+- Avoid placing primary controls in the lower-right corner because hosted artifacts may include a floating comments control.
 - Do not put secrets, private API keys, or private customer data into HTML. User-supplied keys may stay in `localStorage` only when the user understands the tradeoff.
 
 ## Interaction Patterns

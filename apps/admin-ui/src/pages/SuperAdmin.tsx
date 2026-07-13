@@ -119,7 +119,7 @@ export default function SuperAdmin() {
           </div>
           <div>
             <strong>{formatNumber(totals.feedback)}</strong>
-            <span>Feedback</span>
+            <span>Comments</span>
           </div>
         </div>
       </section>
@@ -442,7 +442,7 @@ function SuperSheet({
             </div>
             <div>
               <strong>{formatNumber(artifact.comment_count)}</strong>
-              <span>Feedback</span>
+              <span>Comments</span>
             </div>
             <div>
               <strong>{formatNumber(artifact.share_links)}</strong>

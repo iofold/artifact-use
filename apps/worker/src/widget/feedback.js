@@ -7,10 +7,10 @@
  * Runtime config is read from window.__AU_FEEDBACK__ (set by injectWidget):
  *   { artifactKey: string, abuseUrl?: string }
  *
- * Phase 1 scope (see docs/FEEDBACK_UX_PLAN.md):
+ * Phase 1 scope:
  *   - Non-destructive close (minimize only; never removes the launcher).
  *   - Launcher unresolved-count badge.
- *   - List-first layout; composer collapsed behind "+ New feedback".
+ *   - List-first layout; composer collapsed behind "+ New comment".
  *   - "This page / All pages" scope + "Hide resolved" toggle.
  *   - Page breadcrumb per comment + cross-page navigation (no silent no-op).
  *   - Select-element mode affordance (banner, crosshair, Esc) + safe labelFor.
@@ -87,7 +87,7 @@
     return panel.querySelector(s);
   }
   var btn = el("button", "au-launch");
-  btn.appendChild(el("span", "au-launch-label", "Feedback"));
+  btn.appendChild(el("span", "au-launch-label", "Comments"));
   var badge = el("span", "au-badge", "");
   badge.style.display = "none";
   btn.appendChild(badge);
@@ -113,9 +113,9 @@
   });
 
   panel.innerHTML =
-    '<div class="au-head"><span class="au-title">Feedback</span>' +
+    '<div class="au-head"><span class="au-title">Comments</span>' +
     '<div class="au-tools"><button class="au-icon" data-agent title="Hand to your agent" aria-label="Hand to your agent">🤖</button>' +
-    '<button class="au-icon" data-min title="Minimize" aria-label="Minimize feedback">✕</button></div></div>' +
+    '<button class="au-icon" data-min title="Minimize" aria-label="Minimize comments">✕</button></div></div>' +
     '<div class="au-toolbar">' +
     '<div class="au-scope" role="tablist">' +
     '<button class="au-seg is-on" data-scope="page">This page</button>' +
@@ -126,16 +126,16 @@
     "</div>" +
     '<div class="au-loadbar" data-loadbar></div>' +
     '<div class="au-list" data-list></div>' +
-    '<button class="au-new" data-new>+ New feedback</button>' +
+    '<button class="au-new" data-new>+ New comment</button>' +
     '<div class="au-composer" data-composer>' +
     '<div class="au-actions"><button class="au-action" data-select>Select element</button>' +
     '<button class="au-action" data-clear>Clear target</button></div>' +
     '<div class="au-target" data-target></div>' +
-    '<textarea class="au-text" data-body placeholder="Leave feedback"></textarea>' +
-    '<div class="au-composer-actions"><button class="au-send" data-send>Send feedback</button>' +
+    '<textarea class="au-text" data-body placeholder="Leave a comment"></textarea>' +
+    '<div class="au-composer-actions"><button class="au-send" data-send>Post comment</button>' +
     '<button class="au-link" data-cancel-new>Cancel</button></div>' +
     '<div class="au-emailgate" data-emailgate>' +
-    '<p class="au-muted">Add your email to post feedback (one time).</p>' +
+    '<p class="au-muted">Add your email to post comments (one time).</p>' +
     '<input type="email" class="au-emailinput" data-email placeholder="you@example.com" autocomplete="email">' +
     '<div class="au-composer-actions"><button class="au-send" data-email-submit>Continue</button>' +
     '<button class="au-link" data-email-cancel>Cancel</button></div>' +
@@ -145,14 +145,14 @@
     '<div class="au-agent" data-agent-panel>' +
     '<div class="au-agent-head"><strong>🤖 Hand to your agent</strong>' +
     '<button class="au-link" data-agent-close>Close</button></div>' +
-    '<p class="au-muted">Copy this into your AI agent (Claude, Codex, ChatGPT). It can explore this artifact and leave feedback over the API — no account needed.</p>' +
+    '<p class="au-muted">Copy this into your AI agent (Claude, Codex, ChatGPT). It can explore this artifact and leave comments over the API — no account needed.</p>' +
     '<textarea class="au-text au-agent-prompt" data-agent-prompt readonly></textarea>' +
     '<div class="au-composer-actions"><button class="au-send" data-agent-copy>Copy prompt</button>' +
     '<button class="au-link" data-agent-copylink>Copy share link</button></div>' +
     "</div>";
 
   banner.innerHTML =
-    '<span class="au-banner-text">Click an element to attach feedback</span>' +
+    '<span class="au-banner-text">Click an element to attach your comment</span>' +
     '<button class="au-banner-cancel" data-cancel-select>Esc to cancel</button>';
 
   var reportAbuse = $("[data-report-abuse]");
@@ -161,10 +161,10 @@
 
   // ---- accessibility roles ----
   panel.setAttribute("role", "dialog");
-  panel.setAttribute("aria-label", "Feedback");
+  panel.setAttribute("aria-label", "Comments");
   panel.setAttribute("aria-modal", "false");
   panel.setAttribute("tabindex", "-1");
-  btn.setAttribute("aria-label", "Feedback");
+  btn.setAttribute("aria-label", "Comments");
   btn.setAttribute("aria-expanded", "false");
   $("[data-list]").setAttribute("role", "list");
   function reduceMotion() {
@@ -407,11 +407,11 @@
         "/_au/comments?artifact_key=" + encodeURIComponent(artifactKey),
       );
       if (r.status === 401) {
-        showMessage("Open through the access prompt to view feedback.");
+        showMessage("Open through the access prompt to view comments.");
         return;
       }
       if (!r.ok) {
-        showMessage("Could not load feedback.");
+        showMessage("Could not load comments.");
         return;
       }
       var j = await r.json();
@@ -420,7 +420,7 @@
       renderList(allComments);
       renderPins();
     } catch (e) {
-      showMessage("Could not load feedback.");
+      showMessage("Could not load comments.");
     } finally {
       setBusy(false);
     }
@@ -445,7 +445,7 @@
     });
     if (!roots.length) {
       showMessage(
-        scope === "page" ? "No feedback on this page yet." : "No feedback yet.",
+        scope === "page" ? "No comments on this page yet." : "No comments yet.",
       );
       return;
     }
@@ -685,7 +685,7 @@
       r = await api("POST", payload);
     }
     if (!r.ok) {
-      showToast("Could not send feedback.");
+      showToast("Could not post comment.");
       return false;
     }
     await load();
@@ -755,7 +755,7 @@
   async function setResolved(c, resolved) {
     var r = await api("PATCH", { id: c.id, resolved: resolved });
     if (!r.ok) {
-      showToast("Could not update feedback.");
+      showToast("Could not update comment.");
       return;
     }
     load();
@@ -990,7 +990,7 @@
     if (!reanchorFor) openComposer(true);
     banner.querySelector(".au-banner-text").textContent = reanchorFor
       ? "Click the new location for this comment"
-      : "Click an element to attach feedback";
+      : "Click an element to attach your comment";
     document.documentElement.classList.add("au-selecting");
     banner.classList.add("is-on");
     showTop(banner);

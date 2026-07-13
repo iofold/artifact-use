@@ -250,7 +250,7 @@ export async function renderHome(
         <div>
           <p class="eyebrow rise">Review-ready artifact links</p>
           <h1 class="rise d1">Turn agent output into links people can open and review.</h1>
-          <p class="lead rise d2">Your coding agent publishes HTML tools, dashboards, PDFs, and whole static folders to one stable URL — gates, versions, and comments built in. Feedback comes back machine-readable, so the next agent ships v2 to the same link.</p>
+          <p class="lead rise d2">Your coding agent publishes HTML tools, dashboards, PDFs, and whole static folders to one stable URL — gates, versions, and comments built in. Comments come back machine-readable, so the next agent ships v2 to the same link.</p>
           <div class="actions rise d3">
             <a class="button" href="/signup">Start publishing</a>
             <a class="button ghost" href="/llms.txt">Connect your agent</a>
@@ -265,10 +265,10 @@ export async function renderHome(
 <span class="t-url">${escapeHtml(base + prefix)}/claims-audit-console-4fk2a9/</span>
 
 <span class="t-dim"># teammates open it and comment on it;</span>
-<span class="t-dim"># the next agent reads the feedback</span><span class="caret"></span></pre>
+<span class="t-dim"># the next agent reads the comments</span><span class="caret"></span></pre>
         </div>
       </section>
-      <section class="loop" aria-label="The feedback loop">
+      <section class="loop" aria-label="The comment loop">
         <div class="loop-flow" aria-hidden="true">
           <svg viewBox="0 0 1140 230" preserveAspectRatio="xMidYMid meet">
             <defs>
@@ -292,7 +292,7 @@ export async function renderHome(
         <div class="loop-head">
           <p class="eyebrow">The loop</p>
           <h2>Ship v1. The loop ships v2.</h2>
-          <p class="muted">Artifacts aren't dead files. Colleagues comment right on the page, agents read that feedback over the API, apply it, and republish to the same link. Both reels below are real footage of real product actions.</p>
+          <p class="muted">Artifacts aren't dead files. Colleagues comment right on the page, agents read those comments over the API, apply it, and republish to the same link. Both reels below are real footage of real product actions.</p>
         </div>
         <figure class="story">
           <figcaption class="story-copy">
@@ -302,7 +302,7 @@ export async function renderHome(
             <ul class="story-steps">
               <li>Reviewer clicks "Get your agent to read this"</li>
               <li>The agent pulls the artifact and its comments over the API</li>
-              <li>Feedback applied, v2 republished from the terminal</li>
+              <li>Review comments applied, v2 republished from the terminal</li>
               <li>The reviewers' link now serves v2 — comments resolved</li>
             </ul>
           </figcaption>
@@ -311,8 +311,8 @@ export async function renderHome(
         <figure class="story flip">
           <figcaption class="story-copy">
             <p class="eyebrow">Reel 02 · 22s</p>
-            <h3>Feedback lives on the page.</h3>
-            <p>A production spec out for review: colleagues comment directly on the artifact, so feedback stays threaded, anchored, and resolvable.</p>
+            <h3>Comments live on the page.</h3>
+            <p>A production spec out for review: colleagues comment directly on the artifact, so comments stay threaded, anchored, and resolvable.</p>
             <ul class="story-steps">
               <li>Open the link — no account, no tool to install</li>
               <li>Comments anchor to elements on the page</li>
@@ -360,7 +360,7 @@ export async function renderHome(
         </div>
         <div class="frow">
           <span class="fnum">03</span>
-          <div class="fcopy"><strong>Feedback</strong><span>Comments with element anchors, replies, and resolve/reopen — on the artifact itself.</span></div>
+          <div class="fcopy"><strong>Comments</strong><span>Element-anchored, with replies and resolve/reopen — on the artifact itself.</span></div>
           <div class="fviz" aria-hidden="true"><svg viewBox="0 0 220 96">
       <rect class="db" x="8" y="12" width="92" height="72" rx="7"/>
       <path class="dln" d="M18 26 h 60 M18 38 h 44 M18 50 h 56 M18 62 h 36"/>
@@ -400,7 +400,7 @@ export async function renderHome(
         </div>
         <div class="frow">
           <span class="fnum">06</span>
-          <div class="fcopy"><strong>Team workspaces</strong><span>Invite teammates — everyone shares the same artifact list, stats, and feedback.</span></div>
+          <div class="fcopy"><strong>Team workspaces</strong><span>Invite teammates — everyone shares the same artifact list, stats, and comments.</span></div>
           <div class="fviz" aria-hidden="true"><svg viewBox="0 0 220 96">
       <circle class="db" cx="30" cy="40" r="12"/>
       <circle class="db" cx="50" cy="40" r="12"/>
@@ -414,7 +414,7 @@ export async function renderHome(
         </div>
         <div class="frow">
           <span class="fnum">07</span>
-          <div class="fcopy"><strong>Model- and harness-agnostic</strong><span>Your artifacts belong to you, not to any one agent — switch models, harnesses, or subscriptions and your links, versions, and feedback come with you. Anything that speaks HTTP can publish.</span></div>
+          <div class="fcopy"><strong>Model- and harness-agnostic</strong><span>Your artifacts belong to you, not to any one agent — switch models, harnesses, or subscriptions and your links, versions, and comments come with you. Anything that speaks HTTP can publish.</span></div>
           <div class="fviz" aria-hidden="true"><svg viewBox="0 0 220 96">
       <rect class="db" x="2" y="6" width="68" height="17" rx="8"/><text class="dl" x="36" y="17.5" text-anchor="middle">claude code</text>
       <rect class="db" x="2" y="39" width="68" height="17" rx="8"/><text class="dl" x="36" y="50.5" text-anchor="middle">codex</text>

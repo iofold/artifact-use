@@ -128,7 +128,7 @@ lives under `plugins/codex/artifact-use`.
 - `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP.
 - `artifact_upload_session`: create a draft and receive a 6-hour upload token for direct HTTP file upload from a shell/curl-capable agent.
 - `artifact_manage`: list artifacts, fetch stats, update access, or create share links. Use the returned `url_key` from `action: "list"` for exact management calls.
-- `artifact_comments`: list, reply to, resolve, or reopen feedback threads.
+- `artifact_comments`: list, reply to, resolve, or reopen comment threads.
 
 ## File Publishing Over MCP
 

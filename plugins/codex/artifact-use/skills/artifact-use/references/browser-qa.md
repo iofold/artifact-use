@@ -26,7 +26,7 @@ agent-browser skills get core
 
 ## Required Checks
 
-- Desktop first viewport: the primary purpose is obvious and important controls are not hidden behind the feedback widget area.
+- Desktop first viewport: the primary purpose is obvious and important controls are not hidden behind the comments widget area.
 - Mobile viewport: no horizontal scroll, no overlapping text, controls are usable, and the main workflow is reachable.
 - Main interaction path: click through the intended story/tool flow, not just page load.
 - Error/empty path: trigger at least one invalid input, empty result, missing data, or failed fetch path for tools.

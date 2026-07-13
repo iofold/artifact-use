@@ -21,7 +21,7 @@ Artifact Use publishes static artifacts to `https://artifacts.iofold.com` withou
 - Use `artifact_publish` for a single HTML string or small inline multi-file payloads.
 - Prefer hosted `artifact_upload_session` for local folders, large files, images, PDFs, or multi-file artifacts; use local stdio MCP with `dir` or the CLI only as an advanced fallback.
 - Use `artifact_manage` for list, stats, access changes, and share links. `action: "list"` returns `url_key` (use it for exact management calls) and per-artifact `open_comments` counts.
-- Use `artifact_comments` for the feedback loop: list open feedback (`status: "open"`), apply the fixes, republish the same artifact slug, then reply to each thread (`parent_id`) and resolve it (`comment_id`). Details in `references/publishing.md`.
+- Use `artifact_comments` for the comment loop: list open comments (`status: "open"`), apply the fixes, republish the same artifact slug, then reply to each thread (`parent_id`) and resolve it (`comment_id`). Details in `references/publishing.md`.
 - Publish with a lower-case artifact slug; use the returned `url_key` when managing an existing artifact.
 - Keep artifact slugs lower-case hyphen-case.
 - Default gate is `email`; use `verified_email` when inbox control matters, `allowlist` for restricted customer material, and `public` only when intentionally low sensitivity.

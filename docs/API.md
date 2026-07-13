@@ -1,6 +1,8 @@
 # REST API
 
-All creator/admin endpoints require a WorkOS OAuth/AuthKit bearer token:
+All creator/admin endpoints require a bearer token — either a WorkOS
+OAuth/AuthKit access token or an `au_creator_...` creator token (minted from
+the admin's Connect page or the device-code connect flow):
 
 ```http
 Authorization: Bearer <token>
@@ -39,6 +41,7 @@ Tools:
 - `artifact_publish`
 - `artifact_upload_session`
 - `artifact_manage`
+- `artifact_comments`
 
 `artifact_publish` accepts either `html` for a single-file artifact or `files` for small HTTP MCP multi-file artifacts. Each inline file can contain `content` or `content_base64`.
 
@@ -115,9 +118,9 @@ Authorization: Bearer <creator-token-or-upload-token>
 }
 ```
 
-## Viewer Feedback
+## Viewer Comments
 
-The injected feedback popup uses the viewer session cookie from the artifact
+The injected comments popup uses the viewer session cookie from the artifact
 gate.
 
 ```http
@@ -128,7 +131,7 @@ PATCH /_au/comments
 
 `POST /_au/comments` creates either a top-level comment or a reply when
 `parent_id` is supplied. Include `artifact_key` in the JSON body. `PATCH /_au/comments` accepts `artifact_key`, `id`, and `resolved` to
-mark feedback resolved or reopen it. Existing comments from earlier schema
+mark comments resolved or reopen them. Existing comments from earlier schema
 versions remain top-level, unresolved comments after migration.
 
 ## Admin
