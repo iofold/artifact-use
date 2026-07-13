@@ -16,6 +16,7 @@ import {
   getVersion,
 } from "./db";
 import { getViewerSession, renderGate } from "./gate";
+import { getPublisherSessionAuth } from "./publisher";
 import { unavailableArtifactResponse } from "./moderation";
 import { commentWriteRateLimit } from "./rl";
 import { FEEDBACK_WIDGET_JS } from "./widget/feedback.generated";
@@ -244,6 +245,46 @@ function rangeBounds(
   const start = typeof byteRange.offset === "number" ? byteRange.offset : 0;
   const length = byteRange.length ?? Math.max(0, size - start);
   return { start, end: start + length - 1, length };
+}
+
+// Read-only role probe for the injected widget: is this browser a publisher
+// of the artifact it is viewing? Publishers get a deep link into their admin
+// sidesheet; everyone else gets an identical minimal "viewer" response. The
+// response deliberately carries nothing else — the widget shares a JS realm
+// with untrusted artifact content, so no stats, emails, or capability URLs.
+export async function handleArtifactContext(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  if (request.method !== "GET")
+    return error(405, "method_not_allowed", "method not allowed");
+  const url = new URL(request.url);
+  const viewer = () => json({ role: "viewer" });
+  const artifact = await getArtifactByUrlKey(
+    env,
+    url.searchParams.get("artifact_key") || "",
+  );
+  if (!artifact) return error(404, "artifact_not_found", "artifact not found");
+  if (artifact.status !== "active" || artifact.org_suspended) return viewer();
+  const auth = await getPublisherSessionAuth(request, env);
+  if (!auth || auth.session.orgId !== artifact.org_id) return viewer();
+  // Defense-in-depth: an artifact page may only ask about itself, so hostile
+  // artifact JS cannot probe a visiting publisher's other artifacts.
+  const referer = request.headers.get("Referer");
+  if (referer) {
+    try {
+      const ref = new URL(referer);
+      if (
+        ref.origin === url.origin &&
+        !ref.pathname.startsWith(publicArtifactPath(env, artifact.url_key))
+      )
+        return viewer();
+    } catch {}
+  }
+  return json({
+    role: "publisher",
+    admin_url: `/admin?open=${encodeURIComponent(artifact.id)}`,
+  });
 }
 
 export async function handleComments(

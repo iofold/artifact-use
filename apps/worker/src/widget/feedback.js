@@ -1268,6 +1268,36 @@
       focusBody();
   }
 
+  // ---- publisher context (role probe; adds an Admin deep link for owners) --
+  var contextLoaded = false;
+  function loadContext() {
+    if (contextLoaded) return;
+    contextLoaded = true;
+    fetch(
+      "/_au/artifact-context?artifact_key=" + encodeURIComponent(artifactKey),
+    )
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .then(function (j) {
+        if (!j || j.role !== "publisher" || !j.admin_url) return;
+        var tools = panel.querySelector(".au-tools");
+        var a = document.createElement("a");
+        a.className = "au-icon au-admin";
+        a.textContent = "Admin ↗";
+        a.href = j.admin_url;
+        a.target = "_blank";
+        a.rel = "noopener";
+        a.title = "Open this artifact in your admin dashboard";
+        a.setAttribute(
+          "aria-label",
+          "Open this artifact in your admin dashboard",
+        );
+        tools.insertBefore(a, tools.firstChild);
+      })
+      .catch(function () {});
+  }
+
   // ---- open / close (close == minimize; launcher is never removed) ----
   function open() {
     hideCta();
@@ -1275,6 +1305,7 @@
     btn.setAttribute("aria-expanded", "true");
     showTop(panel);
     if (!allComments.length) showSkeleton();
+    loadContext();
     load();
     update();
     setTimeout(function () {
@@ -1532,6 +1563,7 @@
       ".au-tools{display:flex;gap:6px}",
       ".au-icon{border:0;background:#eef4f2;color:#24312d;border-radius:6px;min-width:32px;height:32px;cursor:pointer;font-size:14px}",
       ".au-icon:hover{background:#dfe9e6}",
+      ".au-admin{display:inline-flex;align-items:center;padding:0 10px;text-decoration:none;font-weight:800;font-size:12px;color:#0c585b}",
       ".au-toolbar{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid #eef2f1}",
       ".au-dot{color:#b8c4bf}",
       ".au-scope{display:inline-flex;border:1px solid #cdd9d5;border-radius:7px;overflow:hidden}",

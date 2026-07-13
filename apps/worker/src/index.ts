@@ -16,7 +16,12 @@ import {
   renderHome,
   renderTermsOfService,
 } from "./publisher";
-import { handleAgentToken, handleComments, servePublic } from "./serve";
+import {
+  handleAgentToken,
+  handleArtifactContext,
+  handleComments,
+  servePublic,
+} from "./serve";
 import { error, json, secureSystemResponse, wantsHtml } from "./util";
 
 const CORS = {
@@ -172,6 +177,8 @@ async function dispatch(
     if (path.startsWith("/_au/gate/"))
       return handleGateRoute(request, env, path);
     if (path === "/_au/comments") return handleComments(request, env, path);
+    if (path === "/_au/artifact-context")
+      return handleArtifactContext(request, env);
     if (path === "/_au/agent-token") return handleAgentToken(request, env);
     if (request.method !== "GET" && request.method !== "HEAD")
       return error(405, "method_not_allowed", "method not allowed");

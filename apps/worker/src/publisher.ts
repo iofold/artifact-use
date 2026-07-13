@@ -2158,7 +2158,7 @@ async function getPublisherSession(
   return (await getPublisherSessionAuth(request, env))?.session || null;
 }
 
-async function getPublisherSessionAuth(
+export async function getPublisherSessionAuth(
   request: Request,
   env: Env,
 ): Promise<{ raw: string; session: PublisherSession } | null> {
