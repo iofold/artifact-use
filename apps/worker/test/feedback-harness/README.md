@@ -3,7 +3,7 @@
 Visual/behavioural fixtures for the injected feedback widget
 (`apps/worker/src/widget/feedback.js`). Used to verify the widget across states,
 viewports, and edge cases with `agent-browser` without standing up the full
-worker. See `docs/FEEDBACK_UX_PLAN.md` for the behaviours under test.
+worker.
 
 ## Static harness (no backend)
 

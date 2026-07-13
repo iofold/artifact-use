@@ -135,11 +135,11 @@ pages, and injected artifact widget:
 ABUSE_EMAIL = "abuse@example.com"
 ```
 
-Before deploying those links, send an external test message and complete the
-prerequisites in [the abuse response runbook](ABUSE_RESPONSE.md). A configured
-address is not enough by itself: the mailbox needs named primary and backup
-owners, and the public legal text and formal-notice procedure need human legal
-review.
+Before deploying those links, send an external test message and confirm the
+operational handoff. A configured address is not enough by itself: the mailbox
+needs named primary and backup owners plus a documented intake, evidence
+preservation, suspension, and restore procedure, and the public legal text and
+formal-notice procedure need human legal review.
 
 ## Selective Browser Integrity Check bypass
 

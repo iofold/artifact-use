@@ -19,6 +19,10 @@ apps/worker/src/widget/feedback.generated.ts
 apps/worker/wrangler.staging.toml
 apps/worker/wrangler.prod.toml
 
+# Internal ops docs and logs — kept locally, never in the public repo
+docs/internal/
+docs/progress_log.ndjson
+
 # Built admin SPA assets (from apps/admin-ui)
 apps/worker/public/
 
