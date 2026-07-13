@@ -113,8 +113,8 @@
   });
 
   panel.innerHTML =
-    '<div class="au-head"><span class="au-title">Comments</span>' +
-    '<div class="au-tools"><button class="au-icon" data-agent title="Hand to your agent" aria-label="Hand to your agent">🤖</button>' +
+    '<div class="au-head" data-head><span class="au-title">Comments</span>' +
+    '<div class="au-tools"><button class="au-icon au-agentbtn" data-agent aria-label="Hand over to your agent">🤖<span class="au-agentbtn-label">Hand over to your agent</span></button>' +
     '<button class="au-icon" data-min title="Minimize" aria-label="Minimize comments">✕</button></div></div>' +
     '<div class="au-toolbar">' +
     '<div class="au-scope" role="tablist">' +
@@ -128,16 +128,17 @@
     '<div class="au-list" data-list></div>' +
     '<button class="au-new" data-new>+ New comment</button>' +
     '<div class="au-composer" data-composer>' +
-    '<div class="au-actions"><button class="au-action au-action-primary" data-select>⌖ Select element</button>' +
-    '<button class="au-action" data-clear>Clear target</button></div>' +
-    '<div class="au-target" data-target></div>' +
+    '<div class="au-selectbar" data-selectbar>Selecting — click any element on the page' +
+    '<button class="au-link" data-selectbar-cancel>Cancel</button></div>' +
+    '<div class="au-targetrow" data-target></div>' +
     '<textarea class="au-text" data-body placeholder="Leave a comment"></textarea>' +
-    '<div class="au-composer-actions"><button class="au-send" data-send>Post comment</button>' +
+    '<div class="au-composer-actions au-main-actions"><button class="au-send" data-send>Post comment</button>' +
+    '<button class="au-action" data-select aria-pressed="false">⌖ Select element</button>' +
     '<button class="au-link" data-cancel-new>Cancel</button></div>' +
     '<div class="au-emailgate" data-emailgate>' +
-    '<p class="au-muted">Add your email to post comments (one time).</p>' +
+    '<p class="au-emailgate-copy">Add your email to post (one time — it attributes your comments).</p>' +
     '<input type="email" class="au-emailinput" data-email placeholder="you@example.com" autocomplete="email">' +
-    '<div class="au-composer-actions"><button class="au-send" data-email-submit>Continue</button>' +
+    '<div class="au-composer-actions"><button class="au-send" data-email-submit>Add email &amp; post</button>' +
     '<button class="au-link" data-email-cancel>Cancel</button></div>' +
     "</div>" +
     "</div>" +
@@ -151,8 +152,10 @@
     '<button class="au-link" data-agent-copylink>Copy share link</button></div>' +
     "</div>";
 
+  // The floating banner survives only for the re-anchor flow (started from the
+  // list, no composer open); compose-time selection announces inside the panel.
   banner.innerHTML =
-    '<span class="au-banner-text">Click an element to attach your comment</span>' +
+    '<span class="au-banner-text">Click the new location for this comment</span>' +
     '<button class="au-banner-cancel" data-cancel-select>Esc to cancel</button>';
 
   var reportAbuse = $("[data-report-abuse]");
@@ -315,24 +318,33 @@
   function renderTarget() {
     var box = $("[data-target]");
     box.innerHTML = "";
-    box.classList.toggle("is-empty", !target);
-    box.appendChild(el("strong", "", "Target"));
-    box.appendChild(
-      el(
-        "span",
-        target ? "" : "au-muted",
-        target ? target.label : "No element selected — click to pick one",
-      ),
-    );
-    // The empty target row doubles as a select-mode affordance.
-    if (!target) {
-      box.setAttribute("role", "button");
-      box.setAttribute("tabindex", "0");
-    } else {
+    // While selecting, the selectbar owns this space.
+    box.style.display = selecting && !reanchorFor ? "none" : "";
+    if (target) {
+      box.classList.remove("is-empty");
       box.removeAttribute("role");
       box.removeAttribute("tabindex");
+      var pill = el("span", "au-tpill");
+      pill.appendChild(el("span", "au-tpill-label", "⌖ " + target.label));
+      var x = el("button", "au-tpill-x", "✕");
+      x.type = "button";
+      x.title = "Remove target";
+      x.setAttribute("aria-label", "Remove target");
+      x.onclick = function (e) {
+        e.stopPropagation();
+        clearTarget();
+      };
+      pill.appendChild(x);
+      box.appendChild(pill);
+    } else {
+      // Empty state: one muted line that doubles as a pick affordance.
+      box.classList.add("is-empty");
+      box.setAttribute("role", "button");
+      box.setAttribute("tabindex", "0");
+      box.appendChild(
+        el("span", "au-muted", "No element — commenting on the whole page"),
+      );
     }
-    $("[data-clear]").style.display = target ? "" : "none";
     update();
   }
   function focusBody() {
@@ -354,7 +366,22 @@
   function openComposer(open) {
     $("[data-composer]").classList.toggle("is-open", open !== false);
     $("[data-new]").style.display = open === false ? "" : "none";
-    if (open !== false) focusBody();
+    if (open !== false) {
+      closeReplyBoxes();
+      focusBody();
+    }
+  }
+  function closeReplyBoxes() {
+    panel.querySelectorAll(".au-replybox.is-open").forEach(function (box) {
+      box.classList.remove("is-open");
+    });
+  }
+  // Unsaved text anywhere in the panel? Blocks Esc-to-close so a stray Esc
+  // can't destroy a draft.
+  function hasDraft() {
+    if ($("[data-body]").value.trim()) return true;
+    var open = panel.querySelector(".au-replybox.is-open textarea");
+    return !!(open && open.value.trim());
   }
 
   // ---- list ----
@@ -898,7 +925,11 @@
     if (item.state === "failed")
       chip = el("span", "au-chip au-chip-failed", "Couldn't post");
     else if (item.state === "auth")
-      chip = el("span", "au-chip au-chip-auth", "Add your email to post");
+      chip = el(
+        "span",
+        "au-chip au-chip-auth",
+        "Waiting for email — add it below",
+      );
     else if (pauseUntil > Date.now())
       chip = el("span", "au-chip au-chip-sending", "Rate limited — retrying");
     else chip = el("span", "au-chip au-chip-sending", "Sending…");
@@ -906,35 +937,36 @@
     inner.appendChild(meta);
     inner.appendChild(el("div", "au-textline", item.body));
     wrap.appendChild(inner);
+    // The email itself is collected in the composer's single email step; the
+    // parked item only points there (click) and offers Discard.
+    if (item.state === "auth") {
+      wrap.style.cursor = "pointer";
+      wrap.onclick = resumeAuth;
+    }
     if (item.state === "failed" || item.state === "auth") {
       var actions = el("div", "au-comment-actions");
-      var retry = el(
-        "button",
-        "au-link",
-        item.state === "auth" ? "Add email" : "Retry",
-      );
-      retry.type = "button";
-      retry.onclick = function () {
-        if (item.state === "auth") {
-          resumeAuth();
-          return;
-        }
-        item.state = "queued";
-        item.tries = 0;
-        saveOutbox();
-        renderList(allComments);
-        drain();
-      };
+      if (item.state === "failed") {
+        var retry = el("button", "au-link", "Retry");
+        retry.type = "button";
+        retry.onclick = function () {
+          item.state = "queued";
+          item.tries = 0;
+          saveOutbox();
+          renderList(allComments);
+          drain();
+        };
+        actions.appendChild(retry);
+      }
       var discard = el("button", "au-link au-reanchor", "Discard");
       discard.type = "button";
-      discard.onclick = function () {
+      discard.onclick = function (e) {
+        e.stopPropagation();
         outbox = outbox.filter(function (x) {
           return x !== item;
         });
         saveOutbox();
         renderList(allComments);
       };
-      actions.appendChild(retry);
       actions.appendChild(discard);
       wrap.appendChild(actions);
     }
@@ -943,8 +975,12 @@
   // Show the inline email field, mint a viewer session via the email gate, and
   // resolve true once authenticated. Used to authorize comments on public
   // artifacts without gating the whole artifact.
+  // The email step takes over the composer as ONE sequential form: the draft
+  // stays visible (dimmed, read-only) for context, and the only live controls
+  // are the email input + "Add email & post" + Cancel. No competing buttons.
   function collectEmail() {
     return new Promise(function (resolve) {
+      var composer = $("[data-composer]");
       var box = $("[data-emailgate]");
       var input = $("[data-email]");
       var submit = $("[data-email-submit]");
@@ -952,11 +988,19 @@
       try {
         input.value = localStorage.getItem("au_email") || "";
       } catch (e) {}
+      // System-initiated exit from select mode — not a picker opt-out.
+      if (selecting && !reanchorFor) endSelect();
+      closeReplyBoxes();
+      openComposer(true);
+      composer.classList.add("is-email");
+      $("[data-body]").readOnly = true;
       box.classList.add("is-on");
       setTimeout(function () {
         input.focus();
       }, 0);
       function done(v) {
+        composer.classList.remove("is-email");
+        $("[data-body]").readOnly = false;
         box.classList.remove("is-on");
         submit.onclick = null;
         cancel.onclick = null;
@@ -1016,9 +1060,14 @@
         !box.classList.contains("is-open");
       box.classList.toggle("is-open", open);
       if (open) {
+        // One input context at a time: replying collapses the composer.
+        // (endSelect, not cancelSelect: a context switch is not an opt-out.)
+        if (selecting && !reanchorFor) endSelect();
+        openComposer(false);
         var t = box.querySelector("textarea");
         setTimeout(function () {
           if (t) t.focus();
+          if (box.scrollIntoView) box.scrollIntoView({ block: "nearest" });
         }, 0);
       }
     });
@@ -1232,19 +1281,54 @@
   }
   function onKey(e) {
     if (e.key === "Escape" && selecting) {
-      endSelect();
+      // Consume the keypress entirely: without this the same Esc reaches the
+      // panel handler (selecting is false by then) and closes the whole panel.
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      cancelSelect();
     }
+  }
+  // Explicitly leaving select mode (Esc, Cancel, toggle) opts out of the
+  // picker auto-arming for the rest of this page view; explicitly starting it
+  // opts back in. A successful pick is not an opt-out (endSelect directly).
+  var pickerOptOut = false;
+  function cancelSelect() {
+    pickerOptOut = true;
+    endSelect();
+  }
+  function armSelect() {
+    if (pickerOptOut) {
+      openComposer(true);
+      return;
+    }
+    startSelect();
+  }
+  function toggleSelect() {
+    if (selecting) cancelSelect();
+    else {
+      pickerOptOut = false;
+      startSelect();
+    }
+  }
+  function renderSelectState() {
+    var composing = selecting && !reanchorFor;
+    var btnSel = $("[data-select]");
+    btnSel.textContent = composing ? "✕ Stop selecting" : "⌖ Select element";
+    btnSel.setAttribute("aria-pressed", composing ? "true" : "false");
+    $("[data-selectbar]").classList.toggle("is-on", composing);
+    renderTarget();
   }
   function startSelect() {
     if (selecting) return;
     selecting = true;
-    if (!reanchorFor) openComposer(true);
-    banner.querySelector(".au-banner-text").textContent = reanchorFor
-      ? "Click the new location for this comment"
-      : "Click an element to attach your comment";
+    if (!reanchorFor) {
+      openComposer(true);
+      renderSelectState();
+    } else {
+      banner.classList.add("is-on");
+      showTop(banner);
+    }
     document.documentElement.classList.add("au-selecting");
-    banner.classList.add("is-on");
-    showTop(banner);
     document.addEventListener("mouseover", over, true);
     document.addEventListener("click", pick, true);
     document.addEventListener("keydown", onKey, true);
@@ -1261,9 +1345,11 @@
     document.removeEventListener("mouseover", over, true);
     document.removeEventListener("click", pick, true);
     document.removeEventListener("keydown", onKey, true);
-    // Esc/cancel strands focus on the page; return it to the open composer.
-    if (wasComposing && $("[data-composer]").classList.contains("is-open"))
-      focusBody();
+    if (wasComposing) {
+      renderSelectState();
+      // Esc/cancel strands focus on the page; return it to the open composer.
+      if ($("[data-composer]").classList.contains("is-open")) focusBody();
+    }
   }
 
   // ---- publisher context (role probe; adds an Admin deep link for owners) --
@@ -1302,6 +1388,7 @@
     panel.classList.add("is-open");
     btn.setAttribute("aria-expanded", "true");
     showTop(panel);
+    restorePanelPos();
     if (!allComments.length) showSkeleton();
     loadContext();
     load();
@@ -1325,15 +1412,86 @@
       btn.focus();
     } catch (e) {}
   }
-  // Escape closes the panel; Tab is trapped within it for keyboard users.
+  // Escape: backs out of the email step first, never discards a draft, and
+  // only closes the panel when nothing is in flight. Tab is trapped within.
   panel.addEventListener("keydown", function (e) {
     if (e.key === "Escape" && !selecting) {
       e.stopPropagation();
+      var composer = $("[data-composer]");
+      if (composer.classList.contains("is-email")) {
+        $("[data-email-cancel]").click();
+        return;
+      }
+      if (hasDraft()) return;
       close();
     } else if (e.key === "Tab") {
       trapTab(e);
     }
   });
+  // ---- draggable panel (desktop) ----
+  // The panel can cover the very element being discussed; grab the header to
+  // move it. Position persists for the session. The mobile sheet stays put.
+  function mobileSheet() {
+    return matchMedia("(max-width:640px)").matches;
+  }
+  function clampPanelPos(x, y) {
+    var r = panel.getBoundingClientRect();
+    return {
+      x: Math.min(Math.max(8, x), Math.max(8, innerWidth - r.width - 8)),
+      y: Math.min(Math.max(8, y), Math.max(8, innerHeight - 56)),
+    };
+  }
+  function applyPanelPos(pos) {
+    panel.style.left = pos.x + "px";
+    panel.style.top = pos.y + "px";
+    panel.style.right = "auto";
+    panel.style.bottom = "auto";
+  }
+  function clearPanelPos() {
+    panel.style.left = "";
+    panel.style.top = "";
+    panel.style.right = "";
+    panel.style.bottom = "";
+  }
+  function restorePanelPos() {
+    if (mobileSheet()) {
+      clearPanelPos();
+      return;
+    }
+    var pos = null;
+    try {
+      pos = JSON.parse(sessionStorage.getItem("au_panel_pos") || "null");
+    } catch (e) {}
+    if (pos) applyPanelPos(clampPanelPos(pos.x, pos.y));
+  }
+  $("[data-head]").addEventListener("pointerdown", function (e) {
+    if (mobileSheet()) return;
+    if (e.target.closest && e.target.closest("button,a")) return;
+    var r = panel.getBoundingClientRect();
+    var dx = e.clientX - r.left,
+      dy = e.clientY - r.top,
+      moved = false;
+    function onMove(ev) {
+      moved = true;
+      applyPanelPos(clampPanelPos(ev.clientX - dx, ev.clientY - dy));
+    }
+    function onUp() {
+      document.removeEventListener("pointermove", onMove);
+      document.removeEventListener("pointerup", onUp);
+      if (!moved) return;
+      var fin = panel.getBoundingClientRect();
+      try {
+        sessionStorage.setItem(
+          "au_panel_pos",
+          JSON.stringify({ x: fin.left, y: fin.top }),
+        );
+      } catch (ex) {}
+    }
+    e.preventDefault();
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+  });
+
   function trapTab(e) {
     var nodes = panel.querySelectorAll(
       'button,[href],input,textarea,[tabindex]:not([tabindex="-1"])',
@@ -1375,25 +1533,26 @@
   $("[data-agent-copylink]").onclick = function () {
     copyText(agentShareUrl);
   };
-  // Starting a comment arms the element picker by default; Esc or the banner
-  // cancel deselects, and posting with no target is a page-level comment.
-  $("[data-new]").onclick = startSelect;
+  // Starting a comment arms the element picker by default, unless the viewer
+  // opted out this session; posting with no target is a page-level comment.
+  $("[data-new]").onclick = armSelect;
   $("[data-cancel-new]").onclick = function () {
+    if (selecting) endSelect();
     openComposer(false);
     clearTarget();
   };
-  $("[data-clear]").onclick = clearTarget;
-  $("[data-select]").onclick = startSelect;
+  $("[data-select]").onclick = toggleSelect;
+  $("[data-selectbar-cancel]").onclick = cancelSelect;
   $("[data-target]").onclick = function () {
-    if (!target) startSelect();
+    if (!target && !selecting) toggleSelect();
   };
   $("[data-target]").onkeydown = function (e) {
-    if (!target && (e.key === "Enter" || e.key === " ")) {
+    if (!target && !selecting && (e.key === "Enter" || e.key === " ")) {
       e.preventDefault();
-      startSelect();
+      toggleSelect();
     }
   };
-  banner.querySelector("[data-cancel-select]").onclick = endSelect;
+  banner.querySelector("[data-cancel-select]").onclick = cancelSelect;
   $("[data-hide-resolved]").onchange = function (e) {
     hideResolved = !!e.target.checked;
     renderList(allComments);
@@ -1417,12 +1576,12 @@
     var t = $("[data-body]"),
       body = t.value.trim();
     if (!body) return;
-    // Posting is async via the outbox; the fresh form re-arms the picker (a
-    // no-op if select mode is still active) and keeps the textarea focused.
+    // Posting is async via the outbox; the fresh form re-arms the picker
+    // (unless opted out this session) and keeps the textarea focused.
     if (enqueueComment({ body: body, target: target })) {
       t.value = "";
       clearTarget();
-      startSelect();
+      armSelect();
       focusBody();
     }
   };
@@ -1434,6 +1593,19 @@
   }
   addEventListener("scroll", onViewport, true);
   addEventListener("resize", onViewport);
+  // A viewport crossing the mobile breakpoint must drop any dragged inline
+  // position so the bottom-sheet CSS can lay the panel out; desktop resizes
+  // re-clamp a dragged panel back into view.
+  addEventListener("resize", function () {
+    if (mobileSheet()) {
+      clearPanelPos();
+      return;
+    }
+    if (panel.style.left) {
+      var r = panel.getBoundingClientRect();
+      applyPanelPos(clampPanelPos(r.left, r.top));
+    }
+  });
 
   // deep link: #au=<id> opens the panel and focuses that comment after load.
   async function handleDeepLink() {
@@ -1557,10 +1729,13 @@
       ".au-badge{min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:#f3a712;color:#1b1206;font-size:12px;font-weight:800;display:inline-flex;align-items:center;justify-content:center}",
       ".au-panel{display:none;position:fixed;right:18px;top:18px;z-index:2147483647;width:min(420px,calc(100vw - 36px));height:min(680px,calc(100vh - 36px));background:#fff;border:1px solid #cdd7d4;border-radius:10px;box-shadow:0 24px 70px rgba(0,0,0,.28);overflow:hidden;flex-direction:column}",
       ".au-panel.is-open{display:flex}",
-      ".au-head{height:46px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e2e8e6;padding:0 8px 0 14px}",
+      ".au-head{height:46px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e2e8e6;padding:0 8px 0 14px;user-select:none;touch-action:none}",
+      "@media (min-width:641px){.au-head{cursor:grab}.au-head:active{cursor:grabbing}}",
       ".au-title{font-weight:800}",
       ".au-tools{display:flex;gap:6px}",
       ".au-icon{border:0;background:#eef4f2;color:#24312d;border-radius:6px;min-width:32px;height:32px;cursor:pointer;font-size:14px}",
+      ".au-agentbtn{display:inline-flex;align-items:center;gap:6px;padding:0 10px;width:auto}",
+      ".au-agentbtn-label{font-size:12px;font-weight:700;color:#24312d}",
       ".au-icon:hover{background:#dfe9e6}",
       ".au-admin{display:inline-flex;align-items:center;padding:0 10px;text-decoration:none;font-weight:800;font-size:12px;color:#0c585b}",
       ".au-toolbar{flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid #eef2f1}",
@@ -1579,10 +1754,10 @@
       ".au-comment{display:grid;gap:7px;padding:12px 14px}",
       ".au-reply{display:grid;gap:6px}",
       ".au-comment-main{display:block;width:100%;text-align:left;border:0;background:transparent;color:inherit;padding:0;cursor:pointer}",
-      ".au-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;line-height:1.3;color:#687873;margin-bottom:2px}",
+      ".au-meta{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:11px;line-height:1.3;color:#4e5d58;margin-bottom:2px}",
       ".au-page{background:#eaf2f0;color:#0f5a5e;font-weight:800;border-radius:4px;padding:1px 6px}",
       ".au-target-label{color:#1f5d61;font-weight:700}",
-      ".au-email{color:#81908a}",
+      ".au-email{color:#5c6b66}",
       ".au-state{font-weight:800;color:#0f6b6f;margin-left:auto}",
       ".au-textline{white-space:pre-wrap;line-height:1.42;color:#17201d}",
       ".au-item.is-resolved .au-textline{color:#61716c}",
@@ -1598,19 +1773,29 @@
       ".au-new{flex:0 0 auto;margin:10px 12px 14px;border:1px dashed #b9c7c2;background:#f6faf9;color:#0f6b6f;border-radius:8px;padding:11px;cursor:pointer;font-weight:800}",
       ".au-composer{display:none;flex:0 0 auto;border-top:1px solid #e2e8e6;padding:12px;gap:10px;background:#fafcfb}",
       ".au-composer.is-open{display:grid}",
-      ".au-actions{display:flex;gap:8px}",
-      ".au-action{border:1px solid #becbc7;background:#fff;border-radius:6px;padding:8px 10px;cursor:pointer}",
-      ".au-action-primary{border-color:#0f6b6f;color:#0c585b;font-weight:800;background:#f2f9f8}",
-      ".au-action-primary:hover{background:#e2f1ef;border-color:#0c585b}",
-      ".au-target{border:1px solid #dbe4e1;background:#fff;border-radius:6px;padding:9px}",
-      ".au-target.is-empty{cursor:pointer;border-style:dashed}",
-      ".au-target.is-empty:hover{border-color:#0f6b6f;background:#f6fbfa}",
-      ".au-target strong{display:block;font-size:12px;color:#52625d;margin-bottom:3px}",
+      ".au-action{border:1px solid #becbc7;background:#fff;border-radius:6px;padding:8px 10px;cursor:pointer;font-weight:700;color:#3a4a45}",
+      ".au-action:hover{background:#eef5f3;border-color:#9fb4ae}",
+      '.au-action[aria-pressed="true"]{border-color:#0f6b6f;color:#0c585b;background:#e2f1ef}',
+      ".au-selectbar{display:none;align-items:center;justify-content:space-between;gap:8px;background:#e6f1f0;color:#0c585b;font-weight:700;font-size:12px;border-radius:6px;padding:7px 4px 7px 10px}",
+      ".au-selectbar.is-on{display:flex}",
+      ".au-targetrow{display:flex;align-items:center;min-height:22px}",
+      ".au-targetrow.is-empty{cursor:pointer;border-radius:6px}",
+      ".au-targetrow.is-empty:hover .au-muted{color:#0c585b}",
+      ".au-targetrow .au-muted{font-size:12px}",
+      ".au-tpill{display:inline-flex;align-items:center;gap:4px;max-width:100%;background:#e2f1ef;color:#0c585b;font-weight:800;font-size:12px;border-radius:999px;padding:3px 4px 3px 10px}",
+      ".au-tpill-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
+      ".au-tpill-x{border:0;background:transparent;color:#0c585b;font-size:11px;border-radius:999px;min-width:20px;height:20px;cursor:pointer}",
+      ".au-tpill-x:hover{background:#cfe6e3}",
       ".au-text{width:100%;border:1px solid #c9d5d1;border-radius:6px;padding:9px 10px;resize:vertical;min-height:76px;font:inherit}",
       ".au-smalltext{min-height:54px}",
       ".au-composer-actions{display:flex;gap:12px;align-items:center}",
-      ".au-emailgate{display:none;margin-top:10px;padding-top:10px;border-top:1px solid #eef2f1;flex-direction:column;gap:8px}",
+      ".au-emailgate{display:none;flex-direction:column;gap:8px}",
       ".au-emailgate.is-on{display:flex}",
+      ".au-emailgate-copy{margin:0;color:#3a4a45;font-weight:600}",
+      // Email step: ONE live form. The draft dims for context; every other
+      // composer control hides so no second button row competes.
+      ".au-composer.is-email .au-selectbar,.au-composer.is-email .au-targetrow,.au-composer.is-email .au-main-actions{display:none}",
+      ".au-composer.is-email .au-text[data-body]{opacity:.55;min-height:44px}",
       ".au-emailinput{width:100%;border:1px solid #c9d5d1;border-radius:6px;padding:9px 10px;font:inherit;height:40px}",
       ".au-foot{flex:0 0 auto;min-height:44px;border-top:1px solid #eef2f1;padding:0 10px max(0px,env(safe-area-inset-bottom));display:flex;justify-content:flex-end;align-items:center;background:#fafcfb}",
       ".au-report{min-height:44px;padding:0 4px;display:inline-flex;align-items:center;color:#52625d;font-size:13px;font-weight:700;text-decoration:none}",
@@ -1620,7 +1805,8 @@
       ".au-agent-head{display:flex;align-items:center;justify-content:space-between;font-weight:800}",
       ".au-agent-prompt{flex:1 1 auto;min-height:0;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;resize:none;color:#1b2420}",
       ".au-send{border:0;background:#0f6b6f;color:#fff;border-radius:6px;padding:9px 13px;font-weight:800;cursor:pointer}",
-      ".au-muted{color:#81908a}",
+      ".au-muted{color:#5c6b66}",
+      ".au-text::placeholder,.au-emailinput::placeholder{color:#5c6b66}",
       ".au-mark,.au-hover{position:fixed;display:none;pointer-events:none;z-index:2147483646;border:2px solid #f3a712;border-radius:6px;box-shadow:0 0 0 9999px rgba(18,56,59,.04)}",
       ".au-hover{border:2px solid #0f6b6f;background:rgba(15,107,111,.12);box-shadow:0 0 0 9999px rgba(18,56,59,.16);transition:top .04s linear,left .04s linear,width .04s linear,height .04s linear}",
       ".au-hover-tip{position:fixed;display:none;z-index:2147483647;pointer-events:none;background:#0f6b6f;color:#fff;font-weight:800;font-size:11px;line-height:1;padding:5px 7px;border-radius:5px;box-shadow:0 6px 16px rgba(0,0,0,.25);max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
@@ -1680,7 +1866,9 @@
       "@keyframes au-cta-in{from{opacity:0;transform:translateY(10px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}",
       "@keyframes au-cta-bob{0%,100%{transform:translateY(0)}50%{transform:translateY(-3px)}}",
       // Mobile: the panel becomes a bottom sheet (dvh keeps it above the keyboard).
-      "@media (max-width:640px){.au-panel{left:0;right:0;bottom:0;top:auto;width:100%;height:82dvh;max-height:82dvh;border-radius:16px 16px 0 0;border-bottom:0}.au-panel::before{content:'';position:absolute;left:50%;top:7px;transform:translateX(-50%);width:38px;height:4px;border-radius:2px;background:#cdd9d5}.au-head{padding-top:8px}.au-launch{right:12px;bottom:12px}.au-cta{right:12px;bottom:64px;max-width:calc(100vw - 24px)}.au-banner{left:8px;right:8px;max-width:none}.au-toolbar{flex-wrap:wrap}}",
+      // Mobile bottom sheet. No fake drag handle (no drag gesture exists), the
+      // toolbar wraps deliberately, and link actions get real touch targets.
+      "@media (max-width:640px){.au-panel{left:0;right:0;bottom:0;top:auto;width:100%;height:82dvh;max-height:82dvh;border-radius:16px 16px 0 0;border-bottom:0}.au-head{padding-top:6px}.au-launch{right:12px;bottom:12px}.au-cta{right:12px;bottom:64px;max-width:calc(100vw - 24px)}.au-banner{left:8px;right:8px;max-width:none}.au-toolbar{flex-wrap:wrap;row-gap:6px}.au-scope{flex:0 0 auto}.au-link{min-height:44px;display:inline-flex;align-items:center;padding:0 10px}.au-icon{min-width:44px;height:44px}.au-agentbtn-label{display:none}.au-seg{padding:10px 12px}}",
       // Respect reduced-motion preferences.
       "@media (prefers-reduced-motion:reduce){.au-mark.au-pulse,.au-skel-line,.au-panel.is-busy .au-loadbar,.au-pin:hover,.au-cta.is-on,.au-item.is-pending.au-enter,.au-reply.is-pending.au-enter{animation:none;transition:none}}",
     ].join("");
