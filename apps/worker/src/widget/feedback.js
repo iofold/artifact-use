@@ -351,20 +351,10 @@
     active = null;
     renderTarget();
   }
-  var pickHintKey = "au_pick_hint_" + artifactKey;
   function openComposer(open) {
     $("[data-composer]").classList.toggle("is-open", open !== false);
     $("[data-new]").style.display = open === false ? "" : "none";
-    if (open !== false) {
-      // One-time attention pulse on the select control per artifact, until
-      // the viewer uses select mode once.
-      var hinted = false;
-      try {
-        hinted = localStorage.getItem(pickHintKey) === "1";
-      } catch (e) {}
-      if (!hinted && !target) $("[data-select]").classList.add("au-hint");
-      focusBody();
-    }
+    if (open !== false) focusBody();
   }
 
   // ---- list ----
@@ -751,13 +741,18 @@
       return "ref_" + Date.now() + "_" + Math.random().toString(36).slice(2);
     }
   }
+  // Refs enqueued this render cycle; their pending nodes get a one-shot
+  // entry animation so the posted comment visibly lands in the list.
+  var newRefs = {};
   function enqueueComment(fields) {
     if (outbox.length >= 20) {
       showToast("Too many unsent comments — retry or discard some first.");
       return false;
     }
+    var ref = newRef();
+    newRefs[ref] = true;
     outbox.push({
-      ref: newRef(),
+      ref: ref,
       body: fields.body,
       parent_id: fields.parent_id || null,
       target: fields.target || null,
@@ -768,6 +763,8 @@
     });
     saveOutbox();
     renderList(allComments);
+    // Pending roots render at the top; make the landing visible.
+    if (!fields.parent_id) $("[data-list]").scrollTop = 0;
     drain();
     return true;
   }
@@ -888,6 +885,11 @@
   function pendingNode(item, isReply) {
     var wrap = el("div", "au-item is-pending");
     if (isReply) wrap.className = "au-reply is-pending";
+    // One-shot entry animation on the render right after enqueue.
+    if (newRefs[item.ref]) {
+      delete newRefs[item.ref];
+      wrap.classList.add("au-enter");
+    }
     var inner = el("div", "au-comment");
     var meta = el("div", "au-meta");
     if (item.target && item.target.label)
@@ -1236,10 +1238,6 @@
   function startSelect() {
     if (selecting) return;
     selecting = true;
-    $("[data-select]").classList.remove("au-hint");
-    try {
-      localStorage.setItem(pickHintKey, "1");
-    } catch (e) {}
     if (!reanchorFor) openComposer(true);
     banner.querySelector(".au-banner-text").textContent = reanchorFor
       ? "Click the new location for this comment"
@@ -1377,9 +1375,9 @@
   $("[data-agent-copylink]").onclick = function () {
     copyText(agentShareUrl);
   };
-  $("[data-new]").onclick = function () {
-    openComposer(true);
-  };
+  // Starting a comment arms the element picker by default; Esc or the banner
+  // cancel deselects, and posting with no target is a page-level comment.
+  $("[data-new]").onclick = startSelect;
   $("[data-cancel-new]").onclick = function () {
     openComposer(false);
     clearTarget();
@@ -1419,11 +1417,12 @@
     var t = $("[data-body]"),
       body = t.value.trim();
     if (!body) return;
-    // Posting is async via the outbox; the composer stays open and focused so
-    // the next comment can be typed immediately.
+    // Posting is async via the outbox; the fresh form re-arms the picker (a
+    // no-op if select mode is still active) and keeps the textarea focused.
     if (enqueueComment({ body: body, target: target })) {
       t.value = "";
       clearTarget();
+      startSelect();
       focusBody();
     }
   };
@@ -1603,8 +1602,6 @@
       ".au-action{border:1px solid #becbc7;background:#fff;border-radius:6px;padding:8px 10px;cursor:pointer}",
       ".au-action-primary{border-color:#0f6b6f;color:#0c585b;font-weight:800;background:#f2f9f8}",
       ".au-action-primary:hover{background:#e2f1ef;border-color:#0c585b}",
-      "@keyframes au-hint{0%,100%{box-shadow:0 0 0 0 rgba(15,107,111,0)}50%{box-shadow:0 0 0 5px rgba(15,107,111,.25)}}",
-      ".au-action.au-hint{animation:au-hint 1.6s ease-in-out 2}",
       ".au-target{border:1px solid #dbe4e1;background:#fff;border-radius:6px;padding:9px}",
       ".au-target.is-empty{cursor:pointer;border-style:dashed}",
       ".au-target.is-empty:hover{border-color:#0f6b6f;background:#f6fbfa}",
@@ -1633,6 +1630,10 @@
       ".au-anchor-missing{background:#fdeaea;color:#a3271f}",
       ".au-anchor-hidden{background:#eef1f0;color:#5a6c66}",
       ".au-item.is-pending{background:#fbfdfc}",
+      "@keyframes au-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}",
+      "@keyframes au-flash{0%{background:#dff0e8}100%{background:#fbfdfc}}",
+      ".au-item.is-pending.au-enter{animation:au-in .25s ease-out,au-flash 1.1s ease-out}",
+      ".au-reply.is-pending.au-enter{animation:au-in .25s ease-out}",
       ".au-reply.is-pending{opacity:.85}",
       ".au-chip-sending{background:#eef4f2;color:#33504a}",
       ".au-chip-failed{background:#fdeaea;color:#a3271f}",
@@ -1681,7 +1682,7 @@
       // Mobile: the panel becomes a bottom sheet (dvh keeps it above the keyboard).
       "@media (max-width:640px){.au-panel{left:0;right:0;bottom:0;top:auto;width:100%;height:82dvh;max-height:82dvh;border-radius:16px 16px 0 0;border-bottom:0}.au-panel::before{content:'';position:absolute;left:50%;top:7px;transform:translateX(-50%);width:38px;height:4px;border-radius:2px;background:#cdd9d5}.au-head{padding-top:8px}.au-launch{right:12px;bottom:12px}.au-cta{right:12px;bottom:64px;max-width:calc(100vw - 24px)}.au-banner{left:8px;right:8px;max-width:none}.au-toolbar{flex-wrap:wrap}}",
       // Respect reduced-motion preferences.
-      "@media (prefers-reduced-motion:reduce){.au-mark.au-pulse,.au-skel-line,.au-panel.is-busy .au-loadbar,.au-pin:hover,.au-cta.is-on,.au-action.au-hint{animation:none;transition:none}}",
+      "@media (prefers-reduced-motion:reduce){.au-mark.au-pulse,.au-skel-line,.au-panel.is-busy .au-loadbar,.au-pin:hover,.au-cta.is-on,.au-item.is-pending.au-enter,.au-reply.is-pending.au-enter{animation:none;transition:none}}",
     ].join("");
   }
 })();
