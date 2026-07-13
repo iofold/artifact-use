@@ -121,15 +121,14 @@
     '<button class="au-seg is-on" data-scope="page">This page</button>' +
     '<button class="au-seg" data-scope="all">All pages</button>' +
     "</div>" +
-    '<label class="au-check"><input type="checkbox" data-hide-resolved checked> Hide resolved</label>' +
-    '<label class="au-check"><input type="checkbox" data-pins> Pins</label>' +
+    '<div class="au-checks"><label class="au-check"><input type="checkbox" data-hide-resolved checked> Hide resolved</label>' +
+    '<label class="au-check"><input type="checkbox" data-pins> Pins</label></div>' +
     "</div>" +
     '<div class="au-loadbar" data-loadbar></div>' +
     '<div class="au-list" data-list></div>' +
     '<button class="au-new" data-new>+ New comment</button>' +
     '<div class="au-composer" data-composer>' +
-    '<div class="au-selectbar" data-selectbar>Selecting — click any element on the page' +
-    '<button class="au-link" data-selectbar-cancel>Cancel</button></div>' +
+    '<div class="au-selectbar" data-selectbar>Selecting — click any element on the page</div>' +
     '<div class="au-targetrow" data-target></div>' +
     '<textarea class="au-text" data-body placeholder="Leave a comment"></textarea>' +
     '<div class="au-composer-actions au-main-actions"><button class="au-send" data-send>Post comment</button>' +
@@ -968,7 +967,9 @@
         renderList(allComments);
       };
       actions.appendChild(discard);
-      wrap.appendChild(actions);
+      // Inside .au-comment so the actions inherit its padding — appended to
+      // the wrapper they sit flush against the next item.
+      inner.appendChild(actions);
     }
     return wrap;
   }
@@ -1478,6 +1479,7 @@
       applyPanelPos(clampPanelPos(ev.clientX - dx, ev.clientY - dy));
     }
     function onUp() {
+      document.documentElement.classList.remove("au-dragging");
       document.removeEventListener("pointermove", onMove);
       document.removeEventListener("pointerup", onUp);
       if (!moved) return;
@@ -1490,6 +1492,7 @@
       } catch (ex) {}
     }
     e.preventDefault();
+    document.documentElement.classList.add("au-dragging");
     document.addEventListener("pointermove", onMove);
     document.addEventListener("pointerup", onUp);
   });
@@ -1544,7 +1547,6 @@
     clearTarget();
   };
   $("[data-select]").onclick = toggleSelect;
-  $("[data-selectbar-cancel]").onclick = cancelSelect;
   $("[data-target]").onclick = function () {
     if (!target && !selecting) toggleSelect();
   };
@@ -1649,7 +1651,8 @@
   var lightCss = document.createElement("style");
   lightCss.dataset.auWidget = "1";
   lightCss.textContent =
-    "html.au-selecting,html.au-selecting *{cursor:crosshair!important}";
+    "html.au-selecting,html.au-selecting *{cursor:crosshair!important}" +
+    "html.au-dragging,html.au-dragging *{user-select:none!important}";
   document.documentElement.appendChild(lightCss);
 
   function popover(node) {
@@ -1745,6 +1748,7 @@
       ".au-scope{display:inline-flex;border:1px solid #cdd9d5;border-radius:7px;overflow:hidden}",
       ".au-seg{border:0;background:#fff;color:#3a4a45;padding:6px 10px;cursor:pointer;font-weight:700}",
       ".au-seg.is-on{background:#12383b;color:#fff}",
+      ".au-checks{display:inline-flex;align-items:center;gap:12px}",
       ".au-check{display:inline-flex;align-items:center;gap:6px;color:#52625d;font-weight:600;white-space:nowrap;line-height:1;align-self:center}",
       ".au-list{flex:1 1 auto;overflow:auto;padding:0;scrollbar-gutter:stable}",
       ".au-item.is-active{background:#fff7e6}",
