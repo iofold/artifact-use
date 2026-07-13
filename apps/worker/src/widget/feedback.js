@@ -1435,10 +1435,12 @@
     return matchMedia("(max-width:640px)").matches;
   }
   function clampPanelPos(x, y) {
+    // Keep the WHOLE panel on-screen — a half-dragged-off panel hides the
+    // composer with no obvious way back.
     var r = panel.getBoundingClientRect();
     return {
       x: Math.min(Math.max(8, x), Math.max(8, innerWidth - r.width - 8)),
-      y: Math.min(Math.max(8, y), Math.max(8, innerHeight - 56)),
+      y: Math.min(Math.max(8, y), Math.max(8, innerHeight - r.height - 8)),
     };
   }
   function applyPanelPos(pos) {
