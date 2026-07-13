@@ -115,6 +115,7 @@ export async function createComment(
     target?: unknown;
     page_path?: unknown;
     version_id?: unknown;
+    client_ref?: unknown;
   },
 ): Promise<CommentWriteResult> {
   const text = String(input.body || "")
@@ -147,24 +148,37 @@ export async function createComment(
   );
   const versionId =
     cleanStr(input.version_id, 64) || artifact.current_version_id || null;
+  const clientRef = cleanStr(input.client_ref, 64) || null;
   const createdAt = nowSec();
-  const inserted = await env.DB.prepare(
-    `INSERT INTO comments
-     (artifact_id, view_id, email, body, target_json, page_path, version_id, parent_comment_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-  )
-    .bind(
-      artifact.id,
-      author.viewId,
-      author.email,
-      text,
-      targetJson,
-      pagePath,
-      versionId,
-      parent?.id || null,
-      createdAt,
+  let inserted;
+  try {
+    inserted = await env.DB.prepare(
+      `INSERT INTO comments
+     (artifact_id, view_id, email, body, target_json, page_path, version_id, parent_comment_id, client_ref, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
-    .run();
+      .bind(
+        artifact.id,
+        author.viewId,
+        author.email,
+        text,
+        targetJson,
+        pagePath,
+        versionId,
+        parent?.id || null,
+        clientRef,
+        createdAt,
+      )
+      .run();
+  } catch (e) {
+    // A retry after a lost response trips the (artifact_id, client_ref)
+    // unique index; return the already-created comment instead.
+    if (clientRef && String(e).includes("UNIQUE")) {
+      const existing = await commentByClientRef(env, artifact.id, clientRef);
+      if (existing) return { ok: true, comment: apiComment(existing) };
+    }
+    throw e;
+  }
   return {
     ok: true,
     comment: apiComment({
@@ -222,6 +236,19 @@ export async function reanchorComment(
     .bind(targetJson, pagePath, id, artifact.id)
     .run();
   return { id, target_json: targetJson };
+}
+
+async function commentByClientRef(
+  env: Env,
+  artifactId: string,
+  clientRef: string,
+): Promise<CommentRow | null> {
+  return await env.DB.prepare(
+    `SELECT ${ROW_COLUMNS} FROM comments c
+     WHERE c.artifact_id = ? AND c.client_ref = ? AND c.deleted_at IS NULL`,
+  )
+    .bind(artifactId, clientRef)
+    .first<CommentRow>();
 }
 
 async function commentExists(

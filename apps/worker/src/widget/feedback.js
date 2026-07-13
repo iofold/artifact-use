@@ -468,12 +468,29 @@
     roots.sort(function (a, b) {
       return Number(b.created_at || b.id) - Number(a.created_at || a.id);
     });
-    if (!roots.length) {
+    // Unsent outbox items render inline: roots on top, replies in-thread.
+    var pendingRoots = [],
+      pendingReplies = {};
+    outbox.forEach(function (p) {
+      if (
+        scope === "page" &&
+        p.page_path &&
+        !samePath(p.page_path, currentPath())
+      )
+        return;
+      if (p.parent_id) {
+        var pk = String(p.parent_id);
+        (pendingReplies[pk] || (pendingReplies[pk] = [])).push(p);
+      } else pendingRoots.push(p);
+    });
+    if (!roots.length && !pendingRoots.length) {
       showMessage(
         scope === "page" ? "No comments on this page yet." : "No comments yet.",
       );
       return;
     }
+    for (var pi = pendingRoots.length - 1; pi >= 0; pi--)
+      list.appendChild(pendingNode(pendingRoots[pi]));
     roots.forEach(function (c) {
       var item = el("div", "au-item" + (c.resolved_at ? " is-resolved" : ""));
       item.dataset.auId = c.id;
@@ -481,12 +498,16 @@
       item.appendChild(commentNode(c, false));
       item.appendChild(replyBox(c));
       var rs = replies[String(c.id)] || [];
-      if (rs.length) {
+      var pr = pendingReplies[String(c.id)] || [];
+      if (rs.length || pr.length) {
         var wrap = el("div", "au-replies");
         rs.sort(function (a, b) {
           return Number(a.created_at || a.id) - Number(b.created_at || b.id);
         }).forEach(function (r) {
           wrap.appendChild(commentNode(r, true));
+        });
+        pr.forEach(function (p) {
+          wrap.appendChild(pendingNode(p, true));
         });
         item.appendChild(wrap);
       }
@@ -579,10 +600,10 @@
     send.onclick = function () {
       var body = area.value.trim();
       if (!body) return;
-      withBusy(send, "Sending…", async function () {
-        if (await postComment({ body: body, parent_id: c.id, target: t }))
-          area.value = "";
-      });
+      if (enqueueComment({ body: body, parent_id: c.id, target: t })) {
+        area.value = "";
+        box.classList.remove("is-open");
+      }
     };
     cancel.onclick = function () {
       box.classList.remove("is-open");
@@ -696,25 +717,226 @@
       return { ok: false, status: 0 };
     });
   }
-  async function postComment(extra) {
-    var payload = {
-      page_path: currentPath(),
-      version_id: versionId,
-    };
-    for (var k in extra) payload[k] = extra[k];
-    var r = await api("POST", payload);
-    if (r.status === 401) {
-      // No session yet (e.g. a public artifact) — collect an email to mint a
-      // session, then retry the post.
-      if (!(await collectEmail())) return false;
-      r = await api("POST", payload);
+  // ---- outbox: durable async posting ----
+  // Comments enqueue locally (mirrored to localStorage) and a single-flight
+  // drain loop posts them with a client_ref so retries after lost responses
+  // never double-post. Posting never blocks composing the next comment, and
+  // unsent comments survive reloads.
+  var outboxKey = "au_outbox_" + artifactKey;
+  var outbox = [];
+  var draining = false;
+  var drainTimer = null;
+  var pauseUntil = 0;
+  var authPromptOpen = false;
+  function loadOutbox() {
+    try {
+      outbox = JSON.parse(localStorage.getItem(outboxKey) || "[]") || [];
+    } catch (e) {
+      outbox = [];
     }
-    if (!r.ok) {
-      showToast("Could not post comment.");
+    // A reload mid-send leaves "sending"; the client_ref makes re-posting safe.
+    outbox.forEach(function (it) {
+      if (it.state === "sending") it.state = "queued";
+    });
+  }
+  function saveOutbox() {
+    try {
+      localStorage.setItem(outboxKey, JSON.stringify(outbox));
+    } catch (e) {}
+  }
+  function newRef() {
+    try {
+      return crypto.randomUUID();
+    } catch (e) {
+      return "ref_" + Date.now() + "_" + Math.random().toString(36).slice(2);
+    }
+  }
+  function enqueueComment(fields) {
+    if (outbox.length >= 20) {
+      showToast("Too many unsent comments — retry or discard some first.");
       return false;
     }
-    await load();
+    outbox.push({
+      ref: newRef(),
+      body: fields.body,
+      parent_id: fields.parent_id || null,
+      target: fields.target || null,
+      page_path: currentPath(),
+      version_id: versionId,
+      state: "queued",
+      tries: 0,
+    });
+    saveOutbox();
+    renderList(allComments);
+    drain();
     return true;
+  }
+  function scheduleDrain(ms) {
+    clearTimeout(drainTimer);
+    drainTimer = setTimeout(drain, ms);
+  }
+  function nextQueued() {
+    for (var i = 0; i < outbox.length; i++)
+      if (outbox[i].state === "queued") return outbox[i];
+    return null;
+  }
+  async function drain() {
+    if (draining) return;
+    if (Date.now() < pauseUntil) {
+      scheduleDrain(pauseUntil - Date.now() + 100);
+      return;
+    }
+    var item = nextQueued();
+    if (!item) {
+      // Queue drained: one reconciling refresh for ordering/badges.
+      if (outbox.length === 0) scheduleLoad();
+      return;
+    }
+    draining = true;
+    item.state = "sending";
+    saveOutbox();
+    renderList(allComments);
+    var r = await api("POST", {
+      body: item.body,
+      parent_id: item.parent_id || undefined,
+      target: item.target || undefined,
+      page_path: item.page_path,
+      version_id: item.version_id,
+      client_ref: item.ref,
+    });
+    draining = false;
+    if (r.ok) {
+      outbox = outbox.filter(function (x) {
+        return x !== item;
+      });
+      saveOutbox();
+      var j = null;
+      try {
+        j = await r.json();
+      } catch (e) {}
+      if (j && j.comment) allComments.push(j.comment);
+      refreshBadge();
+      renderList(allComments);
+      renderPins();
+      drain();
+      return;
+    }
+    if (r.status === 401) {
+      // No viewer session yet — collect an email once, then resume.
+      outbox.forEach(function (it) {
+        if (it.state === "sending" || it.state === "queued") it.state = "auth";
+      });
+      saveOutbox();
+      renderList(allComments);
+      resumeAuth();
+      return;
+    }
+    if (r.status === 429) {
+      var retry =
+        Number(r.headers && r.headers.get && r.headers.get("Retry-After")) ||
+        15;
+      pauseUntil = Date.now() + retry * 1000;
+      item.state = "queued";
+      saveOutbox();
+      renderList(allComments);
+      scheduleDrain(retry * 1000 + 250);
+      return;
+    }
+    if (r.status >= 400 && r.status < 500) {
+      // Non-retryable client error (bad body, gone artifact, ...).
+      item.state = "failed";
+      saveOutbox();
+      renderList(allComments);
+      drain();
+      return;
+    }
+    // Network failure / 5xx: back off, then give up into an explicit
+    // retry/discard state — never silently drop.
+    item.tries = (item.tries || 0) + 1;
+    if (item.tries >= 3) {
+      item.state = "failed";
+      saveOutbox();
+      renderList(allComments);
+      drain();
+      return;
+    }
+    item.state = "queued";
+    saveOutbox();
+    renderList(allComments);
+    scheduleDrain(
+      Math.min(2000 * Math.pow(2, item.tries), 30000) + Math.random() * 500,
+    );
+  }
+  async function resumeAuth() {
+    if (authPromptOpen) return;
+    authPromptOpen = true;
+    var ok = await collectEmail();
+    authPromptOpen = false;
+    if (!ok) return; // items stay parked with an "Add email" action
+    outbox.forEach(function (it) {
+      if (it.state === "auth") it.state = "queued";
+    });
+    saveOutbox();
+    renderList(allComments);
+    drain();
+  }
+  var loadTimer = null;
+  function scheduleLoad() {
+    clearTimeout(loadTimer);
+    loadTimer = setTimeout(load, 400);
+  }
+  function pendingNode(item, isReply) {
+    var wrap = el("div", "au-item is-pending");
+    if (isReply) wrap.className = "au-reply is-pending";
+    var inner = el("div", "au-comment");
+    var meta = el("div", "au-meta");
+    if (item.target && item.target.label)
+      meta.appendChild(el("span", "au-target-label", item.target.label));
+    var chip;
+    if (item.state === "failed")
+      chip = el("span", "au-chip au-chip-failed", "Couldn't post");
+    else if (item.state === "auth")
+      chip = el("span", "au-chip au-chip-auth", "Add your email to post");
+    else if (pauseUntil > Date.now())
+      chip = el("span", "au-chip au-chip-sending", "Rate limited — retrying");
+    else chip = el("span", "au-chip au-chip-sending", "Sending…");
+    meta.appendChild(chip);
+    inner.appendChild(meta);
+    inner.appendChild(el("div", "au-textline", item.body));
+    wrap.appendChild(inner);
+    if (item.state === "failed" || item.state === "auth") {
+      var actions = el("div", "au-comment-actions");
+      var retry = el(
+        "button",
+        "au-link",
+        item.state === "auth" ? "Add email" : "Retry",
+      );
+      retry.type = "button";
+      retry.onclick = function () {
+        if (item.state === "auth") {
+          resumeAuth();
+          return;
+        }
+        item.state = "queued";
+        item.tries = 0;
+        saveOutbox();
+        renderList(allComments);
+        drain();
+      };
+      var discard = el("button", "au-link au-reanchor", "Discard");
+      discard.type = "button";
+      discard.onclick = function () {
+        outbox = outbox.filter(function (x) {
+          return x !== item;
+        });
+        saveOutbox();
+        renderList(allComments);
+      };
+      actions.appendChild(retry);
+      actions.appendChild(discard);
+      wrap.appendChild(actions);
+    }
+    return wrap;
   }
   // Show the inline email field, mint a viewer session via the email gate, and
   // resolve true once authenticated. Used to authorize comments on public
@@ -1164,16 +1386,15 @@
   });
   $("[data-send]").onclick = function () {
     var t = $("[data-body]"),
-      body = t.value.trim(),
-      sendBtn = $("[data-send]");
+      body = t.value.trim();
     if (!body) return;
-    withBusy(sendBtn, "Sending…", async function () {
-      if (await postComment({ body: body, target: target })) {
-        t.value = "";
-        clearTarget();
-        openComposer(false);
-      }
-    });
+    // Posting is async via the outbox; the composer stays open and focused so
+    // the next comment can be typed immediately.
+    if (enqueueComment({ body: body, target: target })) {
+      t.value = "";
+      clearTarget();
+      focusBody();
+    }
   };
 
   function onViewport() {
@@ -1287,8 +1508,11 @@
   });
 
   renderTarget();
+  loadOutbox();
   // prime the badge even while the panel is closed.
   load();
+  // resume any unsent comments from a previous page view.
+  drain();
   handleDeepLink();
   // surface the agent CTA shortly after load (unless dismissed / panel open).
   setTimeout(showCta, 1500);
@@ -1376,6 +1600,11 @@
       ".au-chip{font-weight:800;border-radius:4px;padding:1px 6px}",
       ".au-anchor-missing{background:#fdeaea;color:#a3271f}",
       ".au-anchor-hidden{background:#eef1f0;color:#5a6c66}",
+      ".au-item.is-pending{background:#fbfdfc}",
+      ".au-reply.is-pending{opacity:.85}",
+      ".au-chip-sending{background:#eef4f2;color:#33504a}",
+      ".au-chip-failed{background:#fdeaea;color:#a3271f}",
+      ".au-chip-auth{background:#fff3d6;color:#8a5b00}",
       ".au-pin{position:fixed;display:none;align-items:center;justify-content:center;z-index:2147483646;min-width:22px;height:22px;padding:0 5px;border:2px solid #fff;border-radius:11px;background:#12686d;color:#fff;font-size:12px;font-weight:800;cursor:pointer;box-shadow:0 3px 10px rgba(0,0,0,.3);pointer-events:auto}",
       ".au-pin:hover{background:#0c585b;transform:scale(1.08)}",
       "button:focus-visible,input:focus-visible{outline:2px solid #2a7d82;outline-offset:1px}",

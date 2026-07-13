@@ -285,6 +285,7 @@ export async function handleComments(
       parent_id?: unknown;
       page_path?: unknown;
       version_id?: unknown;
+      client_ref?: unknown;
     };
     const artifact = await getArtifactByUrlKey(env, body.artifact_key || "");
     if (!artifact)
