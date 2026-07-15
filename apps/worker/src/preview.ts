@@ -70,7 +70,7 @@ export function injectArtifactMetadata(
 
 export function isLinkPreviewRequest(request: Request): boolean {
   const userAgent = request.headers.get("User-Agent") || "";
-  return /(?:Slackbot(?:-LinkExpanding)?|Twitterbot|facebookexternalhit|Facebot|WhatsApp|LinkedInBot|Discordbot|TelegramBot|Pinterestbot|SkypeUriPreview|TeamsBot|MSTeams|MicrosoftPreview|Applebot|Iframely|Embedly|Quora Link Preview)/i.test(
+  return /(?:Slackbot(?:-LinkExpanding)?|Twitterbot|facebookexternalhit|Facebot|WhatsApp|LinkedInBot|Discordbot|TelegramBot|Pinterestbot|SkypeUriPreview|TeamsBot|MSTeams|MicrosoftPreview|Applebot|Iframely|Embedly|Quora Link Preview|OpenGraphXYZBot)/i.test(
     userAgent,
   );
 }
@@ -82,8 +82,7 @@ export function renderArtifactPreviewDocument(
 ): Response {
   const description = previewDescription(artifact);
   const type = previewTypeLabel(contentType);
-  const access = accessLabel(artifact.gate_level);
-  const body = `<!doctype html><html lang="en"><head><title>${escapeHtml(artifact.title)}</title></head><body><main><p>ARTIFACT USE · ${escapeHtml(type)}</p><h1>${escapeHtml(artifact.title)}</h1><p>${escapeHtml(description)}</p><p>${escapeHtml(access)}</p></main></body></html>`;
+  const body = `<!doctype html><html lang="en"><head><title>${escapeHtml(artifact.title)}</title></head><body><main><p>ARTIFACT USE · ${escapeHtml(type)}</p><h1>${escapeHtml(artifact.title)}</h1><p>${escapeHtml(description)}</p><p>LLM-agnostic artifacts with feedback loops.</p></main></body></html>`;
   return new Response(
     injectArtifactMetadata(body, env, artifact, contentType),
     {
@@ -106,7 +105,6 @@ export function renderPreviewCardHtml(
 ): string {
   const title = escapeHtml(artifact.title);
   const description = escapeHtml(previewDescription(artifact));
-  const access = escapeHtml(accessLabel(artifact.gate_level));
   const type = escapeHtml(previewTypeLabel(contentType));
   const host = escapeHtml(safeHost(env));
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><style>
@@ -120,14 +118,14 @@ body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,
 h1{margin:50px 0 21px;max-width:760px;font-family:Iowan Old Style,Palatino Linotype,Book Antiqua,Georgia,serif;font-size:66px;line-height:.98;letter-spacing:-.047em;font-weight:700;text-wrap:balance;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .summary{margin:0;max-width:735px;color:#4e5d56;font-size:25px;line-height:1.32;letter-spacing:-.015em;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
 .ledger{margin-top:auto;padding-top:24px;border-top:2px solid #132420;display:flex;gap:11px;align-items:center;color:#132420;font:750 16px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.045em;text-transform:uppercase}
-.pill{flex:none;white-space:nowrap;border:1.5px solid #132420;padding:9px 12px;background:#f6f4ec}.pill.access{background:#d8ff4a}.slug{margin-left:auto;max-width:370px;overflow:hidden;white-space:nowrap;color:#68726c;font-size:14px;text-transform:none;letter-spacing:0}
+.promise{flex:none;display:flex;flex-direction:column;gap:4px;white-space:nowrap;border:1.5px solid #132420;padding:7px 10px 6px;background:#d8ff4a}.promise strong{font-size:14px;line-height:1;letter-spacing:.035em}.promise small{font:800 11px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.085em}.pill{flex:none;white-space:nowrap;border:1.5px solid #132420;padding:9px 10px;background:#f6f4ec;font-size:14px}.slug{min-width:0;margin-left:auto;max-width:370px;overflow:hidden;white-space:nowrap;color:#68726c;font-size:13px;text-transform:none;letter-spacing:0}
 .mark{position:relative;z-index:1;display:flex;align-items:center;justify-content:center}
 .document{position:relative;width:266px;height:356px;background:#f6f4ec;border:3px solid #132420;box-shadow:11px 11px 0 #d8ff4a}
 .document:before{content:"";position:absolute;right:-3px;top:-3px;width:85px;height:85px;background:linear-gradient(45deg,#fffdf7 0 48%,#132420 49% 51%,#0b5d52 52%);clip-path:polygon(0 0,100% 100%,0 100%);transform:rotate(180deg)}
 .line{position:absolute;left:35px;height:9px;background:#0b5d52}.l1{top:142px;width:170px}.l2{top:177px;width:154px}.l3{top:212px;width:177px}.l4{top:247px;width:110px}
 .seal{position:absolute;right:-31px;bottom:35px;width:102px;height:102px;border-radius:50%;background:#d8ff4a;border:3px solid #132420;display:grid;place-items:center;text-align:center;font:900 13px/1.08 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.09em;transform:rotate(-7deg);box-shadow:7px 7px 0 #0b5d52}
 .folio{position:absolute;right:24px;bottom:17px;color:#68726c;font:700 13px/1 ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:.04em}
-</style></head><body><section class="sheet"><div class="copy"><div class="eyebrow"><span class="register"></span>ARTIFACT USE <span>—</span> PUBLISHED</div><h1>${title}</h1><p class="summary">${description}</p><div class="ledger"><span class="pill access">${access}</span><span class="pill">${type}</span><span class="slug">${host}</span></div></div><div class="mark" aria-hidden="true"><div class="document"><span class="line l1"></span><span class="line l2"></span><span class="line l3"></span><span class="line l4"></span><span class="seal">SHARED<br>ARTIFACT</span><span class="folio">AU / 01</span></div></div></section></body></html>`;
+</style></head><body><section class="sheet"><div class="copy"><div class="eyebrow"><span class="register"></span>ARTIFACT USE <span>—</span> PUBLISHED</div><h1>${title}</h1><p class="summary">${description}</p><div class="ledger"><span class="promise"><strong>LLM-AGNOSTIC ARTIFACTS</strong><small>WITH FEEDBACK LOOPS</small></span><span class="pill">${type}</span><span class="slug">${host}</span></div></div><div class="mark" aria-hidden="true"><div class="document"><span class="line l1"></span><span class="line l2"></span><span class="line l3"></span><span class="line l4"></span><span class="seal">SHARED<br>ARTIFACT</span><span class="folio">AU / 01</span></div></div></section></body></html>`;
 }
 
 export async function handleArtifactPreviewAsset(
@@ -232,13 +230,6 @@ function previewTypeLabel(contentType: string): string {
   if (mediaType.startsWith("audio/")) return "AUDIO";
   if (mediaType.startsWith("text/")) return "DOCUMENT";
   return "FILE";
-}
-
-function accessLabel(level: Artifact["gate_level"]): string {
-  if (level === "public") return "PUBLIC";
-  if (level === "email") return "EMAIL ACCESS";
-  if (level === "verified_email") return "VERIFIED EMAIL";
-  return "ALLOWLIST";
 }
 
 function safeHost(env: Env): string {

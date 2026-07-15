@@ -13,6 +13,7 @@ import {
   handleArtifactPreviewAsset,
   injectArtifactMetadata,
   isLinkPreviewRequest,
+  renderArtifactPreviewDocument,
   renderPreviewCardHtml,
 } from "../src/preview.ts";
 import { servePublic } from "../src/serve.ts";
@@ -127,14 +128,42 @@ test("preview card and favicon use the Artifact Use visual language", () => {
   assert.match(card, /ARTIFACT USE/);
   assert.match(card, /Launch brief &amp; next steps/);
   assert.match(card, /A concise rollout brief/);
-  assert.match(card, /VERIFIED EMAIL/);
+  assert.match(card, /LLM-AGNOSTIC ARTIFACTS/);
+  assert.match(card, /WITH FEEDBACK LOOPS/);
   assert.match(card, /INTERACTIVE/);
   assert.match(card, /#d8ff4a/i);
-  assert.doesNotMatch(card, /recipient|share-secret|viewer@example\.com/i);
+  assert.doesNotMatch(
+    card,
+    /PUBLIC|EMAIL ACCESS|VERIFIED EMAIL|ALLOWLIST|recipient|share-secret|viewer@example\.com/i,
+  );
 
   assert.match(ARTIFACT_FAVICON_SVG, /^<svg[^>]+viewBox="0 0 64 64"/);
   assert.match(ARTIFACT_FAVICON_SVG, /#d8ff4a/i);
   assert.match(ARTIFACT_FAVICON_SVG, /<path/);
+});
+
+test("public preview surfaces never disclose the artifact gate policy", async () => {
+  for (const gateLevel of [
+    "public",
+    "email",
+    "verified_email",
+    "allowlist",
+  ] as const) {
+    const gatedArtifact = { ...artifact, gate_level: gateLevel };
+    const card = renderPreviewCardHtml(baseEnv(), gatedArtifact, "text/html");
+    const document = await renderArtifactPreviewDocument(
+      baseEnv(),
+      gatedArtifact,
+      "text/html",
+    ).text();
+
+    assert.doesNotMatch(
+      `${card}\n${document}`,
+      /PUBLIC|EMAIL ACCESS|VERIFIED EMAIL|ALLOWLIST/,
+      gateLevel,
+    );
+    assert.match(document, /LLM-agnostic artifacts with feedback loops\./);
+  }
 });
 
 test("preview card compacts long deployment hosts without an accidental ellipsis", () => {
@@ -158,6 +187,7 @@ test("link-preview clients are detected without treating normal browsers as craw
     "WhatsApp/2.23",
     "LinkedInBot/1.0",
     "Discordbot/2.0",
+    "OpenGraphXYZBot/1.0",
   ]) {
     assert.equal(
       isLinkPreviewRequest(
@@ -191,7 +221,7 @@ test("gated crawler response is a 200 preview envelope and never leaks tracked-s
   const response = await servePublic(
     new Request(
       "https://artifacts.example.com/go/launch-brief-a1b2c3/?v=share-secret",
-      { headers: { "User-Agent": "Slackbot-LinkExpanding 1.0" } },
+      { headers: { "User-Agent": "OpenGraphXYZBot/1.0" } },
     ),
     state.env,
     "/go/launch-brief-a1b2c3/",
