@@ -49,10 +49,12 @@ export default function Connect() {
           <p className="eyebrow">Agent setup</p>
           <h1>Connect an agent</h1>
           <p className="muted">
-            Copy one compact handoff. The agent identifies its own harness and
-            follows the matching path in <a href="/llms.txt">/llms.txt</a>.
+            Paste the prompt below into your agent. It identifies its own
+            harness and follows the matching path in{" "}
+            <a href="/llms.txt">/llms.txt</a>.
             <span className="approve-line">
-              Agent already has a code? Review it below.
+              Already have a code?{" "}
+              <a href="#device-approval">Use device approval at the bottom.</a>
             </span>
           </p>
         </div>
@@ -65,117 +67,53 @@ export default function Connect() {
           </div>
         ) : (
           <div className="setup-grid">
-            <section className="connect-approval">
-              <div>
-                <p className="eyebrow">Device approval</p>
-                <h2>Review an agent code</h2>
-                <p className="muted">
-                  Only approve a code from an agent session you or a teammate
-                  started. Approval grants that agent publish access for 30
-                  days.
-                </p>
-              </div>
-              <form
-                className="connect-code-form"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const nextCode = code.trim();
-                  setApproved(null);
-                  approve.reset();
-                  setReviewCode(nextCode);
-                  setSearchParams(nextCode ? { code: nextCode } : {}, {
-                    replace: true,
-                  });
-                }}
-              >
-                <div>
-                  <label htmlFor="connect-code">Connect code</label>
-                  <input
-                    id="connect-code"
-                    value={code}
-                    onChange={(event) => setCode(event.target.value)}
-                    placeholder="ABCD-2345"
-                    autoComplete="one-time-code"
-                    required
-                  />
-                </div>
-                <button type="submit" disabled={isFetching}>
-                  {isFetching ? "Checking…" : "Review code"}
-                </button>
-              </form>
-              {approved ? (
-                <div className="approval-result success-box" role="status">
-                  <span>
-                    <strong>{approved.label} approved</strong>
-                    <small>
-                      The agent receives its token on its next poll. You can
-                      revoke it below at any time.
-                    </small>
-                  </span>
-                </div>
-              ) : reviewCode && !isFetching && data.pending ? (
-                <div className="approval-result">
-                  <span>
-                    <strong>
-                      {data.pending.agentLabel || "Unnamed agent"}
-                    </strong>
-                    <small>
-                      Pending code {data.pending.code} · expires 15 minutes
-                      after the request started
-                    </small>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => approve.mutate()}
-                    disabled={approve.isPending}
-                  >
-                    {approve.isPending ? "Approving…" : "Approve agent"}
-                  </button>
-                </div>
-              ) : reviewCode && !isFetching ? (
-                <p className="error-box" role="alert">
-                  No pending request matches this code. It may have expired or
-                  already been approved.
-                </p>
-              ) : null}
-              {approve.isError ? (
-                <p className="error-box" role="alert">
-                  The code could not be approved. Review it again and retry.
-                </p>
-              ) : null}
-            </section>
             {data.quick ? (
               <section className="setup-handoff">
                 <div>
-                  <p className="eyebrow">Universal handoff</p>
-                  <h2>One short prompt. The agent picks the path.</h2>
+                  <p className="eyebrow">Recommended</p>
+                  <h2>Paste this prompt into your agent.</h2>
                   <p className="muted">
-                    It contains one workspace-scoped token and a pointer to the
-                    harness guide. The credential is not displayed on this page.
+                    This is the canonical setup for Codex, Claude, ChatGPT, and
+                    other agents. It carries a workspace-scoped credential and
+                    tells the agent how to connect from its current harness.
                   </p>
                 </div>
-                <div className="handoff-actions">
-                  <CopyButton
-                    text={data.quick.prompt}
-                    label="Copy setup prompt"
-                    className="button setup-copy"
-                    icon
+                <div className="setup-prompt">
+                  <label htmlFor="agent-setup-prompt">Agent setup prompt</label>
+                  <textarea
+                    id="agent-setup-prompt"
+                    aria-label="Agent setup prompt"
+                    value={data.quick.prompt}
+                    readOnly
+                    spellCheck={false}
+                    rows={7}
                   />
-                  <a
-                    className="button ghost"
-                    href="/llms.txt"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    Read harness guide ↗
-                  </a>
+                  <div className="handoff-actions">
+                    <CopyButton
+                      text={data.quick.prompt}
+                      label="Copy setup prompt"
+                      className="button setup-copy"
+                      icon
+                    />
+                    <a
+                      className="button ghost"
+                      href="/llms.txt"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Read harness guide ↗
+                    </a>
+                  </div>
                 </div>
                 <p className="mini">
                   <span>
                     Valid until {dateLabel(data.quick.expiresAt)} · publish,
                     read, access, stats, and comments
                   </span>
-                  <span>To rotate, revoke “Quick connect” below.</span>
+                  <span>
+                    This prompt contains a credential. Paste it only into the
+                    agent you want to authorize.
+                  </span>
                 </p>
               </section>
             ) : (
@@ -185,22 +123,29 @@ export default function Connect() {
               </div>
             )}
             <details className="manual">
-              <summary>Quick connect &amp; token management</summary>
+              <summary>Rotate prompt &amp; manage agent tokens</summary>
               <div className="setup-grid">
                 {minted ? (
-                  <div className="minted-prompt-row">
-                    <span>
-                      <strong>{minted.label || "Agent prompt"} is ready</strong>
-                      <small>
-                        Valid until {dateLabel(minted.expiresAt)} · shown only
-                        as a copy action
-                      </small>
-                    </span>
-                    <CopyButton
-                      text={minted.prompt}
-                      label="Copy prompt"
-                      className="button small"
+                  <div className="setup-prompt setup-prompt-rotated">
+                    <label htmlFor="new-agent-setup-prompt">
+                      {minted.label || "Agent prompt"} · valid until{" "}
+                      {dateLabel(minted.expiresAt)}
+                    </label>
+                    <textarea
+                      id="new-agent-setup-prompt"
+                      aria-label="New agent setup prompt"
+                      value={minted.prompt}
+                      readOnly
+                      spellCheck={false}
+                      rows={7}
                     />
+                    <div className="handoff-actions">
+                      <CopyButton
+                        text={minted.prompt}
+                        label="Copy prompt"
+                        className="button small"
+                      />
+                    </div>
                   </div>
                 ) : null}
                 <form
@@ -270,6 +215,85 @@ export default function Connect() {
                 </p>
               </div>
             </details>
+            <section className="connect-approval" id="device-approval">
+              <div>
+                <p className="eyebrow">Fallback</p>
+                <h2>Approve a device code</h2>
+                <p className="muted">
+                  Use this only when an agent has already started device
+                  authorization and shown you a code. Only approve a request you
+                  or a teammate initiated.
+                </p>
+              </div>
+              <form
+                className="connect-code-form"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const nextCode = code.trim();
+                  setApproved(null);
+                  approve.reset();
+                  setReviewCode(nextCode);
+                  setSearchParams(nextCode ? { code: nextCode } : {}, {
+                    replace: true,
+                  });
+                }}
+              >
+                <div>
+                  <label htmlFor="connect-code">Device code</label>
+                  <input
+                    id="connect-code"
+                    value={code}
+                    onChange={(event) => setCode(event.target.value)}
+                    placeholder="ABCD-2345"
+                    autoComplete="one-time-code"
+                    required
+                  />
+                </div>
+                <button type="submit" disabled={isFetching}>
+                  {isFetching ? "Checking…" : "Review code"}
+                </button>
+              </form>
+              {approved ? (
+                <div className="approval-result success-box" role="status">
+                  <span>
+                    <strong>{approved.label} approved</strong>
+                    <small>
+                      The agent receives its token on its next poll. You can
+                      revoke it above at any time.
+                    </small>
+                  </span>
+                </div>
+              ) : reviewCode && !isFetching && data.pending ? (
+                <div className="approval-result">
+                  <span>
+                    <strong>
+                      {data.pending.agentLabel || "Unnamed agent"}
+                    </strong>
+                    <small>
+                      Pending code {data.pending.code} · expires 15 minutes
+                      after the request started
+                    </small>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => approve.mutate()}
+                    disabled={approve.isPending}
+                  >
+                    {approve.isPending ? "Approving…" : "Approve agent"}
+                  </button>
+                </div>
+              ) : reviewCode && !isFetching ? (
+                <p className="error-box" role="alert">
+                  No pending request matches this code. It may have expired or
+                  already been approved.
+                </p>
+              ) : null}
+              {approve.isError ? (
+                <p className="error-box" role="alert">
+                  The code could not be approved. Review it again and retry.
+                </p>
+              ) : null}
+            </section>
           </div>
         )}
       </section>

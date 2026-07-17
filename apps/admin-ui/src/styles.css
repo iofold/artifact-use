@@ -232,10 +232,16 @@ code {
   display: grid;
   gap: 16px;
   border: 1px solid var(--line);
-  border-left: 4px solid var(--accent);
   border-radius: 8px;
-  background: var(--panel);
+  background: rgba(255, 253, 247, 0.62);
   padding: 18px;
+}
+#device-approval {
+  scroll-margin-top: 82px;
+}
+#device-approval:target {
+  border-color: var(--accent);
+  box-shadow: inset 4px 0 0 var(--accent);
 }
 .connect-approval h2 {
   margin: 0 0 5px;
@@ -1228,9 +1234,7 @@ code {
 }
 .setup-handoff {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 20px 28px;
+  gap: 18px;
   background: var(--panel);
   border: 1px solid var(--accent);
   border-radius: 8px;
@@ -1247,7 +1251,45 @@ code {
 }
 .setup-handoff .muted {
   margin: 8px 0 0;
-  max-width: 64ch;
+  max-width: 72ch;
+}
+.setup-prompt {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #2f4b44;
+  border-radius: 7px;
+  background: var(--dark);
+  box-shadow: 0 9px 24px rgba(19, 36, 32, 0.12);
+}
+.setup-prompt label {
+  margin: 0;
+  color: var(--lume);
+}
+.setup-prompt textarea {
+  min-height: 190px;
+  max-height: 360px;
+  border-color: #47635c;
+  background: #0d1c18;
+  color: #f5f7f2;
+  caret-color: var(--lume);
+  font: 12.5px/1.6 var(--mono);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.setup-prompt textarea:focus {
+  border-color: var(--lume);
+}
+.setup-prompt .button.ghost {
+  border-color: #789a92;
+  color: #d3e6e1;
+}
+.setup-prompt .button.ghost:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+.setup-prompt-rotated {
+  margin-top: 4px;
 }
 .handoff-actions {
   display: flex;
@@ -1283,21 +1325,6 @@ code {
   stroke-linecap: round;
   stroke-linejoin: round;
   stroke-width: 1.35;
-}
-.minted-prompt-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 14px;
-  padding: 12px 14px;
-  border: 1px solid var(--accent);
-  border-radius: 7px;
-  background: rgba(11, 93, 82, 0.04);
-}
-.minted-prompt-row small {
-  display: block;
-  margin-top: 3px;
-  color: var(--muted);
 }
 .copywrap {
   position: relative;
@@ -1499,6 +1526,11 @@ code {
     padding: 6px 8px;
     font-size: 13.5px;
     white-space: nowrap;
+  }
+  .setup-prompt textarea {
+    min-height: 340px;
+    max-height: none;
+    resize: none;
   }
   .approval-result {
     align-items: stretch;

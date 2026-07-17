@@ -138,17 +138,20 @@ function ConnectStrip({ data }: { data: Overview }) {
       <div>
         <strong>Register a new agent</strong>
         <span className="muted">
-          Paste it a prompt with a scoped token, point an OAuth MCP client at{" "}
-          <code>{data.site.mcpUrl}</code>, or approve the code an agent shows
-          you.
+          Start with the visible setup prompt. OAuth MCP clients can also
+          connect at <code>{data.site.mcpUrl}</code>; device codes are a
+          fallback.
         </span>
       </div>
       <div className="strip-actions">
         <Link className="button small" to="/admin/connect">
-          Get connect prompt
+          View setup prompt
         </Link>
-        <Link className="button small ghost" to="/admin/connect">
-          Approve a code
+        <Link
+          className="button small ghost"
+          to="/admin/connect#device-approval"
+        >
+          Approve device code
         </Link>
         <a className="button small ghost" href={data.site.docsUrl}>
           Docs
@@ -275,9 +278,9 @@ function Onboarding({ docsUrl }: { docsUrl: string }) {
       <h2>Connect an agent and publish something.</h2>
       <ol>
         <li>
-          <strong>Connect an agent</strong>Your one-paste prompt is ready — it
-          carries a scoped publish token, so any agent can publish here
-          immediately.
+          <strong>Connect an agent</strong>Open the visible setup prompt and
+          paste it into your agent. It carries a scoped publish token, so the
+          agent can publish here immediately.
         </li>
         <li>
           <strong>Ask for an artifact</strong>"Publish this prototype with an
@@ -290,7 +293,7 @@ function Onboarding({ docsUrl }: { docsUrl: string }) {
       </ol>
       <div className="actions">
         <Link className="button" to="/admin/connect">
-          Connect an agent
+          View setup prompt
         </Link>
         <a className="button ghost" href={docsUrl}>
           Read the docs
