@@ -70,6 +70,91 @@ export async function workosApiMaybe(
   }
 }
 
+export type WorkosDirectoryUser = {
+  id: string;
+  email?: string;
+  name?: string;
+  first_name?: string;
+  last_name?: string;
+  email_verified?: boolean;
+  created_at?: string;
+  updated_at?: string;
+  last_sign_in_at?: string | null;
+};
+
+export type WorkosDirectoryOrganization = {
+  id: string;
+  name?: string;
+  external_id?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type WorkosDirectoryMembership = {
+  id: string;
+  user_id: string;
+  organization_id: string;
+  status?: string;
+  role?: { slug?: string };
+  roles?: Array<{ slug?: string }>;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type WorkosDirectory = {
+  users: WorkosDirectoryUser[];
+  organizations: WorkosDirectoryOrganization[];
+  memberships: WorkosDirectoryMembership[];
+};
+
+async function listWorkosPages<T extends Record<string, unknown>>(
+  env: Env,
+  pathname: string,
+  filters: Record<string, string> = {},
+): Promise<T[]> {
+  const rows: T[] = [];
+  let after: string | null = null;
+  do {
+    const params = new URLSearchParams({ ...filters, limit: "100" });
+    if (after) params.set("after", after);
+    const page = await workosApi(env, {
+      path: `${pathname}?${params.toString()}`,
+    });
+    rows.push(...(asArray(page.data) as T[]));
+    const metadata =
+      page.list_metadata && typeof page.list_metadata === "object"
+        ? (page.list_metadata as Record<string, unknown>)
+        : {};
+    after = stringClaim(metadata.after);
+  } while (after);
+  return rows;
+}
+
+// Super Admin needs the directory itself as its source of truth. Listing
+// organizations first and memberships per organization also preserves users
+// who belong to more than one workspace; neither artifacts nor the current
+// browser session can provide that complete relationship.
+export async function listWorkosDirectory(env: Env): Promise<WorkosDirectory> {
+  const [users, organizations] = await Promise.all([
+    listWorkosPages<WorkosDirectoryUser>(env, "/user_management/users"),
+    listWorkosPages<WorkosDirectoryOrganization>(env, "/organizations"),
+  ]);
+  const membershipGroups = await Promise.all(
+    organizations.map((organization) =>
+      listWorkosPages<WorkosDirectoryMembership>(
+        env,
+        "/user_management/organization_memberships",
+        { organization_id: organization.id },
+      ),
+    ),
+  );
+  return {
+    users,
+    organizations,
+    memberships: membershipGroups.flat(),
+  };
+}
+
 // Get-or-create the per-user WorkOS organization (external_id
 // "artifact-use:<userId>") and make the user an admin member. Shared by the
 // browser /callback bootstrap and the bearer-token path so both onboarding

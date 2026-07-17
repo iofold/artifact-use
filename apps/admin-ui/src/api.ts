@@ -250,9 +250,52 @@ export type SuperModerationEvent = {
   created_at: number;
 };
 
+export type SuperWorkspace = {
+  id: string;
+  name: string | null;
+  created_at: number | null;
+  updated_at: number | null;
+  member_count: number;
+  member_ids: string[];
+  artifacts: number;
+  views: number;
+  comments: number;
+  publisher_count: number;
+  tokens: number;
+  active_tokens: number;
+  suspended: boolean;
+  suspension_reason: string | null;
+  directory_status: "active" | "orphaned";
+};
+
+export type SuperUser = {
+  id: string;
+  email: string | null;
+  name: string | null;
+  email_verified: boolean | null;
+  created_at: number | null;
+  updated_at: number | null;
+  last_sign_in_at: number | null;
+  workspace_ids: string[];
+  memberships: Array<{
+    workspace_id: string;
+    workspace_name: string | null;
+    role: string | null;
+  }>;
+  artifacts: number;
+  views: number;
+  comments: number;
+  tokens: number;
+  active_tokens: number;
+  directory_status: "active" | "orphaned";
+};
+
 export type SuperOverview = {
   me: { sub: string; email: string | null };
   site: Site;
+  users: SuperUser[];
+  workspaces: SuperWorkspace[];
+  directoryError: string | null;
   artifacts: SuperArtifact[];
   daily: { day: string; n: number }[];
   events: SuperEvent[];

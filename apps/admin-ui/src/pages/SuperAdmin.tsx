@@ -7,6 +7,7 @@ import {
   type SuperArtifact,
   type SuperEvent,
   type SuperModerationEvent,
+  type SuperUser,
 } from "../api";
 import {
   BarChart,
@@ -28,6 +29,7 @@ export default function SuperAdmin() {
   });
   const [params, setParams] = useSearchParams();
   const [query, setQuery] = useState("");
+  const [userQuery, setUserQuery] = useState("");
   const [orgFilter, setOrgFilter] = useState("");
   const openId = params.get("open") || "";
   const openArtifact =
@@ -66,20 +68,48 @@ export default function SuperAdmin() {
     );
   }
 
-  const orgs = groupByOrg(data.artifacts);
+  const workspaces = [...data.workspaces].sort(
+    (a, b) =>
+      b.views - a.views ||
+      b.artifacts - a.artifacts ||
+      (a.name || a.id).localeCompare(b.name || b.id),
+  );
+  const workspaceById = new Map(
+    data.workspaces.map((workspace) => [workspace.id, workspace]),
+  );
+  const userById = new Map(data.users.map((user) => [user.id, user]));
   const q = query.trim().toLowerCase();
-  const rows = data.artifacts.filter(
-    (a) =>
-      (!orgFilter || a.org_id === orgFilter) &&
+  const rows = data.artifacts.filter((artifact) => {
+    const workspace = workspaceById.get(artifact.org_id);
+    const owner = userById.get(artifact.created_by);
+    return (
+      (!orgFilter || artifact.org_id === orgFilter) &&
       (!q ||
-        `${a.title} ${a.url_key} ${a.org_id} ${a.created_by} ${a.gate_level} ${a.status}`
+        `${artifact.title} ${artifact.url_key} ${artifact.org_id} ${workspace?.name || ""} ${artifact.created_by} ${owner?.name || ""} ${owner?.email || ""} ${artifact.gate_level} ${artifact.status}`
           .toLowerCase()
-          .includes(q)),
+          .includes(q))
+    );
+  });
+  const userQ = userQuery.trim().toLowerCase();
+  const users = data.users.filter(
+    (user) =>
+      !userQ ||
+      `${user.name || ""} ${user.email || ""} ${user.id} ${user.memberships
+        .map(
+          (membership) =>
+            `${membership.workspace_name || ""} ${membership.workspace_id} ${membership.role || ""}`,
+        )
+        .join(" ")}`
+        .toLowerCase()
+        .includes(userQ),
   );
   const totals = {
     views: data.artifacts.reduce((s, a) => s + a.total_views, 0),
-    gated: data.artifacts.filter((a) => a.gate_level !== "public").length,
     feedback: data.artifacts.reduce((s, a) => s + a.comment_count, 0),
+    activeTokens: data.workspaces.reduce(
+      (sum, workspace) => sum + workspace.active_tokens,
+      0,
+    ),
   };
 
   return (
@@ -95,27 +125,32 @@ export default function SuperAdmin() {
       <section className="headline">
         <div>
           <p className="eyebrow">Super admin</p>
-          <h1>All artifacts</h1>
+          <h1>Directory &amp; artifacts</h1>
           <p className="muted">
-            {data.me.email || data.me.sub} · every workspace on this deployment
+            {data.me.email || data.me.sub} · every WorkOS user and workspace,
+            joined with publishing activity
           </p>
         </div>
         <div className="metrics">
           <div>
-            <strong>{formatNumber(data.artifacts.length)}</strong>
-            <span>Artifacts</span>
+            <strong>{formatNumber(data.users.length)}</strong>
+            <span>Users</span>
           </div>
           <div>
-            <strong>{formatNumber(orgs.length)}</strong>
+            <strong>{formatNumber(workspaces.length)}</strong>
             <span>Workspaces</span>
+          </div>
+          <div>
+            <strong>{formatNumber(data.artifacts.length)}</strong>
+            <span>Artifacts</span>
           </div>
           <div>
             <strong>{formatNumber(totals.views)}</strong>
             <span>Views</span>
           </div>
           <div>
-            <strong>{formatNumber(totals.gated)}</strong>
-            <span>Gated</span>
+            <strong>{formatNumber(totals.activeTokens)}</strong>
+            <span>Active tokens</span>
           </div>
           <div>
             <strong>{formatNumber(totals.feedback)}</strong>
@@ -123,6 +158,13 @@ export default function SuperAdmin() {
           </div>
         </div>
       </section>
+
+      {data.directoryError ? (
+        <p className="error-box directory-error" role="alert">
+          {data.directoryError}. Workspaces and users below are limited to
+          identities still referenced by publishing data.
+        </p>
+      ) : null}
 
       <section
         className="activity-viz"
@@ -141,29 +183,70 @@ export default function SuperAdmin() {
       <section aria-label="Workspaces">
         <div className="art-toolbar">
           <h2>
-            Workspaces <span className="pill">{formatNumber(orgs.length)}</span>
+            Workspaces{" "}
+            <span className="pill">{formatNumber(workspaces.length)}</span>
           </h2>
         </div>
         <div className="org-grid">
-          {orgs.map((org) => (
+          {workspaces.map((workspace) => (
             <button
-              key={org.orgId}
+              key={workspace.id}
               type="button"
-              className={`org-card${orgFilter === org.orgId ? " active" : ""}`}
+              className={`org-card${orgFilter === workspace.id ? " active" : ""}`}
               onClick={() =>
-                setOrgFilter(orgFilter === org.orgId ? "" : org.orgId)
+                setOrgFilter(orgFilter === workspace.id ? "" : workspace.id)
               }
-              title={org.orgId}
+              title={workspace.id}
             >
-              <code>{org.orgId}</code>
+              <strong className="org-name">
+                {workspace.name || "Legacy workspace"}
+              </strong>
+              <code>{workspace.id}</code>
               <span>
-                <strong>{formatNumber(org.artifacts)}</strong> artifacts ·{" "}
-                <strong>{formatNumber(org.views)}</strong> views ·{" "}
-                <strong>{formatNumber(org.feedback)}</strong> feedback
-                {org.suspended ? " · suspended" : ""}
+                <strong>{formatNumber(workspace.member_count)}</strong> members
+                · <strong>{formatNumber(workspace.artifacts)}</strong> artifacts
+                · <strong>{formatNumber(workspace.views)}</strong> views
+              </span>
+              <span>
+                {formatNumber(workspace.comments)} comments ·{" "}
+                {formatNumber(workspace.active_tokens)} active tokens
+                {workspace.suspended ? " · suspended" : ""}
+                {workspace.directory_status === "orphaned"
+                  ? " · missing from WorkOS"
+                  : ""}
               </span>
             </button>
           ))}
+        </div>
+      </section>
+
+      <section className="directory-users" aria-label="Signed up users">
+        <div className="art-toolbar">
+          <h2>
+            Signed up users{" "}
+            <span className="pill">{formatNumber(users.length)}</span>
+          </h2>
+          <input
+            type="search"
+            placeholder="Search name, email, workspace…"
+            aria-label="Search signed up users"
+            value={userQuery}
+            onChange={(event) => setUserQuery(event.target.value)}
+          />
+        </div>
+        <div className="user-table">
+          <div className="user-head">
+            <span>User</span>
+            <span>Workspace access</span>
+            <span>Publishing</span>
+            <span>Signed up / last seen</span>
+          </div>
+          {users.map((user) => (
+            <UserRow key={user.id} user={user} />
+          ))}
+          {!users.length ? (
+            <p className="mini art-none">Nothing matches.</p>
+          ) : null}
         </div>
       </section>
 
@@ -210,8 +293,13 @@ export default function SuperAdmin() {
                 <small>{artifact.path}</small>
               </span>
               <span className="art-owner">
-                <code>{artifact.org_id}</code>
-                <code className="dim">{artifact.created_by}</code>
+                <code>
+                  {workspaceById.get(artifact.org_id)?.name || artifact.org_id}
+                </code>
+                <code className="dim">
+                  {userById.get(artifact.created_by)?.email ||
+                    artifact.created_by}
+                </code>
               </span>
               <span className="art-gate">
                 <span className="pill">{artifact.gate_level}</span>
@@ -297,35 +385,47 @@ export default function SuperAdmin() {
   );
 }
 
-function groupByOrg(artifacts: SuperArtifact[]) {
-  const map = new Map<
-    string,
-    {
-      orgId: string;
-      artifacts: number;
-      views: number;
-      feedback: number;
-      suspended: boolean;
-      reason: string | null;
-    }
-  >();
-  for (const artifact of artifacts) {
-    const entry = map.get(artifact.org_id) || {
-      orgId: artifact.org_id,
-      artifacts: 0,
-      views: 0,
-      feedback: 0,
-      suspended: false,
-      reason: null,
-    };
-    entry.artifacts += 1;
-    entry.views += artifact.total_views;
-    entry.feedback += artifact.comment_count;
-    entry.suspended ||= artifact.org_suspended;
-    entry.reason ||= artifact.org_moderation_reason;
-    map.set(artifact.org_id, entry);
-  }
-  return Array.from(map.values()).sort((a, b) => b.views - a.views);
+function UserRow({ user }: { user: SuperUser }) {
+  return (
+    <div className="user-tr">
+      <span className="user-identity">
+        <strong>{user.name || user.email || "Legacy user"}</strong>
+        {user.name && user.email ? <small>{user.email}</small> : null}
+        <code>{user.id}</code>
+        {user.directory_status === "orphaned" ? (
+          <small className="danger-text">Missing from WorkOS</small>
+        ) : null}
+      </span>
+      <span className="user-memberships">
+        {user.memberships.length ? (
+          user.memberships.map((membership) => (
+            <span className="membership" key={membership.workspace_id}>
+              <strong>
+                {membership.workspace_name || membership.workspace_id}
+              </strong>
+              {membership.role ? <small>{membership.role}</small> : null}
+            </span>
+          ))
+        ) : (
+          <small className="muted">No active workspace membership</small>
+        )}
+      </span>
+      <span className="user-activity">
+        <strong>{formatNumber(user.artifacts)} artifacts</strong>
+        <small>
+          {formatNumber(user.views)} views · {formatNumber(user.comments)}{" "}
+          comments
+        </small>
+        <small>{formatNumber(user.active_tokens)} active tokens</small>
+      </span>
+      <span className="user-dates">
+        <strong>{dateLabel(user.created_at)}</strong>
+        <small>
+          Last seen {user.last_sign_in_at ? ago(user.last_sign_in_at) : "never"}
+        </small>
+      </span>
+    </div>
+  );
 }
 
 function SuperSheet({

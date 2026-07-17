@@ -26,10 +26,14 @@ import {
 import { agentSetupPrompt } from "./llms";
 import {
   ensurePublisherOrganization,
+  listWorkosDirectory,
   stringClaim,
   workosApi,
   workosApiMaybe,
   WorkosApiError,
+  type WorkosDirectoryMembership,
+  type WorkosDirectoryOrganization,
+  type WorkosDirectoryUser,
 } from "./workos";
 import {
   createShareLink,
@@ -192,6 +196,244 @@ type WorkosTeam = {
   invitations: WorkosInvitation[];
   error: string | null;
 };
+
+type SuperDirectoryActivity = {
+  org_id: string;
+  user_id: string;
+  artifacts: number;
+  views: number;
+  comments: number;
+};
+
+type SuperDirectoryTokens = {
+  org_id: string;
+  user_id: string;
+  tokens: number;
+  active_tokens: number;
+};
+
+type SuperDirectorySuspension = {
+  org_id: string;
+  reason: string;
+};
+
+export type SuperDirectoryWorkspace = {
+  id: string;
+  name: string | null;
+  created_at: number | null;
+  updated_at: number | null;
+  member_count: number;
+  member_ids: string[];
+  artifacts: number;
+  views: number;
+  comments: number;
+  publisher_count: number;
+  tokens: number;
+  active_tokens: number;
+  suspended: boolean;
+  suspension_reason: string | null;
+  directory_status: "active" | "orphaned";
+};
+
+export type SuperDirectoryUser = {
+  id: string;
+  email: string | null;
+  name: string | null;
+  email_verified: boolean | null;
+  created_at: number | null;
+  updated_at: number | null;
+  last_sign_in_at: number | null;
+  workspace_ids: string[];
+  memberships: Array<{
+    workspace_id: string;
+    workspace_name: string | null;
+    role: string | null;
+  }>;
+  artifacts: number;
+  views: number;
+  comments: number;
+  tokens: number;
+  active_tokens: number;
+  directory_status: "active" | "orphaned";
+};
+
+function workosTimestamp(value: unknown): number | null {
+  if (typeof value !== "string" || !value) return null;
+  const milliseconds = Date.parse(value);
+  return Number.isFinite(milliseconds) ? Math.floor(milliseconds / 1000) : null;
+}
+
+function workosPersonName(user: WorkosDirectoryUser): string | null {
+  const explicit = stringClaim(user.name);
+  if (explicit) return explicit;
+  const parts = [stringClaim(user.first_name), stringClaim(user.last_name)]
+    .filter(Boolean)
+    .join(" ");
+  return parts || null;
+}
+
+export function buildSuperDirectory(input: {
+  users: WorkosDirectoryUser[];
+  organizations: WorkosDirectoryOrganization[];
+  memberships: WorkosDirectoryMembership[];
+  activity: SuperDirectoryActivity[];
+  tokens: SuperDirectoryTokens[];
+  suspensions?: SuperDirectorySuspension[];
+}): {
+  users: SuperDirectoryUser[];
+  workspaces: SuperDirectoryWorkspace[];
+} {
+  const workspaceMap = new Map<string, SuperDirectoryWorkspace>();
+  const userMap = new Map<string, SuperDirectoryUser>();
+  const memberIds = new Map<string, Set<string>>();
+  const publisherIds = new Map<string, Set<string>>();
+
+  const ensureWorkspace = (
+    id: string,
+    status: "active" | "orphaned" = "orphaned",
+  ): SuperDirectoryWorkspace => {
+    const existing = workspaceMap.get(id);
+    if (existing) return existing;
+    const workspace: SuperDirectoryWorkspace = {
+      id,
+      name: null,
+      created_at: null,
+      updated_at: null,
+      member_count: 0,
+      member_ids: [],
+      artifacts: 0,
+      views: 0,
+      comments: 0,
+      publisher_count: 0,
+      tokens: 0,
+      active_tokens: 0,
+      suspended: false,
+      suspension_reason: null,
+      directory_status: status,
+    };
+    workspaceMap.set(id, workspace);
+    memberIds.set(id, new Set());
+    publisherIds.set(id, new Set());
+    return workspace;
+  };
+  const ensureUser = (
+    id: string,
+    status: "active" | "orphaned" = "orphaned",
+  ): SuperDirectoryUser => {
+    const existing = userMap.get(id);
+    if (existing) return existing;
+    const user: SuperDirectoryUser = {
+      id,
+      email: null,
+      name: null,
+      email_verified: null,
+      created_at: null,
+      updated_at: null,
+      last_sign_in_at: null,
+      workspace_ids: [],
+      memberships: [],
+      artifacts: 0,
+      views: 0,
+      comments: 0,
+      tokens: 0,
+      active_tokens: 0,
+      directory_status: status,
+    };
+    userMap.set(id, user);
+    return user;
+  };
+  const attachUserToWorkspace = (
+    user: SuperDirectoryUser,
+    workspace: SuperDirectoryWorkspace,
+    role: string | null = null,
+  ) => {
+    if (!user.workspace_ids.includes(workspace.id))
+      user.workspace_ids.push(workspace.id);
+    if (
+      !user.memberships.some(
+        (membership) => membership.workspace_id === workspace.id,
+      )
+    )
+      user.memberships.push({
+        workspace_id: workspace.id,
+        workspace_name: workspace.name,
+        role,
+      });
+    memberIds.get(workspace.id)?.add(user.id);
+  };
+
+  for (const organization of input.organizations) {
+    const workspace = ensureWorkspace(organization.id, "active");
+    workspace.name = stringClaim(organization.name);
+    workspace.created_at = workosTimestamp(organization.created_at);
+    workspace.updated_at = workosTimestamp(organization.updated_at);
+    workspace.directory_status = "active";
+  }
+  for (const rawUser of input.users) {
+    const user = ensureUser(rawUser.id, "active");
+    user.email = stringClaim(rawUser.email);
+    user.name = workosPersonName(rawUser);
+    user.email_verified =
+      typeof rawUser.email_verified === "boolean"
+        ? rawUser.email_verified
+        : null;
+    user.created_at = workosTimestamp(rawUser.created_at);
+    user.updated_at = workosTimestamp(rawUser.updated_at);
+    user.last_sign_in_at = workosTimestamp(rawUser.last_sign_in_at);
+    user.directory_status = "active";
+  }
+  for (const membership of input.memberships) {
+    if (membership.status && membership.status !== "active") continue;
+    const workspace = ensureWorkspace(membership.organization_id);
+    const user = ensureUser(membership.user_id);
+    const role =
+      stringClaim(membership.role?.slug) ||
+      membership.roles?.map((item) => stringClaim(item.slug)).find(Boolean) ||
+      null;
+    attachUserToWorkspace(user, workspace, role);
+  }
+  for (const row of input.activity) {
+    const workspace = ensureWorkspace(row.org_id);
+    const user = ensureUser(row.user_id);
+    attachUserToWorkspace(user, workspace);
+    const artifacts = Number(row.artifacts || 0);
+    const views = Number(row.views || 0);
+    const comments = Number(row.comments || 0);
+    workspace.artifacts += artifacts;
+    workspace.views += views;
+    workspace.comments += comments;
+    user.artifacts += artifacts;
+    user.views += views;
+    user.comments += comments;
+    if (artifacts) publisherIds.get(workspace.id)?.add(user.id);
+  }
+  for (const row of input.tokens) {
+    const workspace = ensureWorkspace(row.org_id);
+    const user = ensureUser(row.user_id);
+    attachUserToWorkspace(user, workspace);
+    const tokens = Number(row.tokens || 0);
+    const activeTokens = Number(row.active_tokens || 0);
+    workspace.tokens += tokens;
+    workspace.active_tokens += activeTokens;
+    user.tokens += tokens;
+    user.active_tokens += activeTokens;
+  }
+  for (const row of input.suspensions || []) {
+    const workspace = ensureWorkspace(row.org_id);
+    workspace.suspended = true;
+    workspace.suspension_reason = row.reason;
+  }
+  for (const workspace of workspaceMap.values()) {
+    workspace.member_ids = Array.from(memberIds.get(workspace.id) || []);
+    workspace.member_count = workspace.member_ids.length;
+    workspace.publisher_count = publisherIds.get(workspace.id)?.size || 0;
+  }
+
+  return {
+    users: Array.from(userMap.values()),
+    workspaces: Array.from(workspaceMap.values()),
+  };
+}
 
 const GITHUB_URL = "https://github.com/iofold/artifact-use";
 
@@ -827,7 +1069,29 @@ async function adminSuperJson(
   if (!isSuperAdmin(session, env))
     return error(403, "forbidden", "super admin access is not configured");
   const since30 = nowSec() - 30 * 86400;
-  const [artifacts, dailyRows, eventRows, moderationRows] = await Promise.all([
+  const directoryRequest = listWorkosDirectory(env)
+    .then((directory) => ({ directory, error: null as string | null }))
+    .catch((cause: unknown) => ({
+      directory: {
+        users: [] as WorkosDirectoryUser[],
+        organizations: [] as WorkosDirectoryOrganization[],
+        memberships: [] as WorkosDirectoryMembership[],
+      },
+      error:
+        cause instanceof Error
+          ? `WorkOS directory unavailable: ${cause.message}`
+          : "WorkOS directory unavailable",
+    }));
+  const [
+    artifacts,
+    dailyRows,
+    eventRows,
+    moderationRows,
+    activityRows,
+    tokenRows,
+    suspensionRows,
+    directoryResult,
+  ] = await Promise.all([
     artifactStatsRows(env, { orderBy: "a.updated_at DESC", limit: 500 }),
     env.DB.prepare(
       `SELECT date(ts, 'unixepoch') AS day, COUNT(*) AS n
@@ -869,10 +1133,52 @@ async function adminSuperJson(
       artifact_title: string | null;
       artifact_url_key: string | null;
     }>(),
+    env.DB.prepare(
+      `SELECT
+         a.org_id,
+         a.created_by AS user_id,
+         COUNT(*) AS artifacts,
+         COALESCE(SUM((
+           SELECT COUNT(*) FROM views v WHERE v.artifact_id = a.id
+         )), 0) AS views,
+         COALESCE(SUM((
+           SELECT COUNT(*) FROM comments c
+           WHERE c.artifact_id = a.id AND c.deleted_at IS NULL
+         )), 0) AS comments
+       FROM artifacts a
+       GROUP BY a.org_id, a.created_by`,
+    ).all<SuperDirectoryActivity>(),
+    env.DB.prepare(
+      `SELECT
+         org_id,
+         user_id,
+         COUNT(*) AS tokens,
+         SUM(CASE
+           WHEN revoked_at IS NULL AND expires_at > ? THEN 1
+           ELSE 0
+         END) AS active_tokens
+       FROM creator_tokens
+       GROUP BY org_id, user_id`,
+    )
+      .bind(nowSec())
+      .all<SuperDirectoryTokens>(),
+    env.DB.prepare(
+      "SELECT org_id, reason FROM org_suspensions ORDER BY created_at DESC",
+    ).all<SuperDirectorySuspension>(),
+    directoryRequest,
   ]);
+  const directory = buildSuperDirectory({
+    ...directoryResult.directory,
+    activity: activityRows.results || [],
+    tokens: tokenRows.results || [],
+    suspensions: suspensionRows.results || [],
+  });
   return json({
     me: { sub: session.sub, email: session.email },
     site: siteJson(env),
+    users: directory.users,
+    workspaces: directory.workspaces,
+    directoryError: directoryResult.error,
     artifacts: artifacts.map((artifact) => ({
       id: artifact.id,
       slug: artifact.slug,
