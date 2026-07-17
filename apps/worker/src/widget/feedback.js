@@ -131,7 +131,7 @@
     '<div class="au-selectbar" data-selectbar>Selecting — click any element on the page</div>' +
     '<div class="au-targetrow" data-target></div>' +
     '<textarea class="au-text" data-body placeholder="Leave a comment"></textarea>' +
-    '<div class="au-composer-actions au-main-actions"><button class="au-send" data-send>Post comment</button>' +
+    '<div class="au-composer-actions au-main-actions"><button class="au-send" data-send aria-keyshortcuts="Control+Enter Meta+Enter" title="Post comment (Ctrl+Enter or ⌘+Enter)">Post comment</button>' +
     '<button class="au-action" data-select aria-pressed="false">⌖ Select element</button>' +
     '<button class="au-link" data-cancel-new>Cancel</button></div>' +
     '<div class="au-emailgate" data-emailgate>' +
@@ -403,6 +403,34 @@
     if (!area) return;
     area.addEventListener("input", () => autoSizeTextarea(area));
     autoSizeTextarea(area);
+  }
+  function beginPostTransition(t, send) {
+    var composer = $("[data-composer]");
+    composer.classList.add("is-posting");
+    composer.setAttribute("aria-busy", "true");
+    t.readOnly = true;
+    send.disabled = true;
+    send.textContent = "Posting…";
+    setTimeout(function () {
+      t.value = "";
+      autoSizeTextarea(t);
+      composer.classList.remove("is-posting");
+      composer.removeAttribute("aria-busy");
+      send.textContent = "Post comment";
+      send.disabled = false;
+      clearTarget();
+      // A fast 401 may already have moved the outbox into the email step.
+      // Keep that sequential form in control instead of re-arming selection.
+      if (composer.classList.contains("is-email")) {
+        t.readOnly = true;
+        return;
+      }
+      t.readOnly = false;
+      if (panel.classList.contains("is-open")) {
+        armSelect();
+        focusBody();
+      }
+    }, 300);
   }
   function clearTarget() {
     target = null;
@@ -1589,8 +1617,15 @@
     copyText(agentShareUrl);
   };
   var bodyTextarea = $("[data-body]");
+  var sendButton = $("[data-send]");
   bodyTextarea.wrap = "soft";
   bindAutoSizeTextarea(bodyTextarea);
+  bodyTextarea.addEventListener("keydown", function (event) {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      sendButton.click();
+    }
+  });
   // Starting a comment arms the element picker by default, unless the viewer
   // opted out this session; posting with no target is a page-level comment.
   $("[data-new]").onclick = armSelect;
@@ -1629,18 +1664,15 @@
       renderPins();
     };
   });
-  $("[data-send]").onclick = function () {
+  sendButton.onclick = function () {
+    if (sendButton.disabled) return;
     var t = $("[data-body]"),
       body = t.value.trim();
     if (!body) return;
     // Posting is async via the outbox; the fresh form re-arms the picker
-    // (unless opted out this session) and keeps the textarea focused.
+    // after a short, guarded visual transition.
     if (enqueueComment({ body: body, target: target })) {
-      t.value = "";
-      autoSizeTextarea(t);
-      clearTarget();
-      armSelect();
-      focusBody();
+      beginPostTransition(t, sendButton);
     }
   };
 
@@ -1856,6 +1888,7 @@
       ".au-text{width:100%;min-width:0;max-width:100%;max-height:min(240px,32dvh);border:1px solid #c9d5d1;border-radius:6px;padding:9px 10px;overflow-x:hidden;overflow-y:hidden;resize:none;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;min-height:76px;font:inherit}",
       ".au-smalltext{min-height:54px;max-height:min(180px,26dvh)}",
       ".au-composer-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;min-width:0}",
+      ".au-composer.is-posting .au-text[data-body]{opacity:.62;background:#eef4f2;transition:opacity .15s,background-color .15s}",
       ".au-emailgate{display:none;flex-direction:column;gap:8px}",
       ".au-emailgate.is-on{display:flex}",
       ".au-emailgate-copy{margin:0;color:#3a4a45;font-weight:600}",
@@ -1877,6 +1910,7 @@
       ".au-agent-head{display:flex;align-items:center;justify-content:space-between;font-weight:800}",
       ".au-agent-prompt{flex:1 1 auto;min-height:0;max-height:none;overflow:auto;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;resize:none;color:#1b2420}",
       ".au-send{border:0;background:#0f6b6f;color:#fff;border-radius:6px;padding:9px 13px;font-weight:800;cursor:pointer}",
+      ".au-send[data-send]{min-width:112px}",
       ".au-muted{color:#5c6b66}",
       ".au-text::placeholder,.au-emailinput::placeholder{color:#5c6b66}",
       ".au-mark,.au-hover{position:fixed;display:none;pointer-events:none;z-index:2147483646;border:2px solid #f3a712;border-radius:6px;box-shadow:0 0 0 9999px rgba(18,56,59,.04)}",

@@ -26,3 +26,48 @@ test("feedback textareas autosize and constrain long content to the drawer", asy
     "composer actions must wrap inside narrow drawers",
   );
 });
+
+test("comment submission holds the draft in a disabled posting state for 300ms", async () => {
+  const source = await readFile("apps/worker/src/widget/feedback.js", "utf8");
+
+  assert.match(
+    source,
+    /function beginPostTransition\(/,
+    "submission needs one shared transition instead of clearing inline",
+  );
+  assert.match(
+    source,
+    /send\.disabled = true/,
+    "the first submit must synchronously guard against pointer or keyboard repeats",
+  );
+  assert.match(source, /send\.textContent = "Posting…"/);
+  assert.match(
+    source,
+    /setTimeout\(function \(\) \{[\s\S]*t\.value = "";[\s\S]*send\.disabled = false;[\s\S]*\}, 300\)/,
+    "the draft and guarded state must reset only after the requested 300ms",
+  );
+  assert.match(
+    source,
+    /\.au-composer\.is-posting[^}]*\.au-text\[data-body\][^}]*opacity/s,
+    "the held draft needs visible posting feedback",
+  );
+});
+
+test("Ctrl+Enter and Cmd+Enter invoke the guarded post button", async () => {
+  const source = await readFile("apps/worker/src/widget/feedback.js", "utf8");
+
+  assert.match(
+    source,
+    /bodyTextarea\.addEventListener\("keydown"/,
+    "the shortcut must be scoped to the comment textarea",
+  );
+  assert.match(source, /event\.key === "Enter"/);
+  assert.match(source, /event\.ctrlKey \|\| event\.metaKey/);
+  assert.match(source, /event\.preventDefault\(\)/);
+  assert.match(source, /sendButton\.click\(\)/);
+  assert.match(
+    source,
+    /aria-keyshortcuts="Control\+Enter Meta\+Enter"/,
+    "assistive technology should discover both platform shortcuts",
+  );
+});
