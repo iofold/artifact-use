@@ -405,11 +405,16 @@
     autoSizeTextarea(area);
   }
   function beginPostTransition(t, send) {
-    var composer = $("[data-composer]");
+    var composer = $("[data-composer]"),
+      selectButton = $("[data-select]"),
+      cancelButton = $("[data-cancel-new]");
+    if (selecting && !reanchorFor) endSelect();
     composer.classList.add("is-posting");
     composer.setAttribute("aria-busy", "true");
     t.readOnly = true;
     send.disabled = true;
+    selectButton.disabled = true;
+    cancelButton.disabled = true;
     send.textContent = "Posting…";
     setTimeout(function () {
       t.value = "";
@@ -418,6 +423,8 @@
       composer.removeAttribute("aria-busy");
       send.textContent = "Post comment";
       send.disabled = false;
+      selectButton.disabled = false;
+      cancelButton.disabled = false;
       clearTarget();
       // A fast 401 may already have moved the outbox into the email step.
       // Keep that sequential form in control instead of re-arming selection.
@@ -1889,6 +1896,7 @@
       ".au-smalltext{min-height:54px;max-height:min(180px,26dvh)}",
       ".au-composer-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;min-width:0}",
       ".au-composer.is-posting .au-text[data-body]{opacity:.62;background:#eef4f2;transition:opacity .15s,background-color .15s}",
+      ".au-composer.is-posting .au-main-actions>:not([data-send]),.au-composer.is-posting .au-targetrow{opacity:.45;pointer-events:none}",
       ".au-emailgate{display:none;flex-direction:column;gap:8px}",
       ".au-emailgate.is-on{display:flex}",
       ".au-emailgate-copy{margin:0;color:#3a4a45;font-weight:600}",

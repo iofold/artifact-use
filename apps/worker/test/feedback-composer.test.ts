@@ -40,10 +40,17 @@ test("comment submission holds the draft in a disabled posting state for 300ms",
     /send\.disabled = true/,
     "the first submit must synchronously guard against pointer or keyboard repeats",
   );
+  assert.match(
+    source,
+    /if \(selecting && !reanchorFor\) endSelect\(\)/,
+    "element selection must pause while the submitted target is locked",
+  );
+  assert.match(source, /selectButton\.disabled = true/);
+  assert.match(source, /cancelButton\.disabled = true/);
   assert.match(source, /send\.textContent = "Posting…"/);
   assert.match(
     source,
-    /setTimeout\(function \(\) \{[\s\S]*t\.value = "";[\s\S]*send\.disabled = false;[\s\S]*\}, 300\)/,
+    /setTimeout\(function \(\) \{[\s\S]*t\.value = "";[\s\S]*send\.disabled = false;[\s\S]*selectButton\.disabled = false;[\s\S]*cancelButton\.disabled = false;[\s\S]*\}, 300\)/,
     "the draft and guarded state must reset only after the requested 300ms",
   );
   assert.match(
