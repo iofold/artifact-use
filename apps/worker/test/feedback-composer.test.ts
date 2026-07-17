@@ -27,6 +27,56 @@ test("feedback textareas autosize and constrain long content to the drawer", asy
   );
 });
 
+test("selected target labels shrink inside the feedback drawer", async () => {
+  const source = await readFile("apps/worker/src/widget/feedback.js", "utf8");
+
+  assert.match(
+    source,
+    /\.au-targetrow\{[^}]*min-width:0[^}]*max-width:100%/s,
+    "the target row must not use its nowrap label as the grid track minimum",
+  );
+  assert.match(
+    source,
+    /\.au-tpill\{[^}]*min-width:0/s,
+    "the target pill must be allowed to shrink inside the target row",
+  );
+  assert.match(
+    source,
+    /\.au-tpill-label\{[^}]*min-width:0[^}]*flex:1 1 auto[^}]*text-overflow:ellipsis/s,
+    "long target labels should ellipsize instead of widening the composer",
+  );
+  assert.match(
+    source,
+    /\.au-tpill-x\{[^}]*flex:0 0 20px/s,
+    "the remove-target control must stay visible beside an ellipsized label",
+  );
+});
+
+test("stored comment content wraps without horizontal list scrolling", async () => {
+  const source = await readFile("apps/worker/src/widget/feedback.js", "utf8");
+
+  assert.match(
+    source,
+    /\.au-list\{[^}]*min-width:0[^}]*overflow-y:auto[^}]*overflow-x:hidden/s,
+    "the comments list should scroll vertically but contain horizontal overflow",
+  );
+  assert.match(
+    source,
+    /\.au-comment-main\{[^}]*min-width:0/s,
+    "comment content must be allowed to shrink inside the list",
+  );
+  assert.match(
+    source,
+    /\.au-target-label,\.au-email\{[^}]*min-width:0[^}]*overflow-wrap:anywhere[^}]*word-break:break-word/s,
+    "unbroken target labels and email addresses must wrap inside metadata",
+  );
+  assert.match(
+    source,
+    /\.au-textline\{[^}]*overflow-wrap:anywhere[^}]*word-break:break-word/s,
+    "unbroken comment bodies must wrap inside the drawer",
+  );
+});
+
 test("comment submission holds the draft in a disabled posting state for 300ms", async () => {
   const source = await readFile("apps/worker/src/widget/feedback.js", "utf8");
 
