@@ -377,12 +377,32 @@
     var t = $("[data-body]");
     if (!t) return;
     setTimeout(function () {
+      autoSizeTextarea(t);
       try {
         t.focus({ preventScroll: true });
       } catch (e) {
         t.focus();
       }
     }, 0);
+  }
+  function autoSizeTextarea(area) {
+    if (!area) return;
+    area.style.height = "auto";
+    var style = getComputedStyle(area),
+      min = parseFloat(style.minHeight) || 0,
+      max = parseFloat(style.maxHeight) || Math.max(min, 240),
+      borders =
+        (parseFloat(style.borderTopWidth) || 0) +
+        (parseFloat(style.borderBottomWidth) || 0),
+      full = area.scrollHeight + borders,
+      height = Math.min(Math.max(full, min), max);
+    area.style.height = height + "px";
+    area.style.overflowY = full > max + 1 ? "auto" : "hidden";
+  }
+  function bindAutoSizeTextarea(area) {
+    if (!area) return;
+    area.addEventListener("input", () => autoSizeTextarea(area));
+    autoSizeTextarea(area);
   }
   function clearTarget() {
     target = null;
@@ -639,12 +659,15 @@
       send = el("button", "au-send", "Send reply"),
       cancel = el("button", "au-link", "Cancel");
     area.placeholder = "Reply";
+    area.wrap = "soft";
+    bindAutoSizeTextarea(area);
     send.type = cancel.type = "button";
     send.onclick = function () {
       var body = area.value.trim();
       if (!body) return;
       if (enqueueComment({ body: body, parent_id: c.id, target: t })) {
         area.value = "";
+        autoSizeTextarea(area);
         box.classList.remove("is-open");
       }
     };
@@ -1565,6 +1588,9 @@
   $("[data-agent-copylink]").onclick = function () {
     copyText(agentShareUrl);
   };
+  var bodyTextarea = $("[data-body]");
+  bodyTextarea.wrap = "soft";
+  bindAutoSizeTextarea(bodyTextarea);
   // Starting a comment arms the element picker by default, unless the viewer
   // opted out this session; posting with no target is a page-level comment.
   $("[data-new]").onclick = armSelect;
@@ -1611,6 +1637,7 @@
     // (unless opted out this session) and keeps the textarea focused.
     if (enqueueComment({ body: body, target: target })) {
       t.value = "";
+      autoSizeTextarea(t);
       clearTarget();
       armSelect();
       focusBody();
@@ -1628,6 +1655,9 @@
   // position so the bottom-sheet CSS can lay the panel out; desktop resizes
   // re-clamp a dragged panel back into view.
   addEventListener("resize", function () {
+    panel
+      .querySelectorAll("textarea.au-text:not([readonly])")
+      .forEach(autoSizeTextarea);
     if (mobileSheet()) {
       clearPanelPos();
       return;
@@ -1805,10 +1835,10 @@
       ".au-locate{color:#0c585b}",
       ".au-reanchor{color:#a3271f}",
       ".au-replies{display:grid;gap:8px;margin:0 14px 12px;padding-left:10px;border-left:2px solid #dfe8e5}",
-      ".au-replybox{display:none;margin:0 14px 12px;gap:7px}",
+      ".au-replybox{display:none;margin:0 14px 12px;gap:7px;min-width:0}",
       ".au-replybox.is-open{display:grid}",
       ".au-new{flex:0 0 auto;margin:10px 12px 14px;border:1px dashed #b9c7c2;background:#f6faf9;color:#0f6b6f;border-radius:8px;padding:11px;cursor:pointer;font-weight:800}",
-      ".au-composer{display:none;flex:0 0 auto;border-top:1px solid #e2e8e6;padding:12px;gap:10px;background:#fafcfb}",
+      ".au-composer{display:none;flex:0 0 auto;border-top:1px solid #e2e8e6;padding:12px;gap:10px;background:#fafcfb;min-width:0}",
       ".au-composer.is-open{display:grid}",
       ".au-action{border:1px solid #becbc7;background:#fff;border-radius:6px;padding:8px 10px;cursor:pointer;font-weight:700;color:#3a4a45}",
       ".au-action:hover{background:#eef5f3;border-color:#9fb4ae}",
@@ -1823,9 +1853,9 @@
       ".au-tpill-label{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}",
       ".au-tpill-x{border:0;background:transparent;color:#0c585b;font-size:11px;border-radius:999px;min-width:20px;height:20px;cursor:pointer}",
       ".au-tpill-x:hover{background:#cfe6e3}",
-      ".au-text{width:100%;border:1px solid #c9d5d1;border-radius:6px;padding:9px 10px;resize:vertical;min-height:76px;font:inherit}",
-      ".au-smalltext{min-height:54px}",
-      ".au-composer-actions{display:flex;gap:12px;align-items:center}",
+      ".au-text{width:100%;min-width:0;max-width:100%;max-height:min(240px,32dvh);border:1px solid #c9d5d1;border-radius:6px;padding:9px 10px;overflow-x:hidden;overflow-y:hidden;resize:none;white-space:pre-wrap;overflow-wrap:anywhere;word-break:break-word;min-height:76px;font:inherit}",
+      ".au-smalltext{min-height:54px;max-height:min(180px,26dvh)}",
+      ".au-composer-actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;min-width:0}",
       ".au-emailgate{display:none;flex-direction:column;gap:8px}",
       ".au-emailgate.is-on{display:flex}",
       ".au-emailgate-copy{margin:0;color:#3a4a45;font-weight:600}",
@@ -1845,7 +1875,7 @@
       ".au-agent{position:absolute;left:0;right:0;top:46px;bottom:0;display:none;flex-direction:column;gap:10px;padding:12px;background:#fff;z-index:2}",
       ".au-agent.is-open{display:flex}",
       ".au-agent-head{display:flex;align-items:center;justify-content:space-between;font-weight:800}",
-      ".au-agent-prompt{flex:1 1 auto;min-height:0;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;resize:none;color:#1b2420}",
+      ".au-agent-prompt{flex:1 1 auto;min-height:0;max-height:none;overflow:auto;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;resize:none;color:#1b2420}",
       ".au-send{border:0;background:#0f6b6f;color:#fff;border-radius:6px;padding:9px 13px;font-weight:800;cursor:pointer}",
       ".au-muted{color:#5c6b66}",
       ".au-text::placeholder,.au-emailinput::placeholder{color:#5c6b66}",
