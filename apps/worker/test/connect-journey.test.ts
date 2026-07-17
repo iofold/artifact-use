@@ -64,3 +64,23 @@ test("dashboard setup actions name the visible prompt as the primary path", asyn
     /Open the visible setup prompt and\s+paste it into your agent/,
   );
 });
+
+test("setup and active navigation avoid decorative accent rails", async () => {
+  const styles = await readFile("apps/admin-ui/src/styles.css", "utf8");
+  const handoff = /\.setup-handoff\s*\{([^}]*)\}/.exec(styles)?.[1] || "";
+  const activeNav = /\.top nav a\.active\s*\{([^}]*)\}/.exec(styles)?.[1] || "";
+
+  assert.ok(handoff, "the recommended setup card style must exist");
+  assert.doesNotMatch(
+    handoff,
+    /box-shadow:\s*inset/,
+    "the setup card should not carry a decorative left accent rail",
+  );
+  assert.doesNotMatch(handoff, /var\(--accent/);
+  assert.match(handoff, /border:\s*1px solid var\(--line\)/);
+  assert.ok(activeNav, "the active navigation style must exist");
+  assert.doesNotMatch(activeNav, /var\(--accent/);
+  assert.doesNotMatch(activeNav, /box-shadow/);
+  assert.match(activeNav, /color:\s*var\(--ink\)/);
+  assert.match(activeNav, /background:\s*var\(--line-soft\)/);
+});
