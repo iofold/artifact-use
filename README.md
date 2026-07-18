@@ -2,6 +2,9 @@
 
 **Turn agent output into durable, reviewable web artifacts.**
 
+[![CI](https://github.com/iofold/artifact-use/actions/workflows/ci.yml/badge.svg)](https://github.com/iofold/artifact-use/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 Artifact Use is an open-source artifact store for coding agents and small teams.
 Agents publish HTML tools, product prototypes, PDFs, images, videos, and complete
 static folders through an MCP server or CLI. Artifact Use stores the files on
@@ -55,6 +58,10 @@ comparison tables, and other small tools that should survive beyond the chat
 where they were generated.
 
 ![Claims data atlas screenshot](docs/assets/readme/claims-data-atlas.png)
+
+The repository also includes runnable showcase artifacts under `docs/showcase/`.
+Their screenshots, stills, and synthetic data are documented in
+[docs/ASSET_PROVENANCE.md](docs/ASSET_PROVENANCE.md).
 
 ## What Artifact Use Provides
 
@@ -246,6 +253,8 @@ The code is MIT licensed. The public repository contains the Worker, schema,
 CLI, MCP server, skill, plugin bundle, and docs. Hosted-service configuration
 such as WorkOS applications, Cloudflare account IDs, R2/D1 resources, Email
 Sending domains, and production secrets remain deploy-time configuration.
+Operator-specific privacy policies and terms are not included; self-hosters can
+link their own reviewed policies through deployment variables.
 
 Before publishing your own fork or hosted instance, replace the example routes
 and WorkOS/AuthKit values in `apps/worker/wrangler.toml` and `.env` files with
