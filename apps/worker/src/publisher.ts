@@ -835,8 +835,7 @@ POST ${escapeHtml(base)}/api/v1/connect/poll
         <nav>
           ${env.ARTIFACT_USE_DOCS_URL ? `<a href="${escapeHtml(env.ARTIFACT_USE_DOCS_URL)}">Docs</a>` : ""}
           <a href="${GITHUB_URL}">GitHub</a>
-          <a href="/privacy">Privacy</a>
-          <a href="/terms">Terms</a>
+          ${legalPolicyLinks(env)}
           ${reportAbuseAnchor(env)}
           <a href="/llms.txt">llms.txt</a>
           <a href="/llms-full.txt">Agent guide</a>
@@ -852,19 +851,51 @@ POST ${escapeHtml(base)}/api/v1/connect/poll
   );
 }
 
-export function renderPrivacyPolicy(..._args: unknown[]): Response {
-    return new Response("Privacy policy is not configured for this deployment.", {
-      status: 404,
-    });
+function configuredPublicUrl(value?: string): string | null {
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:"
+      ? url.toString()
+      : null;
+  } catch {
+    return null;
   }
-  
-  export function renderTermsOfService(..._args: unknown[]): Response {
-    return new Response("Terms of service are not configured for this deployment.", {
-      status: 404,
-    });
-  }
-  
-  function reportAbuseAnchor(env: Env): string {
+}
+
+function legalPolicyLinks(env: Env): string {
+  const privacyUrl = configuredPublicUrl(env.ARTIFACT_USE_PRIVACY_URL);
+  const termsUrl = configuredPublicUrl(env.ARTIFACT_USE_TERMS_URL);
+  return [
+    privacyUrl ? `<a href="${escapeHtml(privacyUrl)}">Privacy</a>` : "",
+    termsUrl ? `<a href="${escapeHtml(termsUrl)}">Terms</a>` : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function policyResponse(value: string | undefined, label: string): Response {
+  const url = configuredPublicUrl(value);
+  if (url) return Response.redirect(url, 302);
+  return new Response(`${label} is not configured for this deployment.`, {
+    status: 404,
+    headers: {
+      ...SYSTEM_SECURITY_HEADERS,
+      "Cache-Control": "no-store",
+      "Content-Type": "text/plain; charset=utf-8",
+    },
+  });
+}
+
+export function renderPrivacyPolicy(env: Env): Response {
+  return policyResponse(env.ARTIFACT_USE_PRIVACY_URL, "Privacy policy");
+}
+
+export function renderTermsOfService(env: Env): Response {
+  return policyResponse(env.ARTIFACT_USE_TERMS_URL, "Terms of service");
+}
+
+function reportAbuseAnchor(env: Env): string {
   const href = abuseMailto(env);
   return href ? `<a href="${escapeHtml(href)}">Report abuse</a>` : "";
 }

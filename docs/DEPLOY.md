@@ -31,6 +31,8 @@ Update `apps/worker/wrangler.toml` with:
 - the `EMAIL` binding and an allowed `MAIL_FROM` address
 - your public `SITE_BASE_URL`
 - your public `ABUSE_EMAIL` mailbox
+- your operator-owned `ARTIFACT_USE_PRIVACY_URL` and
+  `ARTIFACT_USE_TERMS_URL`, if you want public legal links
 - your WorkOS/AuthKit issuer, audience, and JWKS URL
 
 Keep these environment-specific values out of the public repo: copy
@@ -141,8 +143,8 @@ user.
 
 ## Abuse operations
 
-Set a non-secret Worker variable for the mailbox shown on the homepage, legal
-pages, and injected artifact widget:
+Set a non-secret Worker variable for the mailbox shown on the homepage and
+injected artifact widget:
 
 ```toml
 ABUSE_EMAIL = "abuse@example.com"
@@ -151,8 +153,22 @@ ABUSE_EMAIL = "abuse@example.com"
 Before deploying those links, send an external test message and confirm the
 operational handoff. A configured address is not enough by itself: the mailbox
 needs named primary and backup owners plus a documented intake, evidence
-preservation, suspension, and restore procedure, and the public legal text and
+preservation, suspension, and restore procedure. Your linked legal policies and
 formal-notice procedure need human legal review.
+
+## Operator legal policies
+
+Artifact Use does not ship a hosted service operator's privacy policy or terms.
+Point the optional variables at policies owned and reviewed by your deployment:
+
+```toml
+[vars]
+ARTIFACT_USE_PRIVACY_URL = "https://example.com/privacy"
+ARTIFACT_USE_TERMS_URL = "https://example.com/terms"
+```
+
+When either variable is empty or invalid, its footer link stays hidden and the
+corresponding local `/privacy` or `/terms` route returns `404`.
 
 ## Selective Browser Integrity Check bypass
 

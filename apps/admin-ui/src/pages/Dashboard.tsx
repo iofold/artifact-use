@@ -439,8 +439,8 @@ function ArtifactSheet({
               <strong>{unavailable}</strong>
               <span>
                 Public serving is disabled, but owner metadata remains visible.
-                Contact <a href="mailto:hello@iofold.com">hello@iofold.com</a>{" "}
-                if you believe this is a mistake.
+                Contact your deployment operator if you believe this is a
+                mistake.
               </span>
             </div>
           ) : null}

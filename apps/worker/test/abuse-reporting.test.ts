@@ -69,25 +69,57 @@ test("artifact report links prefill the stable URL and key without credentials",
   assert.doesNotMatch(body, /agent=|bearer|token/i);
 });
 
-test("homepage and legal pages expose the configured reporting channel", async () => {
+test("homepage exposes the configured reporting channel", async () => {
   const home = await (
     await renderHome(new Request("https://artifacts.example.com/"), env)
   ).text();
-  const privacy = await renderPrivacyPolicy(env).text();
-  const terms = await renderTermsOfService(env).text();
+  assert.match(home, /Report abuse/i);
+  assert.match(home, /mailto:abuse@example\.com/i);
+});
 
-  for (const [name, html] of [
-    ["home", home],
-    ["privacy", privacy],
-    ["terms", terms],
+test("unconfigured operator policies stay hidden and return 404", async () => {
+  const home = await (
+    await renderHome(new Request("https://artifacts.example.com/"), env)
+  ).text();
+  assert.doesNotMatch(home, /href="\/privacy"/);
+  assert.doesNotMatch(home, /href="\/terms"/);
+
+  for (const response of [
+    renderPrivacyPolicy(env),
+    renderTermsOfService(env),
   ]) {
-    assert.match(html, /Report abuse/i, name);
-    assert.match(html, /mailto:abuse@example\.com/i, name);
+    assert.equal(response.status, 404);
+    const body = await response.text();
+    assert.match(body, /not configured for this deployment/i);
+    assert.doesNotMatch(body, /Iofold|hello@iofold\.com|laws of India/i);
   }
-  assert.match(terms, /Abuse and copyright reports/i);
-  assert.match(terms, /temporarily restrict access/i);
-  assert.match(terms, /publisher may respond/i);
-  assert.doesNotMatch(terms, /DMCA safe harbor|safe-harbor compliant/i);
+});
+
+test("configured operator policies are linked and redirect externally", async () => {
+  const configured = {
+    ...env,
+    ARTIFACT_USE_PRIVACY_URL: "https://example.com/legal/privacy",
+    ARTIFACT_USE_TERMS_URL: "https://example.com/legal/terms",
+  } as Env;
+  const home = await (
+    await renderHome(new Request("https://artifacts.example.com/"), configured)
+  ).text();
+  assert.match(home, /href="https:\/\/example\.com\/legal\/privacy"/);
+  assert.match(home, /href="https:\/\/example\.com\/legal\/terms"/);
+
+  const privacy = renderPrivacyPolicy(configured);
+  assert.equal(privacy.status, 302);
+  assert.equal(
+    privacy.headers.get("Location"),
+    configured.ARTIFACT_USE_PRIVACY_URL,
+  );
+
+  const terms = renderTermsOfService(configured);
+  assert.equal(terms.status, 302);
+  assert.equal(
+    terms.headers.get("Location"),
+    configured.ARTIFACT_USE_TERMS_URL,
+  );
 });
 
 test("injected widget carries a credential-free artifact report link", () => {
@@ -131,4 +163,13 @@ test("deployment guidance and response runbook cover the operational handoff", a
   ])
     assert.match(runbook, new RegExp(topic, "i"), topic);
   assert.match(runbook, /\/admin\/super/);
+});
+
+test("self-hosted admin errors defer to the deployment operator", async () => {
+  const dashboard = await readFile(
+    "apps/admin-ui/src/pages/Dashboard.tsx",
+    "utf8",
+  );
+  assert.doesNotMatch(dashboard, /mailto:hello@iofold\.com/);
+  assert.match(dashboard, /deployment operator/i);
 });

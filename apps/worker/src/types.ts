@@ -16,6 +16,8 @@ export interface Env {
   WORKOS_API_KEY?: string;
   ARTIFACT_USE_SUPER_ADMIN_USER_IDS?: string;
   ARTIFACT_USE_DOCS_URL?: string;
+  ARTIFACT_USE_PRIVACY_URL?: string;
+  ARTIFACT_USE_TERMS_URL?: string;
   ARTIFACT_USE_AUTH_SCOPES?: string;
   ARTIFACT_USE_READ_SCOPES?: string;
   ARTIFACT_USE_WRITE_SCOPES?: string;

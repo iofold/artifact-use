@@ -146,6 +146,10 @@ ARTIFACT_USE_SUPER_ADMIN_USER_IDS = ""
 # Optional: URL of a published docs artifact; "Read the docs" and the landing
 # Docs link target it. Empty falls back to the GitHub repository.
 ARTIFACT_USE_DOCS_URL = ""
+# Optional operator-owned legal policies. Footer links stay hidden and the
+# corresponding local routes return 404 until these are configured.
+ARTIFACT_USE_PRIVACY_URL = ""
+ARTIFACT_USE_TERMS_URL = ""
 
 # Secrets:
 #   SESSION_SECRET
