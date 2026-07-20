@@ -35,7 +35,12 @@ import {
   type WorkosDirectoryOrganization,
   type WorkosDirectoryUser,
 } from "./workos";
-import { listWorkspaces, type WorkspaceRow } from "./workspaces";
+import {
+  WorkspaceError,
+  listWorkspaces,
+  resolveWorkspaceOrg,
+  type WorkspaceRow,
+} from "./workspaces";
 import {
   createShareLink,
   migratePublisherDataToOrg,
@@ -1398,6 +1403,26 @@ async function adminConnectJson(
   });
 }
 
+// A token-mint target from the SPA: "all" means a user-scoped token that
+// names its workspace per publish; an org id means a token pinned to that
+// workspace, which must be one of the session user's active memberships.
+async function resolveMintTarget(
+  env: Env,
+  session: PublisherSession,
+  requested: unknown,
+  legacyScope: unknown,
+): Promise<{ orgId: string; scope: "org" | "user" }> {
+  const workspace = String(requested || "").trim();
+  if (workspace === "all" || legacyScope === "user")
+    return { orgId: session.orgId, scope: "user" };
+  if (!workspace || workspace === session.orgId)
+    return { orgId: session.orgId, scope: "org" };
+  return {
+    orgId: await resolveWorkspaceOrg(env, session.sub, workspace),
+    scope: "org",
+  };
+}
+
 // The signed-in workspace plus every other workspace this user could switch
 // to, from the same membership snapshot the token resolver uses. Falls back
 // to the bare session org when WorkOS is unavailable.
@@ -1438,6 +1463,7 @@ async function adminApproveConnectJson(
   const body = (await request.json().catch(() => ({}))) as {
     code?: unknown;
     scope?: unknown;
+    workspace?: unknown;
   };
   const code = String(body.code || "");
   if (!normalizeUserCode(code))
@@ -1453,12 +1479,14 @@ async function adminApproveConnectJson(
       "connect_not_found",
       "connect request not found, expired, or already approved",
     );
-  const approved = await approveConnectRequest(
-    env,
-    pending,
-    session,
-    body.scope === "user" ? "user" : "org",
-  );
+  let target: { orgId: string; scope: "org" | "user" };
+  try {
+    target = await resolveMintTarget(env, session, body.workspace, body.scope);
+  } catch (e) {
+    if (e instanceof WorkspaceError) return error(e.status, e.code, e.message);
+    throw e;
+  }
+  const approved = await approveConnectRequest(env, pending, session, target);
   if (!approved.ok)
     return error(
       409,
@@ -1513,19 +1541,27 @@ async function adminMintPromptJson(
     label?: unknown;
     expires_days?: unknown;
     scope?: unknown;
+    workspace?: unknown;
   };
   const label = String(body.label || "")
     .trim()
     .slice(0, 80);
   const days = Number(body.expires_days || 30);
+  let target: { orgId: string; scope: "org" | "user" };
+  try {
+    target = await resolveMintTarget(env, session, body.workspace, body.scope);
+  } catch (e) {
+    if (e instanceof WorkspaceError) return error(e.status, e.code, e.message);
+    throw e;
+  }
   const minted = await mintCreatorToken(env, {
     sub: session.sub,
-    orgId: session.orgId,
+    orgId: target.orgId,
     email: session.email,
     label: label || null,
     source: "admin",
     expiresDays: Number.isFinite(days) ? days : 30,
-    scope: body.scope === "user" ? "user" : "org",
+    scope: target.scope,
   });
   return json({
     prompt: agentSetupPrompt(env, minted.token, minted.expiresAt),

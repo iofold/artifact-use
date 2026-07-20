@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, NavLink } from "react-router-dom";
 import { api, type Me } from "./api";
@@ -20,35 +20,89 @@ export function Logo({ size = 20 }: { size?: number }) {
   );
 }
 
-// The active workspace, always visible in the admin chrome. Links to the
-// Team page's workspace list when the user belongs to more than one.
-function WorkspaceBadge() {
+// The active workspace, presented as the first nav item. With a single
+// membership it is a quiet label; with more it becomes a dropdown that
+// switches workspaces in place.
+function WorkspaceMenu() {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
   const { data } = useQuery({
     queryKey: ["workspace-context"],
     queryFn: api.workspaceContext,
     staleTime: 60_000,
   });
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: MouseEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", close);
+    return () => document.removeEventListener("mousedown", close);
+  }, [open]);
   if (!data) return null;
   const active = data.workspaces.find((w) => w.active);
   const name =
     active?.org_name ||
     active?.org_slug ||
     `${data.active_org_id.slice(0, 14)}…`;
-  const badge = (
-    <span className="workspace-badge" title={data.active_org_id}>
-      <span className="workspace-dot" aria-hidden="true" />
-      {name}
-    </span>
-  );
-  if (data.workspaces.length < 2) return badge;
+  if (data.workspaces.length < 2) {
+    return (
+      <span className="ws-nav ws-nav-static" title={data.active_org_id}>
+        {name}
+      </span>
+    );
+  }
   return (
-    <Link
-      to="/admin/team#workspaces"
-      className="workspace-badge-link"
-      title={`Workspace ${data.active_org_id} — you belong to ${data.workspaces.length} workspaces`}
-    >
-      {badge}
-    </Link>
+    <div className="ws-menu" ref={rootRef}>
+      <button
+        type="button"
+        className={`ws-nav${open ? " open" : ""}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title={data.active_org_id}
+        onClick={() => setOpen((value) => !value)}
+      >
+        {name}
+        <svg width="9" height="6" viewBox="0 0 9 6" aria-hidden="true">
+          <path d="M1 1l3.5 3.5L8 1" fill="none" stroke="currentColor" />
+        </svg>
+      </button>
+      {open ? (
+        <div className="ws-menu-panel" role="menu">
+          {data.workspaces.map((workspace) =>
+            workspace.switch_url ? (
+              <a
+                key={workspace.org_id}
+                role="menuitem"
+                href={workspace.switch_url}
+                title={workspace.org_id}
+              >
+                {workspace.org_name || workspace.org_id}
+                {workspace.org_slug ? (
+                  <small>{workspace.org_slug}</small>
+                ) : null}
+              </a>
+            ) : (
+              <span
+                key={workspace.org_id}
+                className="ws-menu-current"
+                title={workspace.org_id}
+              >
+                {workspace.org_name || workspace.org_id}
+                <small>Current workspace</small>
+              </span>
+            ),
+          )}
+          <Link
+            to="/admin/team#workspaces"
+            onClick={() => setOpen(false)}
+            className="ws-menu-manage"
+          >
+            Manage workspaces
+          </Link>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
@@ -60,8 +114,9 @@ export function Shell({ me, children }: { me?: Me; children: ReactNode }) {
           <Logo />
           Artifact Use
         </a>
-        <WorkspaceBadge />
         <nav>
+          <WorkspaceMenu />
+          <span className="nav-rule" aria-hidden="true" />
           {me?.superAdmin ? (
             <NavLink to="/admin/super">Super Admin</NavLink>
           ) : null}
