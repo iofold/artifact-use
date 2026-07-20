@@ -122,6 +122,29 @@ test("a membership that ended is refused after the snapshot goes stale", async (
   assert.equal(state.memberships.get(USER)?.length || 0, 0);
 });
 
+test("a rename updates every cached snapshot row and re-slugs the workspace", async () => {
+  const { auth, env, state } = await setup();
+  seedCache(state, [
+    { org_id: OTHER_ORG, org_name: "Prasanna J", org_slug: "prasanna-j" },
+  ]);
+  const workspaces = await import("../src/workspaces.ts");
+  const renamed = await workspaces.applyWorkspaceRename(
+    env,
+    OTHER_ORG,
+    "Milestone Internet",
+  );
+  assert.deepEqual(renamed, {
+    org_name: "Milestone Internet",
+    org_slug: "milestone-internet",
+  });
+  const minted = await auth.mintCreatorToken(env, mintInput({ scope: "user" }));
+  const bySlug = await auth.getCreator(
+    request(minted.token, "milestone-internet"),
+    env,
+  );
+  assert.equal(bySlug?.orgId, OTHER_ORG);
+});
+
 test("GET /api/v1/workspaces lists memberships with slugs for a lax credential", async () => {
   const { env, auth, state } = await setup({
     workos: [
@@ -298,6 +321,17 @@ function fakeDb(state: FakeState): unknown {
             expires_at: params[7],
             revoked_at: null,
           });
+          return { meta: { changes: 1 } };
+        }
+        if (/UPDATE workspace_memberships SET org_name/.test(sql)) {
+          for (const rows of state.memberships.values()) {
+            for (const row of rows) {
+              if (row.org_id === String(params[2])) {
+                row.org_name = String(params[0]);
+                row.org_slug = String(params[1]);
+              }
+            }
+          }
           return { meta: { changes: 1 } };
         }
         if (/DELETE FROM workspace_memberships/.test(sql)) {

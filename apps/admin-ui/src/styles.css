@@ -1510,6 +1510,26 @@ code {
 .workspace-list code {
   font-size: 11.5px;
 }
+.workspace-form {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+  border-top: 1px solid var(--line-soft);
+  margin-top: 12px;
+  padding-top: 14px;
+}
+.workspace-form label {
+  margin: 0 0 6px;
+}
+.workspace-form .mini {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.workspace-list li .button + .button,
+.workspace-list li span + .button {
+  flex: none;
+}
 .workspace-current {
   font-style: normal;
   font-size: 11px;
