@@ -142,6 +142,7 @@ async function main(): Promise<void> {
       json: { type: "string" },
       "api-base": { type: "string" },
       token: { type: "string" },
+      workspace: { type: "string" },
       "dry-run": { type: "boolean", default: false },
       all: { type: "boolean", default: false },
     },
@@ -150,13 +151,18 @@ async function main(): Promise<void> {
   const conf = resolveConfig({
     apiBase: String(args.values["api-base"] || ""),
     token: String(args.values.token || ""),
+    workspace: String(args.values.workspace || ""),
   });
   const input = args.values.json ? JSON.parse(String(args.values.json)) : {};
 
   if (command === "help")
     return output({
-      commands: Object.keys(SCHEMAS).concat(["list", "schema"]),
+      commands: Object.keys(SCHEMAS).concat(["list", "workspaces", "schema"]),
+      workspace:
+        "multi-workspace tokens: pass --workspace <org id or slug>, set ARTIFACT_USE_WORKSPACE, or pin a project with .artifact-use.json {\"workspace\": \"...\"}; list yours with the workspaces command",
     });
+  if (command === "workspaces")
+    return output(await api(conf, "GET", "/api/v1/workspaces"));
   if (command === "schema") {
     const name = args.positionals[0];
     return output(

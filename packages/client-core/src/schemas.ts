@@ -20,6 +20,15 @@ export interface ToolSchema {
   };
 }
 
+// Shared by every tool: multi-workspace credentials (user-scoped tokens) must
+// name their target workspace on each call; single-workspace credentials may
+// omit it or name their own workspace.
+const workspaceProperty = {
+  type: "string",
+  description:
+    'Target workspace (organization id or slug). Required on every call when the credential is user-scoped (publishes to multiple workspaces); discover yours with artifact_manage {"action":"workspaces"}.',
+};
+
 export const artifactPublishTool: ToolSchema = {
   name: "artifact_publish",
   description:
@@ -29,6 +38,7 @@ export const artifactPublishTool: ToolSchema = {
     required: ["artifact"],
     properties: {
       artifact: { type: "string", description: "Artifact slug to publish." },
+      workspace: workspaceProperty,
       title: { type: "string" },
       description: {
         type: "string",
@@ -67,6 +77,7 @@ export const artifactUploadSessionTool: ToolSchema = {
     required: ["artifact"],
     properties: {
       artifact: { type: "string", description: "Artifact slug to publish." },
+      workspace: workspaceProperty,
       title: { type: "string" },
       description: {
         type: "string",
@@ -88,19 +99,27 @@ export const artifactUploadSessionTool: ToolSchema = {
 export const artifactManageTool: ToolSchema = {
   name: "artifact_manage",
   description:
-    "List artifacts, fetch stats, update access or public link-preview details, or create a tracked share link.",
+    "List artifacts, fetch stats, update access or public link-preview details, create a tracked share link, or list the workspaces this credential can publish to.",
   inputSchema: {
     type: "object",
     required: ["action"],
     properties: {
       action: {
         type: "string",
-        enum: ["list", "stats", "set_access", "set_preview", "share_link"],
+        enum: [
+          "list",
+          "stats",
+          "set_access",
+          "set_preview",
+          "share_link",
+          "workspaces",
+        ],
       },
       artifact: {
         type: "string",
         description: "Artifact url_key from list output, or artifact slug.",
       },
+      workspace: workspaceProperty,
       gate_level: { type: "string", enum: [...GATE_LEVELS] },
       title: {
         type: "string",
@@ -136,6 +155,7 @@ export const artifactCommentsTool: ToolSchema = {
         type: "string",
         description: "Artifact url_key from artifact_manage list, or slug.",
       },
+      workspace: workspaceProperty,
       status: {
         type: "string",
         enum: ["open", "resolved", "all"],

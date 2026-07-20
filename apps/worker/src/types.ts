@@ -36,12 +36,20 @@ export interface Env {
   DEV_AUTH_EMAIL?: string;
 }
 
+export type TokenScope = "org" | "user";
+
 export interface Creator {
   sub: string;
   orgId: string;
   email: string | null;
   permissions: Set<string>;
   raw: Record<string, unknown>;
+  // Creator tokens only: 'user' tokens select a workspace per request, 'org'
+  // tokens are pinned to orgId. Absent for OAuth/JWT and dev identities.
+  tokenScope?: TokenScope;
+  // True when orgId came from an explicit, membership-validated workspace
+  // selection rather than a credential default.
+  workspaceSelected?: boolean;
 }
 
 export interface CreatorToken {
@@ -49,6 +57,7 @@ export interface CreatorToken {
   jti?: string;
   sub: string;
   org_id: string;
+  scope?: TokenScope;
   email: string | null;
   name?: string | null;
   permissions: string[];

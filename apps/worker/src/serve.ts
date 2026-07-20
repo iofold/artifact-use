@@ -1,6 +1,7 @@
 import type { Artifact, ArtifactVersion, Env, PublishManifest } from "./types";
 import { abuseMailto } from "./abuse";
 import { getCreator, requirePermission, signViewerSession } from "./auth";
+import { resolveWorkspaceOrg } from "./workspaces";
 import {
   type CommentAuthor,
   createComment,
@@ -453,8 +454,13 @@ async function commentIdentity(
   if (session) return { email: session.email, viewId: session.view_id };
   if (!bearerToken(request)) return null;
   try {
-    const creator = await getCreator(request, env);
-    if (!creator || creator.orgId !== artifact.org_id) return null;
+    // Lax: the artifact names the workspace here — a user-scoped credential
+    // qualifies through membership of the artifact's own org.
+    const creator = await getCreator(request, env, { laxWorkspace: true });
+    if (!creator) return null;
+    if (creator.tokenScope === "user" && !creator.workspaceSelected) {
+      await resolveWorkspaceOrg(env, creator.sub, artifact.org_id);
+    } else if (creator.orgId !== artifact.org_id) return null;
     requirePermission(
       creator,
       env,

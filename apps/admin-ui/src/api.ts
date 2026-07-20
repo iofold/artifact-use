@@ -314,11 +314,12 @@ export const api = {
       `/admin/api/connect${code ? `?code=${encodeURIComponent(code)}` : ""}`,
     ),
   team: () => getJson<TeamInfo>("/admin/api/team"),
-  mintPrompt: (label: string, expiresDays: string) =>
+  mintPrompt: (label: string, expiresDays: string, scope: "org" | "user") =>
     postJson<MintedPrompt>("/admin/api/agent-prompt", {
       label,
       expires_days: expiresDays,
+      scope,
     }),
-  approveConnect: (code: string) =>
-    postJson<ApprovedConnect>("/admin/api/connect/approve", { code }),
+  approveConnect: (code: string, scope: "org" | "user") =>
+    postJson<ApprovedConnect>("/admin/api/connect/approve", { code, scope }),
 };

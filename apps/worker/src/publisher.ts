@@ -1393,7 +1393,10 @@ async function adminApproveConnectJson(
   env: Env,
   session: PublisherSession,
 ): Promise<Response> {
-  const body = (await request.json().catch(() => ({}))) as { code?: unknown };
+  const body = (await request.json().catch(() => ({}))) as {
+    code?: unknown;
+    scope?: unknown;
+  };
   const code = String(body.code || "");
   if (!normalizeUserCode(code))
     return error(
@@ -1408,7 +1411,12 @@ async function adminApproveConnectJson(
       "connect_not_found",
       "connect request not found, expired, or already approved",
     );
-  const approved = await approveConnectRequest(env, pending, session);
+  const approved = await approveConnectRequest(
+    env,
+    pending,
+    session,
+    body.scope === "user" ? "user" : "org",
+  );
   if (!approved.ok)
     return error(
       409,
@@ -1462,6 +1470,7 @@ async function adminMintPromptJson(
   const body = (await request.json().catch(() => ({}))) as {
     label?: unknown;
     expires_days?: unknown;
+    scope?: unknown;
   };
   const label = String(body.label || "")
     .trim()
@@ -1474,6 +1483,7 @@ async function adminMintPromptJson(
     label: label || null,
     source: "admin",
     expiresDays: Number.isFinite(days) ? days : 30,
+    scope: body.scope === "user" ? "user" : "org",
   });
   return json({
     prompt: agentSetupPrompt(env, minted.token, minted.expiresAt),

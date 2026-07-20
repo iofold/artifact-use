@@ -1,5 +1,6 @@
-import type { Artifact, Env, GateLevel } from "./types";
+import type { Artifact, Creator, Env, GateLevel } from "./types";
 import { mintCreatorToken, requirePermission, safeCreator } from "./auth";
+import { listWorkspaces, type WorkspaceRow } from "./workspaces";
 import {
   createComment,
   listComments,
@@ -34,7 +35,10 @@ export async function handleAdminApi(
   env: Env,
   path: string,
 ): Promise<Response> {
-  const creatorOrResponse = await safeCreator(request, env);
+  // Identity-introspection routes stay reachable for user-scoped tokens that
+  // have not named a workspace yet; everything else requires the selection.
+  const laxWorkspace = path === "/api/v1/me" || path === "/api/v1/workspaces";
+  const creatorOrResponse = await safeCreator(request, env, { laxWorkspace });
   if (creatorOrResponse instanceof Response) return creatorOrResponse;
   const creator = creatorOrResponse;
 
@@ -46,7 +50,23 @@ export async function handleAdminApi(
           org_id: creator.orgId,
           email: creator.email,
           permissions: [...creator.permissions],
+          token_scope: creator.tokenScope || null,
+          workspace_selected: Boolean(creator.workspaceSelected),
         },
+      });
+    }
+
+    if (request.method === "GET" && path === "/api/v1/workspaces") {
+      requirePermission(creator, env, "artifacts:read");
+      const workspaces = await listWorkspacesSafe(env, creator);
+      return json({
+        token_scope: creator.tokenScope || null,
+        active_org_id: creator.workspaceSelected ? creator.orgId : null,
+        workspaces,
+        usage:
+          creator.tokenScope === "user"
+            ? `this credential publishes to any workspace listed here; pass workspace (org id or slug) on every publish/manage call`
+            : `this credential is pinned to its workspace; the list shows every workspace its user belongs to`,
       });
     }
 
@@ -82,6 +102,7 @@ export async function handleAdminApi(
         const body = (await request.json().catch(() => ({}))) as {
           label?: unknown;
           expires_days?: unknown;
+          scope?: unknown;
         };
         const minted = await mintCreatorToken(env, {
           sub: creator.sub,
@@ -90,6 +111,7 @@ export async function handleAdminApi(
           label: body.label ? String(body.label).slice(0, 80) : null,
           source: "api",
           expiresDays: Number(body.expires_days) || 30,
+          scope: body.scope === "user" ? "user" : "org",
         });
         return json({
           token: minted.token,
@@ -277,6 +299,23 @@ export async function handleAdminApi(
   }
 
   return error(404, "not_found", "admin route not found");
+}
+
+// The membership list when WorkOS can provide one; otherwise degrade to the
+// credential's own workspace so the route stays useful in keyless dev setups.
+async function listWorkspacesSafe(
+  env: Env,
+  creator: Creator,
+): Promise<WorkspaceRow[]> {
+  try {
+    const rows = await listWorkspaces(env, creator.sub);
+    if (rows.length) return rows;
+  } catch {
+    // fall through to the credential's own workspace
+  }
+  return creator.orgId
+    ? [{ org_id: creator.orgId, org_name: "", org_slug: "", role: "" }]
+    : [];
 }
 
 interface ParsedArtifactPath {

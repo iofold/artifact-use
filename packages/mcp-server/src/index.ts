@@ -22,7 +22,17 @@ import {
   artifactUploadSessionTool,
 } from "@artifact-use/client-core/schemas";
 
-const conf = resolveConfig();
+const baseConf = resolveConfig();
+
+// Per-call workspace overrides the process-level pin (env or
+// .artifact-use.json); the header rides on every request either way.
+function confFor(args: Record<string, unknown>): ReturnType<
+  typeof resolveConfig
+> {
+  const workspace = String(args.workspace || "").trim();
+  delete args.workspace;
+  return workspace ? { ...baseConf, workspace } : baseConf;
+}
 
 const server = new Server(
   { name: "artifact-use", version: "0.1.0" },
@@ -41,18 +51,19 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const name = request.params.name;
   const args = (request.params.arguments || {}) as Record<string, unknown>;
+  const conf = confFor(args);
   let result: unknown;
   if (name === "artifact_publish") {
     if (args.dir)
       result = await publishFolder(conf, args, Boolean(args.dry_run));
-    else if (Array.isArray(args.files)) result = await publishFiles(args);
+    else if (Array.isArray(args.files)) result = await publishFiles(conf, args);
     else if (typeof args.html === "string" && args.html.trim())
       result = await api(conf, "POST", "/api/v1/publish/html", args);
     else throw new Error("artifact_publish requires dir, html, or files");
   } else if (name === "artifact_manage") {
-    result = await manageArtifact(args);
+    result = await manageArtifact(conf, args);
   } else if (name === "artifact_comments") {
-    result = await commentOnArtifact(args);
+    result = await commentOnArtifact(conf, args);
   } else if (name === "artifact_upload_session") {
     result = await api(conf, "POST", "/api/v1/publish/upload-session", args);
   } else {
@@ -63,9 +74,13 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
 
 await server.connect(new StdioServerTransport());
 
-async function manageArtifact(args: Record<string, unknown>): Promise<unknown> {
+async function manageArtifact(
+  conf: ReturnType<typeof resolveConfig>,
+  args: Record<string, unknown>,
+): Promise<unknown> {
   const action = String(args.action || "");
   if (action === "list") return api(conf, "GET", "/api/v1/artifacts");
+  if (action === "workspaces") return api(conf, "GET", "/api/v1/workspaces");
   const artifact = String(args.artifact || "");
   if (!artifact)
     throw new Error(`artifact_manage ${action || "action"} requires artifact`);
@@ -93,6 +108,7 @@ async function manageArtifact(args: Record<string, unknown>): Promise<unknown> {
 }
 
 async function commentOnArtifact(
+  conf: ReturnType<typeof resolveConfig>,
   args: Record<string, unknown>,
 ): Promise<unknown> {
   const action = String(args.action || "");
@@ -121,7 +137,10 @@ async function commentOnArtifact(
   throw new Error(`unknown artifact_comments action: ${action}`);
 }
 
-async function publishFiles(args: Record<string, unknown>): Promise<unknown> {
+async function publishFiles(
+  conf: ReturnType<typeof resolveConfig>,
+  args: Record<string, unknown>,
+): Promise<unknown> {
   const files = Array.isArray(args.files)
     ? (args.files as Array<Record<string, unknown>>)
     : [];

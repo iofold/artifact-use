@@ -1360,6 +1360,24 @@ code {
 .token-form label {
   margin: 0 0 6px;
 }
+.scope-choice {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  cursor: pointer;
+}
+.scope-choice input {
+  flex: none;
+  width: auto;
+  transform: translateY(1px);
+}
+.approval-result .scope-choice {
+  margin-top: 8px;
+}
 .token-list {
   list-style: none;
   margin: 6px 0 0;
