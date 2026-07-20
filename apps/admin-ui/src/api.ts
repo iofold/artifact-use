@@ -330,12 +330,17 @@ export const api = {
   team: () => getJson<TeamInfo>("/admin/api/team"),
   workspaceContext: () =>
     getJson<WorkspaceContext>("/admin/api/workspace-context"),
-  mintPrompt: (label: string, expiresDays: string, scope: "org" | "user") =>
+  // workspace: an org id the token is pinned to, or "all" for a user-scoped
+  // token that names its workspace on every publish.
+  mintPrompt: (label: string, expiresDays: string, workspace: string) =>
     postJson<MintedPrompt>("/admin/api/agent-prompt", {
       label,
       expires_days: expiresDays,
-      scope,
+      workspace,
     }),
-  approveConnect: (code: string, scope: "org" | "user") =>
-    postJson<ApprovedConnect>("/admin/api/connect/approve", { code, scope }),
+  approveConnect: (code: string, workspace: string) =>
+    postJson<ApprovedConnect>("/admin/api/connect/approve", {
+      code,
+      workspace,
+    }),
 };

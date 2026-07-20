@@ -1,8 +1,49 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import { api, postForm, type ApprovedConnect, type MintedPrompt } from "../api";
+import {
+  api,
+  postForm,
+  type ApprovedConnect,
+  type MintedPrompt,
+  type WorkspaceEntry,
+} from "../api";
 import { CopyButton, Shell, Skeleton, ago, dateLabel } from "../ui";
+
+// Which workspace a minted credential can publish to: the signed-in
+// workspace by default, any other membership, or all of them (the agent then
+// names one per publish).
+function WorkspaceSelect({
+  id,
+  value,
+  onChange,
+  workspaces,
+}: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  workspaces?: WorkspaceEntry[];
+}) {
+  const active = workspaces?.find((w) => w.active);
+  const others = (workspaces || []).filter((w) => !w.active);
+  return (
+    <select
+      id={id}
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+    >
+      <option value="">
+        {active?.org_name || active?.org_slug || "This workspace"} · current
+      </option>
+      {others.map((workspace) => (
+        <option key={workspace.org_id} value={workspace.org_id}>
+          {workspace.org_name || workspace.org_id}
+        </option>
+      ))}
+      <option value="all">All my workspaces</option>
+    </select>
+  );
+}
 
 export default function Connect() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -17,12 +58,18 @@ export default function Connect() {
   const queryClient = useQueryClient();
   const [label, setLabel] = useState("");
   const [days, setDays] = useState("");
-  const [mintAllWorkspaces, setMintAllWorkspaces] = useState(false);
-  const [approveAllWorkspaces, setApproveAllWorkspaces] = useState(false);
+  // "" = the signed-in workspace; an org id pins the token to that
+  // workspace; "all" mints a multi-workspace token.
+  const [mintWorkspace, setMintWorkspace] = useState("");
+  const [approveWorkspace, setApproveWorkspace] = useState("");
+  const workspaceContext = useQuery({
+    queryKey: ["workspace-context"],
+    queryFn: api.workspaceContext,
+    staleTime: 60_000,
+  });
   const [minted, setMinted] = useState<MintedPrompt | null>(null);
   const mint = useMutation({
-    mutationFn: () =>
-      api.mintPrompt(label, days, mintAllWorkspaces ? "user" : "org"),
+    mutationFn: () => api.mintPrompt(label, days, mintWorkspace),
     onSuccess: (result) => {
       setMinted(result);
       setLabel("");
@@ -31,10 +78,7 @@ export default function Connect() {
   });
   const approve = useMutation({
     mutationFn: () =>
-      api.approveConnect(
-        data?.pending?.code || reviewCode,
-        approveAllWorkspaces ? "user" : "org",
-      ),
+      api.approveConnect(data?.pending?.code || reviewCode, approveWorkspace),
     onSuccess: (result) => {
       setApproved(result);
       setCode("");
@@ -181,21 +225,20 @@ export default function Connect() {
                       onChange={(e) => setDays(e.target.value)}
                     />
                   </div>
-                  <label className="scope-choice" htmlFor="ap-scope">
-                    <input
-                      id="ap-scope"
-                      type="checkbox"
-                      checked={mintAllWorkspaces}
-                      onChange={(e) => setMintAllWorkspaces(e.target.checked)}
+                  <div className="ws-field">
+                    <label htmlFor="ap-workspace">Workspace</label>
+                    <WorkspaceSelect
+                      id="ap-workspace"
+                      value={mintWorkspace}
+                      onChange={setMintWorkspace}
+                      workspaces={workspaceContext.data?.workspaces}
                     />
-                    <span className="scope-copy">
-                      <strong>All my workspaces</strong>
-                      <small>
-                        The agent names a target workspace on each publish
-                        instead of being pinned to this one.
-                      </small>
-                    </span>
-                  </label>
+                    <p className="mini">
+                      {mintWorkspace === "all"
+                        ? "The agent names a target workspace on each publish."
+                        : "The token can publish only to this workspace."}
+                    </p>
+                  </div>
                   <button type="submit" disabled={mint.isPending}>
                     {mint.isPending ? "Generating…" : "Create another prompt"}
                   </button>
@@ -295,25 +338,17 @@ export default function Connect() {
                       Pending code {data.pending.code} · expires 15 minutes
                       after the request started
                     </small>
-                    <label
-                      className="scope-choice"
-                      htmlFor="approve-scope"
-                    >
-                      <input
-                        id="approve-scope"
-                        type="checkbox"
-                        checked={approveAllWorkspaces}
-                        onChange={(e) =>
-                          setApproveAllWorkspaces(e.target.checked)
-                        }
+                    <span className="ws-field ws-field-approve">
+                      <label htmlFor="approve-workspace">
+                        Grant access to
+                      </label>
+                      <WorkspaceSelect
+                        id="approve-workspace"
+                        value={approveWorkspace}
+                        onChange={setApproveWorkspace}
+                        workspaces={workspaceContext.data?.workspaces}
                       />
-                      <span className="scope-copy">
-                        <strong>All my workspaces</strong>
-                        <small>
-                          The agent names its target workspace per publish.
-                        </small>
-                      </span>
-                    </label>
+                    </span>
                   </span>
                   <button
                     type="button"

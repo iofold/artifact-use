@@ -1360,70 +1360,113 @@ code {
 .token-form label {
   margin: 0 0 6px;
 }
-.scope-choice {
+.ws-field {
   grid-column: 1 / -1;
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  margin: 0;
-  cursor: pointer;
-  font: inherit;
-  text-transform: none;
-  letter-spacing: normal;
 }
-.scope-choice input {
-  flex: none;
-  width: auto;
-  margin-top: 3px;
+.ws-field label {
+  margin: 0 0 6px;
 }
-.scope-copy {
+.ws-field .mini {
+  margin: 6px 0 0;
+}
+.ws-field-approve {
   display: block;
-  line-height: 1.4;
+  margin-top: 10px;
+  max-width: 360px;
 }
-.scope-copy strong {
-  display: block;
-  font-size: 13.5px;
-  font-weight: 600;
-  color: var(--ink);
+/* Workspace control in the top nav: trigger matches the nav links exactly;
+   the open panel reuses the panel surface + soft shadow language. */
+.ws-menu {
+  position: relative;
 }
-.scope-copy small {
-  display: block;
-  font-size: 12.5px;
-  color: var(--muted);
-}
-.approval-result .scope-choice {
-  margin-top: 8px;
-}
-.workspace-badge {
+.ws-nav {
   display: inline-flex;
   align-items: center;
   gap: 7px;
-  padding: 4px 11px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  font-size: 12.5px;
-  color: var(--ink);
-  background: var(--panel);
+  padding: 8px 11px;
+  border-radius: 5px;
+  color: var(--muted);
+  font: 400 14.5px var(--sans);
+  background: none;
+  border: 0;
+  min-height: 0;
+  max-width: 220px;
   white-space: nowrap;
-  max-width: 240px;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: pointer;
+  transition: none;
 }
-.workspace-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--accent, #0b5d52);
+.ws-nav svg {
   flex: none;
+  opacity: 0.55;
 }
-.workspace-badge-link {
-  text-decoration: none;
+.ws-nav:hover,
+.ws-nav.open {
+  background: var(--line-soft);
+  color: var(--ink);
+}
+.ws-nav-static {
+  cursor: default;
+}
+.ws-nav-static:hover {
+  background: none;
+  color: var(--muted);
+}
+.nav-rule {
+  width: 1px;
+  height: 18px;
+  background: var(--line);
+  margin: 0 6px 0 2px;
+}
+.ws-menu-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  min-width: 250px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 9px 24px rgba(19, 36, 32, 0.12);
+  padding: 6px;
+  z-index: 20;
+}
+.ws-menu-panel a,
+.ws-menu-panel .ws-menu-current {
+  display: block;
+  padding: 8px 10px;
+  border-radius: 5px;
+  font-size: 14px;
+  color: var(--ink);
+}
+.ws-menu-panel a:hover {
+  background: var(--line-soft);
+}
+.ws-menu-panel small {
+  display: block;
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 1px;
+}
+.ws-menu-current {
+  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--line-soft);
+}
+.ws-menu-manage {
+  border-top: 1px solid var(--line-soft);
+  margin-top: 6px;
+  padding-top: 8px !important;
+  border-radius: 0 0 5px 5px;
+  font-size: 13px !important;
+  color: var(--accent) !important;
 }
 @media (max-width: 720px) {
-  .workspace-badge {
-    max-width: 110px;
-    font-size: 11.5px;
-    padding: 3px 9px;
+  .ws-nav {
+    max-width: 120px;
+    font-size: 13px;
+  }
+  .nav-rule {
+    display: none;
   }
 }
 .workspace-badge-link:hover .workspace-badge {

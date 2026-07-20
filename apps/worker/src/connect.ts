@@ -147,32 +147,34 @@ export async function pendingConnectRequest(
   return row || null;
 }
 
-// Approve a pending request in the approver's org: mint a creator token and
-// park it on the row for the agent's next poll. scope 'user' mints a
+// Approve a pending request: mint a creator token and park it on the row for
+// the agent's next poll. The target names the workspace the token is pinned
+// to (defaulting to the approver's org) or scope 'user' for a
 // multi-workspace credential that selects its workspace per request.
 export async function approveConnectRequest(
   env: Env,
   row: ConnectRequestRow,
   session: PublisherSession,
-  scope: TokenScope = "org",
+  target: { orgId?: string; scope?: TokenScope } = {},
 ): Promise<{ ok: boolean; label: string }> {
+  const orgId = target.orgId || session.orgId;
   const label =
     row.agent_label || `Agent connect ${row.user_code.replace("-", "")}`;
   const minted = await mintCreatorToken(env, {
     sub: session.sub,
-    orgId: session.orgId,
+    orgId,
     email: session.email,
     label,
     source: "connect",
     expiresDays: CONNECT_TOKEN_DAYS,
-    scope,
+    scope: target.scope || "org",
   });
   const result = await env.DB.prepare(
     `UPDATE connect_requests
      SET status = 'approved', token = ?, token_id = ?, org_id = ?, approved_by = ?
      WHERE device_code = ? AND status = 'pending'`,
   )
-    .bind(minted.token, minted.id, session.orgId, session.sub, row.device_code)
+    .bind(minted.token, minted.id, orgId, session.sub, row.device_code)
     .run();
   // Lost race (double submit): revoke the token we minted for nothing.
   if (!result.meta.changes) {
