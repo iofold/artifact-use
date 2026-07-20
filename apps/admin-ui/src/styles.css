@@ -1406,6 +1406,9 @@ code {
   background: var(--line-soft);
   color: var(--ink);
 }
+.ws-nav.open {
+  font-weight: 600;
+}
 .ws-nav-static {
   cursor: default;
 }
@@ -1468,6 +1471,19 @@ code {
   .nav-rule {
     display: none;
   }
+  /* The mobile nav scrolls (overflow-x: auto), which would clip an
+     absolutely-positioned panel — pin it under the header instead. */
+  .ws-menu-panel {
+    position: fixed;
+    top: 60px;
+    left: 12px;
+    right: auto;
+    min-width: 210px;
+    max-width: calc(100vw - 24px);
+  }
+}
+.token-form > button {
+  grid-column: 1 / -1;
 }
 .workspace-badge-link:hover .workspace-badge {
   border-color: var(--ink);
