@@ -125,6 +125,20 @@ export type TeamInfo = {
 
 export type MintedPrompt = { prompt: string; expiresAt: number; label: string };
 
+export type WorkspaceEntry = {
+  org_id: string;
+  org_name: string;
+  org_slug: string;
+  role: string;
+  active: boolean;
+  switch_url: string | null;
+};
+
+export type WorkspaceContext = {
+  active_org_id: string;
+  workspaces: WorkspaceEntry[];
+};
+
 export function adminCsrfToken(cookieHeader = document.cookie): string {
   for (const part of cookieHeader.split(";")) {
     const [name, ...value] = part.trim().split("=");
@@ -314,6 +328,8 @@ export const api = {
       `/admin/api/connect${code ? `?code=${encodeURIComponent(code)}` : ""}`,
     ),
   team: () => getJson<TeamInfo>("/admin/api/team"),
+  workspaceContext: () =>
+    getJson<WorkspaceContext>("/admin/api/workspace-context"),
   mintPrompt: (label: string, expiresDays: string, scope: "org" | "user") =>
     postJson<MintedPrompt>("/admin/api/agent-prompt", {
       label,
