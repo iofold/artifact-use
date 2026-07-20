@@ -330,6 +330,18 @@ export const api = {
   team: () => getJson<TeamInfo>("/admin/api/team"),
   workspaceContext: () =>
     getJson<WorkspaceContext>("/admin/api/workspace-context"),
+  renameWorkspace: (name: string) =>
+    postJson<{ org_id: string; org_name: string; org_slug: string }>(
+      "/admin/api/workspace/rename",
+      { name },
+    ),
+  createWorkspace: (name: string) =>
+    postJson<{
+      org_id: string;
+      org_name: string;
+      org_slug: string;
+      switch_url: string;
+    }>("/admin/api/workspace/create", { name }),
   // workspace: an org id the token is pinned to, or "all" for a user-scoped
   // token that names its workspace on every publish.
   mintPrompt: (label: string, expiresDays: string, workspace: string) =>

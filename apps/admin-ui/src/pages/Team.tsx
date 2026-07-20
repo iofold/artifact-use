@@ -3,11 +3,31 @@ import { useState } from "react";
 import { api, postForm } from "../api";
 import { Shell, Skeleton } from "../ui";
 
-function Workspaces() {
+function Workspaces({ canManage }: { canManage: boolean }) {
+  const queryClient = useQueryClient();
   const { data } = useQuery({
     queryKey: ["workspace-context"],
     queryFn: api.workspaceContext,
     staleTime: 60_000,
+  });
+  const invalidate = () =>
+    void queryClient.invalidateQueries({ queryKey: ["workspace-context"] });
+  const [renaming, setRenaming] = useState(false);
+  const [renameTo, setRenameTo] = useState("");
+  const rename = useMutation({
+    mutationFn: () => api.renameWorkspace(renameTo.trim()),
+    onSuccess: () => {
+      setRenaming(false);
+      invalidate();
+    },
+  });
+  const [newName, setNewName] = useState("");
+  const create = useMutation({
+    mutationFn: () => api.createWorkspace(newName.trim()),
+    onSuccess: () => {
+      setNewName("");
+      invalidate();
+    },
   });
   if (!data) return null;
   return (
@@ -38,6 +58,19 @@ function Workspaces() {
                   <code>{workspace.org_id}</code>
                 </small>
               </span>
+              {workspace.active && canManage ? (
+                <button
+                  type="button"
+                  className="button small ghost"
+                  onClick={() => {
+                    setRenameTo(workspace.org_name || "");
+                    rename.reset();
+                    setRenaming((value) => !value);
+                  }}
+                >
+                  Rename
+                </button>
+              ) : null}
               {workspace.switch_url ? (
                 <a className="button small" href={workspace.switch_url}>
                   Switch
@@ -46,12 +79,73 @@ function Workspaces() {
             </li>
           ))}
         </ul>
-        {data.workspaces.length < 2 ? (
-          <p className="mini">
-            One workspace so far. Ask an owner of another workspace to invite
-            this account, and it appears here.
-          </p>
+        {renaming ? (
+          <form
+            className="workspace-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              rename.mutate();
+            }}
+          >
+            <div>
+              <label htmlFor="ws-rename">New workspace name</label>
+              <input
+                id="ws-rename"
+                value={renameTo}
+                onChange={(event) => setRenameTo(event.target.value)}
+                minLength={2}
+                maxLength={80}
+                required
+              />
+            </div>
+            <button type="submit" disabled={rename.isPending}>
+              {rename.isPending ? "Renaming…" : "Save name"}
+            </button>
+            <p className="mini">
+              Renaming changes the workspace slug. Agents that pin the slug
+              (in .artifact-use.json or --workspace) must update it; pins
+              using the org id keep working.
+            </p>
+            {rename.isError ? (
+              <p className="mini error-box">
+                Could not rename the workspace. Only workspace admins can
+                rename, and names must be 2–80 characters.
+              </p>
+            ) : null}
+          </form>
         ) : null}
+        <form
+          className="workspace-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            create.mutate();
+          }}
+        >
+          <div>
+            <label htmlFor="ws-new">New workspace</label>
+            <input
+              id="ws-new"
+              placeholder="Milestone Internet"
+              value={newName}
+              onChange={(event) => setNewName(event.target.value)}
+              minLength={2}
+              maxLength={80}
+              required
+            />
+          </div>
+          <button type="submit" disabled={create.isPending}>
+            {create.isPending ? "Creating…" : "Create workspace"}
+          </button>
+          <p className="mini">
+            You become its admin; use Switch to enter it, then invite
+            teammates from this page.
+          </p>
+          {create.isError ? (
+            <p className="mini error-box">
+              Could not create the workspace. Check the name and try again.
+            </p>
+          ) : null}
+        </form>
       </div>
     </section>
   );
@@ -224,7 +318,7 @@ export default function Team() {
           )}
         </div>
       </section>
-      <Workspaces />
+      <Workspaces canManage={Boolean(data?.canManage)} />
     </Shell>
   );
 }

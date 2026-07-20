@@ -6,6 +6,7 @@ import type {
   PublisherSession,
 } from "./types";
 import { abuseMailbox, abuseMailto } from "./abuse";
+import { rateLimit, rateLimitedResponse } from "./rl";
 import {
   expireAdminCsrfCookie,
   extractStringArray,
@@ -27,6 +28,8 @@ import { agentSetupPrompt } from "./llms";
 import {
   ensurePublisherOrganization,
   listWorkosDirectory,
+  createWorkosOrganization,
+  renameWorkosOrganization,
   stringClaim,
   workosApi,
   workosApiMaybe,
@@ -37,6 +40,7 @@ import {
 } from "./workos";
 import {
   WorkspaceError,
+  applyWorkspaceRename,
   listWorkspaces,
   resolveWorkspaceOrg,
   type WorkspaceRow,
@@ -1097,6 +1101,10 @@ export async function handleAdminUiApi(
   }
   if (path === "/admin/api/workspace-context" && request.method === "GET")
     return adminWorkspaceContextJson(env, session);
+  if (path === "/admin/api/workspace/rename" && request.method === "POST")
+    return adminRenameWorkspaceJson(request, env, session);
+  if (path === "/admin/api/workspace/create" && request.method === "POST")
+    return adminCreateWorkspaceJson(request, env, session);
   if (path === "/admin/api/connect/approve" && request.method === "POST")
     return adminApproveConnectJson(request, env, session);
   if (path === "/admin/api/team" && request.method === "GET")
@@ -1400,6 +1408,92 @@ async function adminConnectJson(
           agentLabel: pending.agent_label,
         }
       : null,
+  });
+}
+
+const WORKSPACE_NAME_RE = /^[^\p{C}]{2,80}$/u;
+const MAX_WORKSPACES_PER_USER = 10;
+
+function workspaceNameFrom(body: { name?: unknown }): string | null {
+  const name = String(body.name || "")
+    .trim()
+    .replace(/\s+/g, " ");
+  return WORKSPACE_NAME_RE.test(name) ? name : null;
+}
+
+// Rename the signed-in workspace. Cosmetic (org id stays the key), but the
+// workspace slug follows the name — agents pinning the slug must update.
+async function adminRenameWorkspaceJson(
+  request: Request,
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  if (!isTeamAdmin(session))
+    return error(403, "forbidden", "workspace admins can rename a workspace");
+  if (!isWorkosOrgId(session.orgId))
+    return error(
+      400,
+      "workspace_not_renamable",
+      "this session's workspace is not a WorkOS organization yet",
+    );
+  if (!env.WORKOS_API_KEY)
+    return error(500, "workos_not_configured", "WorkOS API is not configured");
+  const body = (await request.json().catch(() => ({}))) as { name?: unknown };
+  const name = workspaceNameFrom(body);
+  if (!name)
+    return error(
+      400,
+      "invalid_workspace_name",
+      "workspace name must be 2-80 printable characters",
+    );
+  const savedName = await renameWorkosOrganization(env, session.orgId, name);
+  const updated = await applyWorkspaceRename(env, session.orgId, savedName);
+  return json({ org_id: session.orgId, ...updated });
+}
+
+// Create a new workspace owned (admin role) by the signed-in user. The
+// switcher picks it up immediately via a forced snapshot refresh.
+async function adminCreateWorkspaceJson(
+  request: Request,
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  if (!env.WORKOS_API_KEY)
+    return error(500, "workos_not_configured", "WorkOS API is not configured");
+  const body = (await request.json().catch(() => ({}))) as { name?: unknown };
+  const name = workspaceNameFrom(body);
+  if (!name)
+    return error(
+      400,
+      "invalid_workspace_name",
+      "workspace name must be 2-80 printable characters",
+    );
+  const limited = await rateLimit(
+    env,
+    `workspace:create:user:day:${session.sub}`,
+    5,
+    24 * 60 * 60,
+  );
+  if (!limited.allowed) return rateLimitedResponse(limited);
+  const existing = await listWorkspaces(env, session.sub).catch(() => []);
+  if (existing.length >= MAX_WORKSPACES_PER_USER)
+    return error(
+      400,
+      "workspace_limit_reached",
+      `you already belong to ${existing.length} workspaces; ask to be removed from one first`,
+    );
+  const orgId = await createWorkosOrganization(env, name, session.sub);
+  if (!orgId)
+    return error(502, "workspace_create_failed", "WorkOS did not return an organization");
+  const rows = await listWorkspaces(env, session.sub, {
+    forceRefresh: true,
+  }).catch(() => []);
+  const created = rows.find((row) => row.org_id === orgId);
+  return json({
+    org_id: orgId,
+    org_name: created?.org_name || name,
+    org_slug: created?.org_slug || "",
+    switch_url: `/login?organization_id=${encodeURIComponent(orgId)}`,
   });
 }
 

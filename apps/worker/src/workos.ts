@@ -204,7 +204,43 @@ export async function ensurePublisherOrganization(
   return orgId;
 }
 
-async function ensureWorkosMembership(
+// Rename an organization. Cosmetic everywhere: org ids are the stable key,
+// but workspace slugs derive from the name — callers refresh the snapshot.
+export async function renameWorkosOrganization(
+  env: Env,
+  orgId: string,
+  name: string,
+): Promise<string> {
+  const organization = await workosApi(env, {
+    path: `/organizations/${encodeURIComponent(orgId)}`,
+    method: "PUT",
+    body: { name },
+  });
+  return stringClaim(organization.name) || name;
+}
+
+// A team workspace created from the admin panel. No external_id, so it can
+// never collide with the per-user org lookup; the creator becomes its admin.
+export async function createWorkosOrganization(
+  env: Env,
+  name: string,
+  creatorUserId: string,
+): Promise<string | null> {
+  const organization = await workosApi(env, {
+    path: "/organizations",
+    method: "POST",
+    body: {
+      name,
+      metadata: { artifact_use_created_by: creatorUserId },
+    },
+  });
+  const orgId = stringClaim(organization.id);
+  if (!orgId) return null;
+  await ensureWorkosMembership(env, orgId, creatorUserId, "admin");
+  return orgId;
+}
+
+export async function ensureWorkosMembership(
   env: Env,
   orgId: string,
   userId: string,

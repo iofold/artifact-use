@@ -124,6 +124,22 @@ function matchWorkspace(
   return matches[0] || null;
 }
 
+// Reflect a rename into every user's cached snapshot immediately instead of
+// waiting out the TTL. WorkOS remains the source of truth.
+export async function applyWorkspaceRename(
+  env: Env,
+  orgId: string,
+  name: string,
+): Promise<{ org_name: string; org_slug: string }> {
+  const orgSlug = slugify(name, "");
+  await env.DB.prepare(
+    "UPDATE workspace_memberships SET org_name = ?, org_slug = ? WHERE org_id = ?",
+  )
+    .bind(name, orgSlug, orgId)
+    .run();
+  return { org_name: name, org_slug: orgSlug };
+}
+
 async function cachedWorkspaces(
   env: Env,
   userId: string,
