@@ -1363,20 +1363,106 @@ code {
 .scope-choice {
   grid-column: 1 / -1;
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
   margin: 0;
-  font-size: 13px;
-  color: var(--muted);
   cursor: pointer;
+  font: inherit;
+  text-transform: none;
+  letter-spacing: normal;
 }
 .scope-choice input {
   flex: none;
   width: auto;
-  transform: translateY(1px);
+  margin-top: 3px;
+}
+.scope-copy {
+  display: block;
+  line-height: 1.4;
+}
+.scope-copy strong {
+  display: block;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.scope-copy small {
+  display: block;
+  font-size: 12.5px;
+  color: var(--muted);
 }
 .approval-result .scope-choice {
   margin-top: 8px;
+}
+.workspace-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 12.5px;
+  color: var(--ink);
+  background: var(--panel);
+  white-space: nowrap;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.workspace-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent, #0b5d52);
+  flex: none;
+}
+.workspace-badge-link {
+  text-decoration: none;
+}
+@media (max-width: 720px) {
+  .workspace-badge {
+    max-width: 110px;
+    font-size: 11.5px;
+    padding: 3px 9px;
+  }
+}
+.workspace-badge-link:hover .workspace-badge {
+  border-color: var(--ink);
+}
+.workspace-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.workspace-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  border-bottom: 1px solid var(--line-soft);
+  padding: 10px 2px;
+  font-size: 13.5px;
+}
+.workspace-list li small {
+  display: block;
+  color: var(--muted);
+  margin-top: 2px;
+}
+.workspace-list code {
+  font-size: 11.5px;
+}
+.workspace-current {
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--accent, #0b5d52);
+  border: 1px solid currentColor;
+  border-radius: 999px;
+  padding: 1px 8px;
+  margin-left: 8px;
+  vertical-align: 1px;
 }
 .token-list {
   list-style: none;

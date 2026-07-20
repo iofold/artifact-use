@@ -3,6 +3,60 @@ import { useState } from "react";
 import { api, postForm } from "../api";
 import { Shell, Skeleton } from "../ui";
 
+function Workspaces() {
+  const { data } = useQuery({
+    queryKey: ["workspace-context"],
+    queryFn: api.workspaceContext,
+    staleTime: 60_000,
+  });
+  if (!data) return null;
+  return (
+    <section className="team-panel" id="workspaces">
+      <div>
+        <p className="eyebrow">Workspaces</p>
+        <h2>Where you can publish</h2>
+        <p className="muted">
+          Every workspace your account belongs to. Switching re-enters
+          sign-in for the selected workspace — usually a single silent
+          redirect.
+        </p>
+      </div>
+      <div className="team-body">
+        <ul className="workspace-list">
+          {data.workspaces.map((workspace) => (
+            <li key={workspace.org_id}>
+              <span>
+                <strong>
+                  {workspace.org_name || workspace.org_id}
+                  {workspace.active ? (
+                    <em className="workspace-current">Current</em>
+                  ) : null}
+                </strong>
+                <small>
+                  {workspace.org_slug ? `${workspace.org_slug} · ` : ""}
+                  {workspace.role || "member"} ·{" "}
+                  <code>{workspace.org_id}</code>
+                </small>
+              </span>
+              {workspace.switch_url ? (
+                <a className="button small" href={workspace.switch_url}>
+                  Switch
+                </a>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+        {data.workspaces.length < 2 ? (
+          <p className="mini">
+            One workspace so far. Ask an owner of another workspace to invite
+            this account, and it appears here.
+          </p>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 export default function Team() {
   const { data, isPending } = useQuery({
     queryKey: ["team"],
@@ -170,6 +224,7 @@ export default function Team() {
           )}
         </div>
       </section>
+      <Workspaces />
     </Shell>
   );
 }

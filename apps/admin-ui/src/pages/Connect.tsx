@@ -188,9 +188,12 @@ export default function Connect() {
                       checked={mintAllWorkspaces}
                       onChange={(e) => setMintAllWorkspaces(e.target.checked)}
                     />
-                    <span>
-                      All my workspaces — the agent names a workspace on every
-                      publish instead of being pinned to this one
+                    <span className="scope-copy">
+                      <strong>All my workspaces</strong>
+                      <small>
+                        The agent names a target workspace on each publish
+                        instead of being pinned to this one.
+                      </small>
                     </span>
                   </label>
                   <button type="submit" disabled={mint.isPending}>
@@ -304,9 +307,11 @@ export default function Connect() {
                           setApproveAllWorkspaces(e.target.checked)
                         }
                       />
-                      <span>
-                        All my workspaces (agent names its target workspace per
-                        publish)
+                      <span className="scope-copy">
+                        <strong>All my workspaces</strong>
+                        <small>
+                          The agent names its target workspace per publish.
+                        </small>
                       </span>
                     </label>
                   </span>

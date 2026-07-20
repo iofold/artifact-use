@@ -35,6 +35,7 @@ import {
   type WorkosDirectoryOrganization,
   type WorkosDirectoryUser,
 } from "./workos";
+import { listWorkspaces, type WorkspaceRow } from "./workspaces";
 import {
   createShareLink,
   migratePublisherDataToOrg,
@@ -909,11 +910,16 @@ export async function handlePublisherAuth(
     (path === "/login" || path === "/signin" || path === "/signup") &&
     request.method === "GET"
   ) {
+    // An explicit organization_id is a workspace switch: re-enter WorkOS on
+    // purpose (usually a silent SSO hop) so the new session lands in that
+    // org. The parameterless flow keeps its loop protection below.
+    const switchOrgId =
+      new URL(request.url).searchParams.get("organization_id") || "";
     // Already signed in: go home instead of back into the OAuth ring. Without
     // this, a signed-in browser bounced to /login (logout URI, initiate-login
     // URI, admin gate) re-enters WorkOS and silent SSO loops it right back.
     const session = await getPublisherSession(request, env);
-    if (session) {
+    if (session && !isWorkosOrgId(switchOrgId)) {
       const headers = new Headers();
       headers.append("Set-Cookie", expireCookie(LOOP_COOKIE));
       const next = readCookie(request, NEXT_COOKIE);
@@ -921,7 +927,9 @@ export async function handlePublisherAuth(
       if (next) headers.append("Set-Cookie", expireCookie(NEXT_COOKIE));
       return redirect(dest, headers);
     }
-    return startAuth(request, env, path === "/signup" ? "sign-up" : "sign-in");
+    return startAuth(request, env, path === "/signup" ? "sign-up" : "sign-in", {
+      organizationId: isWorkosOrgId(switchOrgId) ? switchOrgId : null,
+    });
   }
   if (path === "/invite" && request.method === "GET")
     return startInviteAuth(request, env);
@@ -1082,6 +1090,8 @@ export async function handleAdminUiApi(
     const code = new URL(request.url).searchParams.get("code") || "";
     return adminConnectJson(env, session, code);
   }
+  if (path === "/admin/api/workspace-context" && request.method === "GET")
+    return adminWorkspaceContextJson(env, session);
   if (path === "/admin/api/connect/approve" && request.method === "POST")
     return adminApproveConnectJson(request, env, session);
   if (path === "/admin/api/team" && request.method === "GET")
@@ -1388,6 +1398,38 @@ async function adminConnectJson(
   });
 }
 
+// The signed-in workspace plus every other workspace this user could switch
+// to, from the same membership snapshot the token resolver uses. Falls back
+// to the bare session org when WorkOS is unavailable.
+async function adminWorkspaceContextJson(
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  let rows: WorkspaceRow[] = [];
+  try {
+    rows = await listWorkspaces(env, session.sub);
+  } catch {
+    rows = [];
+  }
+  if (!rows.some((row) => row.org_id === session.orgId)) {
+    rows = [
+      { org_id: session.orgId, org_name: "", org_slug: "", role: "" },
+      ...rows,
+    ];
+  }
+  return json({
+    active_org_id: session.orgId,
+    workspaces: rows.map((row) => ({
+      ...row,
+      active: row.org_id === session.orgId,
+      switch_url:
+        row.org_id === session.orgId
+          ? null
+          : `/login?organization_id=${encodeURIComponent(row.org_id)}`,
+    })),
+  });
+}
+
 async function adminApproveConnectJson(
   request: Request,
   env: Env,
@@ -1518,8 +1560,12 @@ async function startAuth(
   request: Request,
   env: Env,
   screenHint: "sign-in" | "sign-up",
-  invitationToken?: string | null,
+  opts: {
+    invitationToken?: string | null;
+    organizationId?: string | null;
+  } = {},
 ): Promise<Response> {
+  const invitationToken = opts.invitationToken || null;
   if (!env.WORKOS_CLIENT_ID)
     return error(500, "workos_not_configured", "WORKOS_CLIENT_ID is missing");
   const hops = Number.parseInt(readCookie(request, LOOP_COOKIE) || "0", 10);
@@ -1532,6 +1578,8 @@ async function startAuth(
   url.searchParams.set("response_type", "code");
   url.searchParams.set("screen_hint", screenHint);
   url.searchParams.set("state", state);
+  if (opts.organizationId)
+    url.searchParams.set("organization_id", opts.organizationId);
   if (invitationToken)
     url.searchParams.set("invitation_token", invitationToken);
   const headers = new Headers();
@@ -1574,7 +1622,7 @@ async function startInviteAuth(request: Request, env: Env): Promise<Response> {
   const token = new URL(request.url).searchParams.get("invitation_token") || "";
   if (!token)
     return error(400, "invitation_token_required", "invitation token required");
-  return startAuth(request, env, "sign-up", token);
+  return startAuth(request, env, "sign-up", { invitationToken: token });
 }
 
 async function finishAuth(request: Request, env: Env): Promise<Response> {

@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from "react";
-import { NavLink } from "react-router-dom";
-import type { Me } from "./api";
+import { useQuery } from "@tanstack/react-query";
+import { Link, NavLink } from "react-router-dom";
+import { api, type Me } from "./api";
 
 export function Logo({ size = 20 }: { size?: number }) {
   return (
@@ -19,6 +20,38 @@ export function Logo({ size = 20 }: { size?: number }) {
   );
 }
 
+// The active workspace, always visible in the admin chrome. Links to the
+// Team page's workspace list when the user belongs to more than one.
+function WorkspaceBadge() {
+  const { data } = useQuery({
+    queryKey: ["workspace-context"],
+    queryFn: api.workspaceContext,
+    staleTime: 60_000,
+  });
+  if (!data) return null;
+  const active = data.workspaces.find((w) => w.active);
+  const name =
+    active?.org_name ||
+    active?.org_slug ||
+    `${data.active_org_id.slice(0, 14)}…`;
+  const badge = (
+    <span className="workspace-badge" title={data.active_org_id}>
+      <span className="workspace-dot" aria-hidden="true" />
+      {name}
+    </span>
+  );
+  if (data.workspaces.length < 2) return badge;
+  return (
+    <Link
+      to="/admin/team#workspaces"
+      className="workspace-badge-link"
+      title={`Workspace ${data.active_org_id} — you belong to ${data.workspaces.length} workspaces`}
+    >
+      {badge}
+    </Link>
+  );
+}
+
 export function Shell({ me, children }: { me?: Me; children: ReactNode }) {
   return (
     <>
@@ -27,6 +60,7 @@ export function Shell({ me, children }: { me?: Me; children: ReactNode }) {
           <Logo />
           Artifact Use
         </a>
+        <WorkspaceBadge />
         <nav>
           {me?.superAdmin ? (
             <NavLink to="/admin/super">Super Admin</NavLink>
