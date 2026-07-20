@@ -919,11 +919,16 @@ export async function handlePublisherAuth(
     (path === "/login" || path === "/signin" || path === "/signup") &&
     request.method === "GET"
   ) {
+    const url = new URL(request.url);
+    // WorkOS initiate-login relays invitation emails here with the token in
+    // `context`. Honoring it is what turns an invite click into membership;
+    // dropping it strands the invitee on a plain sign-in.
+    const inviteToken = inviteTokenFromContext(url.searchParams.get("context"));
+    if (inviteToken) return startInvitationAuth(request, env, inviteToken);
     // An explicit organization_id is a workspace switch: re-enter WorkOS on
     // purpose (usually a silent SSO hop) so the new session lands in that
     // org. The parameterless flow keeps its loop protection below.
-    const switchOrgId =
-      new URL(request.url).searchParams.get("organization_id") || "";
+    const switchOrgId = url.searchParams.get("organization_id") || "";
     // Already signed in: go home instead of back into the OAuth ring. Without
     // this, a signed-in browser bounced to /login (logout URI, initiate-login
     // URI, admin gate) re-enters WorkOS and silent SSO loops it right back.
@@ -1752,7 +1757,67 @@ async function startInviteAuth(request: Request, env: Env): Promise<Response> {
   const token = new URL(request.url).searchParams.get("invitation_token") || "";
   if (!token)
     return error(400, "invitation_token_required", "invitation token required");
-  return startAuth(request, env, "sign-up", { invitationToken: token });
+  return startInvitationAuth(request, env, token);
+}
+
+// WorkOS initiate-login passes its context string through verbatim; the
+// invitation token is a key=value pair inside it.
+export function inviteTokenFromContext(context: string | null): string | null {
+  if (!context) return null;
+  const match = /(?:^|&)invitation_token=([^&\s]+)/.exec(context);
+  return match?.[1] ? decodeURIComponent(match[1]) : null;
+}
+
+// One invitation journey for both entry points (/invite links and
+// initiate-login context): resolve the invitation first so the authorize
+// request can pin the inviting organization — no org picker — and choose
+// sign-in vs sign-up by whether the invited account already exists. Runs
+// even for signed-in browsers: accepting an invite must re-enter WorkOS or
+// the membership is never created.
+async function startInvitationAuth(
+  request: Request,
+  env: Env,
+  token: string,
+): Promise<Response> {
+  if (!env.WORKOS_API_KEY)
+    return startAuth(request, env, "sign-up", { invitationToken: token });
+  const invitation = await workosApiMaybe(
+    env,
+    `/user_management/invitations/by_token/${encodeURIComponent(token)}`,
+  );
+  const state = stringClaim(invitation?.state) || "";
+  if (!invitation || state !== "pending") {
+    return invitationUnavailablePage(state);
+  }
+  const email = stringClaim(invitation.email);
+  let screenHint: "sign-in" | "sign-up" = "sign-up";
+  if (email) {
+    const users = await workosApiMaybe(
+      env,
+      `/user_management/users?email=${encodeURIComponent(email)}&limit=1`,
+    );
+    if (asArray(users?.data).length) screenHint = "sign-in";
+  }
+  return startAuth(request, env, screenHint, {
+    invitationToken: token,
+    organizationId: stringClaim(invitation.organization_id),
+  });
+}
+
+function invitationUnavailablePage(state: string): Response {
+  const copy =
+    state === "accepted"
+      ? "This invitation was already accepted. Sign in to open the workspace."
+      : "This invitation is no longer valid — it may have expired or been revoked. Ask the workspace admin to send a new one.";
+  return page(
+    "Invitation unavailable",
+    `<main class="panel narrow">
+      <p class="eyebrow">Workspace invite</p>
+      <h1>${state === "accepted" ? "Already accepted." : "That invite has lapsed."}</h1>
+      <p class="muted">${escapeHtml(copy)}</p>
+      <div class="actions"><a class="button" href="/login">Sign in</a><a class="button ghost" href="/">Go to homepage</a></div>
+    </main>`,
+  );
 }
 
 async function finishAuth(request: Request, env: Env): Promise<Response> {
@@ -1777,12 +1842,11 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
   if (!env.WORKOS_CLIENT_ID || !env.WORKOS_API_KEY)
     return error(500, "workos_not_configured", "WorkOS auth is not configured");
 
-  const invitationToken = readCookie(request, INVITE_COOKIE);
   // Codes are single-use and short-lived: refreshes and double-clicks land
   // here with a dead code. Show a retry page, not a raw error.
   let auth: Record<string, unknown>;
   try {
-    auth = await exchangeCode(request, env, code, invitationToken);
+    auth = await exchangeCode(request, env, code);
   } catch (e) {
     const message =
       e instanceof WorkosApiError
@@ -1871,11 +1935,13 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
   return redirect(dest, headers);
 }
 
+// Invitation acceptance happens inside the AuthKit authorize flow (the
+// invitation_token rides the authorize URL); passing it again here is a
+// WorkOS 422 — "invite_token cannot be specified for an AuthKit auth".
 async function exchangeCode(
   request: Request,
   env: Env,
   code: string,
-  invitationToken?: string | null,
 ): Promise<Record<string, unknown>> {
   const body: Record<string, unknown> = {
     grant_type: "authorization_code",
@@ -1885,7 +1951,6 @@ async function exchangeCode(
     ip_address: request.headers.get("CF-Connecting-IP") || undefined,
     user_agent: request.headers.get("User-Agent") || undefined,
   };
-  if (invitationToken) body.invitation_token = invitationToken;
   try {
     return await workosApi(env, {
       path: "/user_management/authenticate",
