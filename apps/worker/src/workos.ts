@@ -130,6 +130,19 @@ async function listWorkosPages<T extends Record<string, unknown>>(
   return rows;
 }
 
+// One user's active organization memberships — the source of truth for
+// per-request workspace selection (see workspaces.ts).
+export async function listUserMemberships(
+  env: Env,
+  userId: string,
+): Promise<WorkosDirectoryMembership[]> {
+  return listWorkosPages<WorkosDirectoryMembership>(
+    env,
+    "/user_management/organization_memberships",
+    { user_id: userId, statuses: "active" },
+  );
+}
+
 // Super Admin needs the directory itself as its source of truth. Listing
 // organizations first and memberships per organization also preserves users
 // who belong to more than one workspace; neither artifacts nor the current

@@ -17,9 +17,12 @@ export default function Connect() {
   const queryClient = useQueryClient();
   const [label, setLabel] = useState("");
   const [days, setDays] = useState("");
+  const [mintAllWorkspaces, setMintAllWorkspaces] = useState(false);
+  const [approveAllWorkspaces, setApproveAllWorkspaces] = useState(false);
   const [minted, setMinted] = useState<MintedPrompt | null>(null);
   const mint = useMutation({
-    mutationFn: () => api.mintPrompt(label, days),
+    mutationFn: () =>
+      api.mintPrompt(label, days, mintAllWorkspaces ? "user" : "org"),
     onSuccess: (result) => {
       setMinted(result);
       setLabel("");
@@ -27,7 +30,11 @@ export default function Connect() {
     },
   });
   const approve = useMutation({
-    mutationFn: () => api.approveConnect(data?.pending?.code || reviewCode),
+    mutationFn: () =>
+      api.approveConnect(
+        data?.pending?.code || reviewCode,
+        approveAllWorkspaces ? "user" : "org",
+      ),
     onSuccess: (result) => {
       setApproved(result);
       setCode("");
@@ -174,6 +181,18 @@ export default function Connect() {
                       onChange={(e) => setDays(e.target.value)}
                     />
                   </div>
+                  <label className="scope-choice" htmlFor="ap-scope">
+                    <input
+                      id="ap-scope"
+                      type="checkbox"
+                      checked={mintAllWorkspaces}
+                      onChange={(e) => setMintAllWorkspaces(e.target.checked)}
+                    />
+                    <span>
+                      All my workspaces — the agent names a workspace on every
+                      publish instead of being pinned to this one
+                    </span>
+                  </label>
                   <button type="submit" disabled={mint.isPending}>
                     {mint.isPending ? "Generating…" : "Create another prompt"}
                   </button>
@@ -273,6 +292,23 @@ export default function Connect() {
                       Pending code {data.pending.code} · expires 15 minutes
                       after the request started
                     </small>
+                    <label
+                      className="scope-choice"
+                      htmlFor="approve-scope"
+                    >
+                      <input
+                        id="approve-scope"
+                        type="checkbox"
+                        checked={approveAllWorkspaces}
+                        onChange={(e) =>
+                          setApproveAllWorkspaces(e.target.checked)
+                        }
+                      />
+                      <span>
+                        All my workspaces (agent names its target workspace per
+                        publish)
+                      </span>
+                    </label>
                   </span>
                   <button
                     type="button"

@@ -3,10 +3,18 @@ import type {
   Creator,
   CreatorToken,
   Env,
+  TokenScope,
   UploadSession,
   ViewerSession,
 } from "./types";
-import { bearerToken, json, nowSec, randomId, sha256Hex } from "./util";
+import { bearerToken, error, json, nowSec, randomId, sha256Hex } from "./util";
+import {
+  WORKSPACE_HEADER,
+  WorkspaceError,
+  resolveWorkspaceOrg,
+  workspaceForbiddenError,
+  workspaceRequiredError,
+} from "./workspaces";
 import {
   ensurePublisherOrganization,
   stringClaim,
@@ -34,9 +42,18 @@ function getJwks(env: Env): ReturnType<typeof createRemoteJWKSet> {
   return jwksCache;
 }
 
+export interface CreatorAuthOptions {
+  // Identity-only routes (/api/v1/me, /api/v1/workspaces, the MCP envelope)
+  // skip the workspace-required check for user-scoped tokens; every artifact
+  // and publish route keeps it so a multi-workspace credential always names
+  // its target workspace explicitly.
+  laxWorkspace?: boolean;
+}
+
 export async function getCreator(
   request: Request,
   env: Env,
+  opts: CreatorAuthOptions = {},
 ): Promise<Creator | null> {
   const token = bearerToken(request);
   if (!token) return null;
@@ -48,28 +65,33 @@ export async function getCreator(
       );
     }
     const email = env.DEV_AUTH_EMAIL || null;
-    return {
-      sub,
-      orgId:
-        env.DEV_AUTH_ORG_ID ||
-        (await defaultWorkosOrgForUser(env, sub)) ||
-        userScopedOrgId(sub),
-      email,
-      permissions: new Set([
-        "artifacts:publish",
-        "artifacts:read",
-        "artifacts:manage_access",
-        "artifacts:view_stats",
-        "artifacts:admin",
-      ]),
-      raw: { dev: true },
-    };
+    return applyWorkspace(
+      request,
+      env,
+      {
+        sub,
+        orgId:
+          env.DEV_AUTH_ORG_ID ||
+          (await defaultWorkosOrgForUser(env, sub)) ||
+          userScopedOrgId(sub),
+        email,
+        permissions: new Set([
+          "artifacts:publish",
+          "artifacts:read",
+          "artifacts:manage_access",
+          "artifacts:view_stats",
+          "artifacts:admin",
+        ]),
+        raw: { dev: true },
+      },
+      opts,
+    );
   }
   if (token.startsWith(CREATOR_TOKEN_PREFIX)) {
     const creator = await verifyCreatorToken(token, env);
     if (!creator)
       throw new Error("Artifact Use creator token is invalid or expired");
-    return creator;
+    return applyWorkspace(request, env, creator, opts);
   }
   const verified = await jwtVerify(token, getJwks(env), {
     issuer: env.WORKOS_ISSUER,
@@ -95,7 +117,48 @@ export async function getCreator(
       permissions.add(value);
     }
   }
-  return { sub, orgId, email, permissions, raw: claims };
+  return applyWorkspace(
+    request,
+    env,
+    { sub, orgId, email, permissions, raw: claims },
+    opts,
+  );
+}
+
+// Resolve the per-request workspace selection against the identity's scope.
+// Org-pinned creator tokens may only name their own workspace; user-scoped
+// creator tokens must name one (membership-validated); OAuth/JWT and dev
+// identities may optionally select any workspace they are a member of.
+async function applyWorkspace(
+  request: Request,
+  env: Env,
+  creator: Creator,
+  opts: CreatorAuthOptions,
+): Promise<Creator> {
+  const requested = (request.headers.get(WORKSPACE_HEADER) || "").trim();
+  if (creator.tokenScope === "user") {
+    if (!requested) {
+      if (opts.laxWorkspace) return creator;
+      throw workspaceRequiredError();
+    }
+    const orgId = await resolveWorkspaceOrg(env, creator.sub, requested);
+    return { ...creator, orgId, workspaceSelected: true };
+  }
+  if (!requested) return creator;
+  if (creator.tokenScope === "org") {
+    const resolved = /^org_[A-Za-z0-9]+$/.test(requested)
+      ? requested
+      : await resolveWorkspaceOrg(env, creator.sub, requested);
+    if (resolved !== creator.orgId) throw workspaceForbiddenError(requested);
+    return { ...creator, workspaceSelected: true };
+  }
+  // Dev identity without a WorkOS backend: trust the requested value so local
+  // and staging environments can exercise workspace flows.
+  if (creator.raw.dev && !env.WORKOS_API_KEY) {
+    return { ...creator, orgId: requested, workspaceSelected: true };
+  }
+  const orgId = await resolveWorkspaceOrg(env, creator.sub, requested);
+  return { ...creator, orgId, workspaceSelected: true };
 }
 
 export function requirePermission(
@@ -388,9 +451,11 @@ export async function mintCreatorToken(
     label: string | null;
     source: "admin" | "api" | "connect" | "quick";
     expiresDays: number;
+    scope?: TokenScope;
   },
 ): Promise<{ token: string; id: string; expiresAt: number }> {
   const days = Math.max(1, Math.min(90, Math.floor(input.expiresDays || 30)));
+  const scope: TokenScope = input.scope === "user" ? "user" : "org";
   const now = nowSec();
   const expiresAt = now + days * 86400;
   const id = randomId("crt");
@@ -400,6 +465,7 @@ export async function mintCreatorToken(
       jti: id,
       sub: input.sub,
       org_id: input.orgId,
+      scope,
       email: input.email,
       name: input.label || "Agent token",
       permissions: CREATOR_TOKEN_PERMISSIONS,
@@ -409,10 +475,19 @@ export async function mintCreatorToken(
     env,
   );
   await env.DB.prepare(
-    `INSERT INTO creator_tokens (id, org_id, user_id, label, source, created_at, expires_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO creator_tokens (id, org_id, user_id, label, source, scope, created_at, expires_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
   )
-    .bind(id, input.orgId, input.sub, input.label, input.source, now, expiresAt)
+    .bind(
+      id,
+      input.orgId,
+      input.sub,
+      input.label,
+      input.source,
+      scope,
+      now,
+      expiresAt,
+    )
     .run();
   return { token, id, expiresAt };
 }
@@ -447,10 +522,12 @@ export async function verifyCreatorToken(
     permissions: new Set(
       Array.isArray(decoded.permissions) ? decoded.permissions : [],
     ),
+    tokenScope: decoded.scope === "user" ? "user" : "org",
     raw: {
       creator_token: true,
       token_id: decoded.jti || null,
       name: decoded.name || null,
+      scope: decoded.scope === "user" ? "user" : "org",
       iat: decoded.iat,
       exp: decoded.exp,
     },
@@ -504,11 +581,13 @@ export function setViewerCookie(name: string, value: string): string {
 export async function safeCreator(
   request: Request,
   env: Env,
+  opts: CreatorAuthOptions = {},
 ): Promise<Creator | Response> {
   try {
-    const creator = await getCreator(request, env);
+    const creator = await getCreator(request, env, opts);
     return creator || unauthorized(env);
   } catch (e) {
+    if (e instanceof WorkspaceError) return error(e.status, e.code, e.message);
     return authRequired(
       env,
       "invalid_token",

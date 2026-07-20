@@ -9,6 +9,7 @@ import { handleAdminApi } from "./admin";
 import { safeCreator } from "./auth";
 import { handlePublish } from "./publish";
 import { error, json, mimeFor, sha256Hex } from "./util";
+import { WORKSPACE_HEADER } from "./workspaces";
 
 // The hosted /mcp endpoint serves the base (HTTP) tool surface; the stdio
 // server composes its local-only dir/dry_run inputs on top.
@@ -20,7 +21,10 @@ const TOOLS = [
 ];
 
 export async function handleMcp(request: Request, env: Env): Promise<Response> {
-  const auth = await safeCreator(request, env);
+  // Lax: the MCP envelope only authenticates identity. Workspace selection
+  // arrives per tool call (args.workspace) and is enforced by the API routes
+  // each tool dispatches to.
+  const auth = await safeCreator(request, env, { laxWorkspace: true });
   if (auth instanceof Response) return auth;
   if (request.method === "GET")
     return json({ name: "artifact-use", transport: "streamable-http-minimal" });
@@ -106,10 +110,13 @@ async function callTool(
   name: string,
   args: Record<string, unknown>,
 ): Promise<unknown> {
-  const headers = {
+  const workspace = String(args.workspace || "").trim();
+  delete args.workspace;
+  const headers: Record<string, string> = {
     Authorization: request.headers.get("Authorization") || "",
     "Content-Type": "application/json",
   };
+  if (workspace) headers[WORKSPACE_HEADER] = workspace;
   const postJson = (body: unknown) => postJsonInit(headers, body);
   if (name === "artifact_publish") {
     if (Array.isArray(args.files)) {
@@ -140,13 +147,17 @@ async function callTool(
   if (name === "artifact_manage") {
     const action = String(args.action || "");
     const artifact = String(args.artifact || "");
-    if (action !== "list" && !artifact)
+    if (action !== "list" && action !== "workspaces" && !artifact)
       throw new Error(
         `artifact_manage ${action || "action"} requires artifact`,
       );
     const ref = encodeURIComponent(artifact);
     const routes: Record<string, { path: string; init: RequestInit }> = {
       list: { path: "/api/v1/artifacts", init: { method: "GET", headers } },
+      workspaces: {
+        path: "/api/v1/workspaces",
+        init: { method: "GET", headers },
+      },
       stats: {
         path: `/api/v1/artifacts/${ref}/stats`,
         init: { method: "GET", headers },

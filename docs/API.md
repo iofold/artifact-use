@@ -140,6 +140,8 @@ versions remain top-level, unresolved comments after migration.
 ## Admin
 
 ```http
+GET /api/v1/me
+GET /api/v1/workspaces
 GET /api/v1/artifacts
 GET /api/v1/artifacts/{artifact_key}
 PATCH /api/v1/artifacts/{artifact_key}
@@ -147,6 +149,13 @@ GET /api/v1/artifacts/{artifact_key}/stats
 POST /api/v1/artifacts/{artifact_key}/share-links
 GET /api/v1/artifacts/{artifact_key}/comments
 ```
+
+User-scoped creator tokens (`"scope": "user"` on `POST /api/v1/tokens`)
+publish to any workspace their user belongs to and must send
+`X-Artifact-Use-Workspace: <org id or slug>` on every call except
+`/api/v1/me` and `/api/v1/workspaces`. Org-scoped tokens (the default) ignore
+the header unless it names a different workspace, which is refused with
+`workspace_forbidden`.
 
 For compatibility during migration, old `/api/v1/artifacts/{legacy_prefix}/{artifact}` paths are still accepted when they map to an artifact owned by the authenticated org.
 

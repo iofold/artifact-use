@@ -1,4 +1,4 @@
-import type { Env, PublisherSession } from "./types";
+import type { Env, PublisherSession, TokenScope } from "./types";
 import { mintCreatorToken } from "./auth";
 import { agentSetupPrompt } from "./llms";
 import { hashRateKey, rateLimit, rateLimitedResponse, requestIp } from "./rl";
@@ -148,11 +148,13 @@ export async function pendingConnectRequest(
 }
 
 // Approve a pending request in the approver's org: mint a creator token and
-// park it on the row for the agent's next poll.
+// park it on the row for the agent's next poll. scope 'user' mints a
+// multi-workspace credential that selects its workspace per request.
 export async function approveConnectRequest(
   env: Env,
   row: ConnectRequestRow,
   session: PublisherSession,
+  scope: TokenScope = "org",
 ): Promise<{ ok: boolean; label: string }> {
   const label =
     row.agent_label || `Agent connect ${row.user_code.replace("-", "")}`;
@@ -163,6 +165,7 @@ export async function approveConnectRequest(
     label,
     source: "connect",
     expiresDays: CONNECT_TOKEN_DAYS,
+    scope,
   });
   const result = await env.DB.prepare(
     `UPDATE connect_requests

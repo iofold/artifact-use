@@ -127,8 +127,29 @@ lives under `plugins/codex/artifact-use`.
 
 - `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP.
 - `artifact_upload_session`: create a draft and receive a 6-hour upload token for direct HTTP file upload from a shell/curl-capable agent.
-- `artifact_manage`: list artifacts, fetch stats, update access, edit public preview copy with `set_preview`, or create share links. Use the returned `url_key` from `action: "list"` for exact management calls.
+- `artifact_manage`: list artifacts, fetch stats, update access, edit public preview copy with `set_preview`, create share links, or list workspaces with `action: "workspaces"`. Use the returned `url_key` from `action: "list"` for exact management calls.
 - `artifact_comments`: list, reply to, resolve, or reopen comment threads.
+
+## Workspaces
+
+Creator tokens come in two scopes. The default `org` scope pins the token to
+one workspace — nothing changes for existing tokens. A `user`-scoped token
+(minted with "All my workspaces" in the admin, at connect approval, or with
+`"scope": "user"` on `POST /api/v1/tokens`) can publish to any workspace its
+user is an active WorkOS member of, and must name the target workspace on
+every publish/manage call:
+
+- MCP: pass `workspace` (org id or slug) in the tool arguments.
+- HTTP: send the `X-Artifact-Use-Workspace` header.
+- CLI / stdio MCP: `--workspace`, `ARTIFACT_USE_WORKSPACE`, or a
+  `.artifact-use.json` file with `{"workspace": "..."}` at the project root —
+  the pin travels with the project so one credential cannot cross client
+  boundaries by accident.
+
+Discover workspaces with `artifact_manage {"action": "workspaces"}` or
+`GET /api/v1/workspaces`. Memberships are validated against WorkOS through a
+short-lived snapshot, so removing a member revokes that workspace within
+about five minutes without touching their other workspaces.
 
 ## File Publishing Over MCP
 

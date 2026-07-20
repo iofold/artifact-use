@@ -1,12 +1,20 @@
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
-import { basename, relative, resolve, sep } from "node:path";
+import { basename, dirname, relative, resolve, sep } from "node:path";
 
 export type GateLevel = "public" | "email" | "verified_email" | "allowlist";
+
+export const WORKSPACE_HEADER = "X-Artifact-Use-Workspace";
 
 export interface Config {
   apiBase: string;
   token: string;
+  // Target workspace (org id or slug) for multi-workspace credentials. Sent
+  // as X-Artifact-Use-Workspace on every request when set. Resolution order:
+  // explicit override > ARTIFACT_USE_WORKSPACE env > nearest .artifact-use.json
+  // ("workspace" key) walking up from the working directory.
+  workspace: string;
 }
 
 export interface ManifestFile {
@@ -37,7 +45,7 @@ export interface UploadFile {
 }
 
 export function resolveConfig(
-  overrides: { apiBase?: string; token?: string } = {},
+  overrides: { apiBase?: string; token?: string; workspace?: string } = {},
 ): Config {
   return {
     apiBase: (
@@ -46,7 +54,32 @@ export function resolveConfig(
       "https://artifacts.iofold.com"
     ).replace(/\/$/, ""),
     token: overrides.token || process.env.ARTIFACT_USE_TOKEN || "",
+    workspace:
+      overrides.workspace ||
+      process.env.ARTIFACT_USE_WORKSPACE ||
+      projectWorkspacePin(),
   };
+}
+
+// The per-project workspace pin: the nearest .artifact-use.json above the
+// working directory names the workspace every publish from that project
+// targets, so one multi-workspace credential cannot cross client boundaries
+// by accident.
+export function projectWorkspacePin(startDir = process.cwd()): string {
+  let dir = resolve(startDir);
+  for (;;) {
+    try {
+      const parsed = JSON.parse(
+        readFileSync(resolve(dir, ".artifact-use.json"), "utf8"),
+      ) as { workspace?: unknown };
+      return typeof parsed.workspace === "string" ? parsed.workspace : "";
+    } catch {
+      // no pin at this level; keep walking up
+    }
+    const parent = dirname(dir);
+    if (parent === dir) return "";
+    dir = parent;
+  }
 }
 
 export function requireToken(conf: Config): void {
@@ -64,6 +97,7 @@ export async function api(
     method,
     headers: {
       Authorization: `Bearer ${conf.token}`,
+      ...(conf.workspace ? { [WORKSPACE_HEADER]: conf.workspace } : {}),
       ...(body ? { "Content-Type": "application/json" } : {}),
     },
   };
@@ -161,6 +195,7 @@ export async function uploadFiles(
         method: "PUT",
         headers: {
           Authorization: `Bearer ${conf.token}`,
+          ...(conf.workspace ? { [WORKSPACE_HEADER]: conf.workspace } : {}),
           "Content-Type": file.content_type,
           "Content-Length": String(file.size),
           "X-Artifact-Sha256": file.sha256,

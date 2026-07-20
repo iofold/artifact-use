@@ -29,7 +29,7 @@ const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET,POST,PUT,PATCH,OPTIONS",
   "Access-Control-Allow-Headers":
-    "Authorization,Content-Length,Content-Type,X-Artifact-Sha256",
+    "Authorization,Content-Length,Content-Type,X-Artifact-Sha256,X-Artifact-Use-Workspace",
   "Access-Control-Max-Age": "86400",
 };
 
