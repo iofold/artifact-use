@@ -134,8 +134,8 @@ lives under `plugins/codex/artifact-use`.
 
 Creator tokens come in two scopes. The default `org` scope pins the token to
 one workspace — nothing changes for existing tokens. A `user`-scoped token
-(minted with "All my workspaces" in the admin, at connect approval, or with
-`"scope": "user"` on `POST /api/v1/tokens`) can publish to any workspace its
+(minted with "All my workspaces" in the admin, during device-code approval,
+or with `"scope": "user"` on `POST /api/v1/tokens`) can publish to any workspace its
 user is an active WorkOS member of, and must name the target workspace on
 every publish/manage call:
 
