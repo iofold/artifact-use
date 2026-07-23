@@ -546,8 +546,19 @@ code {
   align-items: center;
   gap: 10px;
 }
+.art-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .art-toolbar input {
   max-width: 260px;
+  min-height: 34px;
+  font-size: 13.5px;
+}
+.art-toolbar select {
+  width: auto;
   min-height: 34px;
   font-size: 13.5px;
 }
