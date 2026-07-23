@@ -22,26 +22,17 @@ import {
 
 const GATE_LEVELS = ["public", "email", "verified_email", "allowlist"];
 
-const SORTS = {
-  published: {
-    label: "Recently published",
-    compare: (a: ArtifactRow, b: ArtifactRow) =>
-      (b.completed_at || 0) - (a.completed_at || 0),
-  },
-  updated: {
-    label: "Recently updated",
-    compare: (a: ArtifactRow, b: ArtifactRow) => b.updated_at - a.updated_at,
-  },
-  views: {
-    label: "Most views",
-    compare: (a: ArtifactRow, b: ArtifactRow) => b.total_views - a.total_views,
-  },
-  title: {
-    label: "Title A–Z",
-    compare: (a: ArtifactRow, b: ArtifactRow) => a.title.localeCompare(b.title),
-  },
-} as const;
-type SortKey = keyof typeof SORTS;
+type SortKey = "title" | "views" | "views7" | "comments" | "published";
+
+// Natural first-click direction per column: text ascends, numbers and
+// recency descend. Clicking the active column flips it.
+const SORT_DIRS: Record<SortKey, 1 | -1> = {
+  title: 1,
+  views: -1,
+  views7: -1,
+  comments: -1,
+  published: -1,
+};
 
 export default function Dashboard() {
   const { data, isPending } = useQuery({
@@ -198,13 +189,43 @@ function ActivityChart({ daily }: { daily: DailyRow[] }) {
   );
 }
 
-function weekViews(daily: DailyRow[], artifactId: string): number {
+function weekViewsByArtifact(daily: DailyRow[]): Map<string, number> {
   const cutoff = new Date(Date.now() - 7 * 86400_000)
     .toISOString()
     .slice(0, 10);
-  return daily
-    .filter((row) => row.artifact_id === artifactId && row.day >= cutoff)
-    .reduce((sum, row) => sum + row.n, 0);
+  const views = new Map<string, number>();
+  for (const row of daily)
+    if (row.day >= cutoff)
+      views.set(row.artifact_id, (views.get(row.artifact_id) || 0) + row.n);
+  return views;
+}
+
+function SortHeader({
+  label,
+  k,
+  sort,
+  onSort,
+  className,
+}: {
+  label: string;
+  k: SortKey;
+  sort: { key: SortKey; dir: 1 | -1 };
+  onSort: (key: SortKey) => void;
+  className?: string;
+}) {
+  const active = sort.key === k;
+  return (
+    <button
+      type="button"
+      className={`art-sort${className ? ` ${className}` : ""}${active ? " active" : ""}`}
+      aria-label={`Sort by ${label}`}
+      aria-pressed={active}
+      onClick={() => onSort(k)}
+    >
+      {label}
+      {active ? <i aria-hidden="true">{sort.dir === -1 ? "↓" : "↑"}</i> : null}
+    </button>
+  );
 }
 
 function ArtifactTable({
@@ -219,8 +240,32 @@ function ArtifactTable({
   onOpen: (id: string) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<SortKey>("published");
+  const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({
+    key: "published",
+    dir: -1,
+  });
+  const toggleSort = (key: SortKey) =>
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === 1 ? -1 : 1 }
+        : { key, dir: SORT_DIRS[key] },
+    );
+  const views7 = useMemo(() => weekViewsByArtifact(daily), [daily]);
   const q = query.trim().toLowerCase();
+  const compare = (a: ArtifactRow, b: ArtifactRow): number => {
+    switch (sort.key) {
+      case "title":
+        return a.title.localeCompare(b.title);
+      case "views":
+        return a.total_views - b.total_views;
+      case "views7":
+        return (views7.get(a.id) || 0) - (views7.get(b.id) || 0);
+      case "comments":
+        return a.comment_count - b.comment_count;
+      case "published":
+        return (a.completed_at || 0) - (b.completed_at || 0);
+    }
+  };
   const rows = artifacts
     .filter(
       (a) =>
@@ -229,7 +274,7 @@ function ArtifactTable({
           .toLowerCase()
           .includes(q),
     )
-    .sort((a, b) => SORTS[sort].compare(a, b) || b.updated_at - a.updated_at);
+    .sort((a, b) => sort.dir * compare(a, b) || b.updated_at - a.updated_at);
   return (
     <section className="artifacts" aria-label="Artifacts">
       <div className="art-toolbar">
@@ -237,40 +282,54 @@ function ArtifactTable({
           Artifacts{" "}
           <span className="pill">{formatNumber(artifacts.length)}</span>
         </h2>
-        <div className="art-controls">
-          <select
-            aria-label="Sort artifacts"
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-          >
-            {Object.entries(SORTS).map(([key, s]) => (
-              <option key={key} value={key}>
-                {s.label}
-              </option>
-            ))}
-          </select>
-          <input
-            type="search"
-            placeholder="Search title, slug, gate…"
-            aria-label="Search artifacts"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-          />
-        </div>
+        <input
+          type="search"
+          placeholder="Search title, slug, gate…"
+          aria-label="Search artifacts"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+        />
       </div>
       <div className="art-table">
         <div className="art-head">
-          <span>Artifact</span>
+          <SortHeader
+            label="Artifact"
+            k="title"
+            sort={sort}
+            onSort={toggleSort}
+          />
           <span className="art-gate">Gate</span>
-          <span className="num">Views</span>
-          <span className="num art-7d">7d</span>
-          <span className="num art-fb">Comments</span>
-          <span className="art-date">
-            {sort === "published" ? "Published" : "Updated"}
-          </span>
+          <SortHeader
+            className="num"
+            label="Views"
+            k="views"
+            sort={sort}
+            onSort={toggleSort}
+          />
+          <SortHeader
+            className="num art-7d"
+            label="7d"
+            k="views7"
+            sort={sort}
+            onSort={toggleSort}
+          />
+          <SortHeader
+            className="num art-fb"
+            label="Comments"
+            k="comments"
+            sort={sort}
+            onSort={toggleSort}
+          />
+          <SortHeader
+            className="art-date"
+            label="Published"
+            k="published"
+            sort={sort}
+            onSort={toggleSort}
+          />
         </div>
         {rows.map((artifact) => {
-          const views7 = weekViews(daily, artifact.id);
+          const weekly = views7.get(artifact.id) || 0;
           return (
             <button
               type="button"
@@ -290,7 +349,7 @@ function ArtifactTable({
               </span>
               <span className="num">{formatNumber(artifact.total_views)}</span>
               <span className="num art-7d">
-                {views7 ? formatNumber(views7) : "—"}
+                {weekly ? formatNumber(weekly) : "—"}
               </span>
               <span className="num art-fb">
                 {formatNumber(artifact.comment_count)}
@@ -299,11 +358,7 @@ function ArtifactTable({
                 ) : null}
               </span>
               <span className="art-date">
-                {sort === "published"
-                  ? artifact.completed_at
-                    ? ago(artifact.completed_at)
-                    : "—"
-                  : ago(artifact.updated_at)}
+                {artifact.completed_at ? ago(artifact.completed_at) : "—"}
               </span>
             </button>
           );
