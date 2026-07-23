@@ -339,9 +339,7 @@ export default function Connect() {
                       after the request started
                     </small>
                     <span className="ws-field ws-field-approve">
-                      <label htmlFor="approve-workspace">
-                        Grant access to
-                      </label>
+                      <label htmlFor="approve-workspace">Grant access to</label>
                       <WorkspaceSelect
                         id="approve-workspace"
                         value={approveWorkspace}

@@ -111,10 +111,7 @@ test("a membership that ended is refused after the snapshot goes stale", async (
   );
   const minted = await auth.mintCreatorToken(env, mintInput({ scope: "user" }));
 
-  const refused = await auth.safeCreator(
-    request(minted.token, OTHER_ORG),
-    env,
-  );
+  const refused = await auth.safeCreator(request(minted.token, OTHER_ORG), env);
   assert.ok(refused instanceof Response);
   assert.equal(refused.status, 403);
   assert.equal((await refused.json()).error.code, "workspace_forbidden");
@@ -164,9 +161,7 @@ test("GET /api/v1/workspaces lists memberships with slugs for a lax credential",
   const body = await response.json();
   assert.equal(body.token_scope, "user");
   assert.deepEqual(
-    body.workspaces
-      .map((row: { org_slug: string }) => row.org_slug)
-      .sort(),
+    body.workspaces.map((row: { org_slug: string }) => row.org_slug).sort(),
     ["iofold-labs", "milestone-internet"],
   );
   assert.ok(state.workosCalls > 0);
@@ -259,8 +254,7 @@ async function setup(
       const org = workosOrgs.find(
         (candidate) => candidate.org_id === decodeURIComponent(orgMatch[1]!),
       );
-      if (!org)
-        return jsonResponse({ message: "not found" }, 404);
+      if (!org) return jsonResponse({ message: "not found" }, 404);
       return jsonResponse({ id: org.org_id, name: org.name });
     }
     return jsonResponse({ message: "unexpected workos path" }, 500);

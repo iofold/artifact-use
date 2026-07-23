@@ -34,9 +34,7 @@ test("an /invite link pins the inviting org and prefers sign-in for existing acc
   });
   try {
     const response = await publisher.handlePublisherAuth(
-      new Request(
-        `https://artifacts.example/invite?invitation_token=${TOKEN}`,
-      ),
+      new Request(`https://artifacts.example/invite?invitation_token=${TOKEN}`),
       env(),
       "/invite",
     );
@@ -81,9 +79,7 @@ test("a dead invitation renders a friendly page instead of entering OAuth", asyn
   });
   try {
     const response = await publisher.handlePublisherAuth(
-      new Request(
-        `https://artifacts.example/invite?invitation_token=${TOKEN}`,
-      ),
+      new Request(`https://artifacts.example/invite?invitation_token=${TOKEN}`),
       env(),
       "/invite",
     );
