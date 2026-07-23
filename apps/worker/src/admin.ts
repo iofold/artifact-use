@@ -11,6 +11,7 @@ import { agentSetupPrompt } from "./llms";
 import { commentWriteRateLimit } from "./rl";
 import {
   createShareLink,
+  deleteArtifact,
   getArtifactByLegacyPath,
   getArtifactByUrlKey,
   getArtifactForOrg,
@@ -171,6 +172,12 @@ export async function handleAdminApi(
         );
       }
       return json({ artifact: updated });
+    }
+
+    if (request.method === "DELETE" && !parsed.action) {
+      requirePermission(creator, env, "artifacts:manage_access");
+      await deleteArtifact(env, artifact);
+      return json({ ok: true, deleted: artifact.url_key });
     }
 
     if (request.method === "POST" && parsed.action === "share-links") {

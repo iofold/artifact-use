@@ -47,6 +47,7 @@ import {
 } from "./workspaces";
 import {
   createShareLink,
+  deleteArtifact,
   migratePublisherDataToOrg,
   updateArtifactAccess,
   updateArtifactPreview,
@@ -1014,6 +1015,8 @@ export async function handlePublisherAdmin(
     return updateAccess(request, env, session);
   if (path === "/admin/artifact/preview" && request.method === "POST")
     return updatePreview(request, env, session);
+  if (path === "/admin/artifact/delete" && request.method === "POST")
+    return deleteArtifactAction(request, env, session);
   if (path === "/admin/artifact/share-link" && request.method === "POST")
     return createAdminShareLink(request, env, session);
   if (path === "/admin/artifact/share-link/revoke" && request.method === "POST")
@@ -1489,7 +1492,11 @@ async function adminCreateWorkspaceJson(
     );
   const orgId = await createWorkosOrganization(env, name, session.sub);
   if (!orgId)
-    return error(502, "workspace_create_failed", "WorkOS did not return an organization");
+    return error(
+      502,
+      "workspace_create_failed",
+      "WorkOS did not return an organization",
+    );
   const rows = await listWorkspaces(env, session.sub, {
     forceRefresh: true,
   }).catch(() => []);
@@ -2738,6 +2745,18 @@ function decodeJwtClaims(token: string | null): Record<string, unknown> | null {
   } catch {
     return null;
   }
+}
+
+async function deleteArtifactAction(
+  request: Request,
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  const form = await request.formData();
+  const artifact = await publisherArtifact(env, session, form);
+  if (!artifact) return error(404, "artifact_not_found", "artifact not found");
+  await deleteArtifact(env, artifact);
+  return redirect("/admin");
 }
 
 async function publisherArtifact(

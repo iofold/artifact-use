@@ -99,7 +99,7 @@ export const artifactUploadSessionTool: ToolSchema = {
 export const artifactManageTool: ToolSchema = {
   name: "artifact_manage",
   description:
-    "List artifacts, fetch stats, update access or public link-preview details, create a tracked share link, or list the workspaces this credential can publish to.",
+    "List artifacts, fetch stats, update access or public link-preview details, create a tracked share link, permanently delete an artifact, or list the workspaces this credential can publish to.",
   inputSchema: {
     type: "object",
     required: ["action"],
@@ -112,6 +112,7 @@ export const artifactManageTool: ToolSchema = {
           "set_access",
           "set_preview",
           "share_link",
+          "delete",
           "workspaces",
         ],
       },
@@ -135,6 +136,11 @@ export const artifactManageTool: ToolSchema = {
       recipient_email: { type: "string" },
       recipient_label: { type: "string" },
       expires_days: { type: "number" },
+      confirm: {
+        type: "boolean",
+        description:
+          "delete: must be true. Deletion is permanent and removes every version, file, share link, comment, and view record; the public URL stops working immediately.",
+      },
     },
   },
 };

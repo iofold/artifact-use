@@ -151,6 +151,10 @@ async function callTool(
       throw new Error(
         `artifact_manage ${action || "action"} requires artifact`,
       );
+    if (action === "delete" && args.confirm !== true)
+      throw new Error(
+        "artifact_manage delete permanently removes the artifact with every version, file, share link, comment, and view record; pass confirm: true to proceed",
+      );
     const ref = encodeURIComponent(artifact);
     const routes: Record<string, { path: string; init: RequestInit }> = {
       list: { path: "/api/v1/artifacts", init: { method: "GET", headers } },
@@ -185,6 +189,10 @@ async function callTool(
       share_link: {
         path: `/api/v1/artifacts/${ref}/share-links`,
         init: postJson(args),
+      },
+      delete: {
+        path: `/api/v1/artifacts/${ref}`,
+        init: { method: "DELETE", headers },
       },
     };
     const route = routes[action];
