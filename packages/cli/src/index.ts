@@ -159,7 +159,7 @@ async function main(): Promise<void> {
     return output({
       commands: Object.keys(SCHEMAS).concat(["list", "workspaces", "schema"]),
       workspace:
-        "multi-workspace tokens: pass --workspace <org id or slug>, set ARTIFACT_USE_WORKSPACE, or pin a project with .artifact-use.json {\"workspace\": \"...\"}; list yours with the workspaces command",
+        'multi-workspace tokens: pass --workspace <org id or slug>, set ARTIFACT_USE_WORKSPACE, or pin a project with .artifact-use.json {"workspace": "..."}; list yours with the workspaces command',
     });
   if (command === "workspaces")
     return output(await api(conf, "GET", "/api/v1/workspaces"));

@@ -26,9 +26,9 @@ const baseConf = resolveConfig();
 
 // Per-call workspace overrides the process-level pin (env or
 // .artifact-use.json); the header rides on every request either way.
-function confFor(args: Record<string, unknown>): ReturnType<
-  typeof resolveConfig
-> {
+function confFor(
+  args: Record<string, unknown>,
+): ReturnType<typeof resolveConfig> {
   const workspace = String(args.workspace || "").trim();
   delete args.workspace;
   return workspace ? { ...baseConf, workspace } : baseConf;

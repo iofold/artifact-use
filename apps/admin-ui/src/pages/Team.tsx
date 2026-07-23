@@ -36,9 +36,8 @@ function Workspaces({ canManage }: { canManage: boolean }) {
         <p className="eyebrow">Workspaces</p>
         <h2>Where you can publish</h2>
         <p className="muted">
-          Every workspace your account belongs to. Switching re-enters
-          sign-in for the selected workspace — usually a single silent
-          redirect.
+          Every workspace your account belongs to. Switching re-enters sign-in
+          for the selected workspace — usually a single silent redirect.
         </p>
       </div>
       <div className="team-body">
@@ -54,8 +53,7 @@ function Workspaces({ canManage }: { canManage: boolean }) {
                 </strong>
                 <small>
                   {workspace.org_slug ? `${workspace.org_slug} · ` : ""}
-                  {workspace.role || "member"} ·{" "}
-                  <code>{workspace.org_id}</code>
+                  {workspace.role || "member"} · <code>{workspace.org_id}</code>
                 </small>
               </span>
               {workspace.active && canManage ? (
@@ -102,9 +100,9 @@ function Workspaces({ canManage }: { canManage: boolean }) {
               {rename.isPending ? "Renaming…" : "Save name"}
             </button>
             <p className="mini">
-              Renaming changes the workspace slug. Agents that pin the slug
-              (in .artifact-use.json or --workspace) must update it; pins
-              using the org id keep working.
+              Renaming changes the workspace slug. Agents that pin the slug (in
+              .artifact-use.json or --workspace) must update it; pins using the
+              org id keep working.
             </p>
             {rename.isError ? (
               <p className="mini error-box">
@@ -137,8 +135,8 @@ function Workspaces({ canManage }: { canManage: boolean }) {
             {create.isPending ? "Creating…" : "Create workspace"}
           </button>
           <p className="mini">
-            You become its admin; use Switch to enter it, then invite
-            teammates from this page.
+            You become its admin; use Switch to enter it, then invite teammates
+            from this page.
           </p>
           {create.isError ? (
             <p className="mini error-box">
