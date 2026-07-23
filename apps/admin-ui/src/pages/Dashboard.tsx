@@ -389,6 +389,14 @@ function ArtifactSheet({
     setLeaving(true);
     setTimeout(onClose, 170);
   };
+  const deleteMutation = useMutation({
+    mutationFn: () =>
+      postForm("/admin/artifact/delete", { artifact_key: artifact.url_key }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ["overview"] });
+      requestClose();
+    },
+  });
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") requestClose();
@@ -685,6 +693,26 @@ function ArtifactSheet({
             <CopyButton text={artifact.url} />
             <input readOnly value={artifact.url} />
           </div>
+          <h3>Delete artifact</h3>
+          <p className="mini">
+            Permanently removes every version, share link, comment, and view
+            record. The public link stops working immediately.
+          </p>
+          <button
+            type="button"
+            className="button small ghost danger"
+            disabled={deleteMutation.isPending}
+            onClick={() => {
+              if (
+                window.confirm(
+                  `Permanently delete “${artifact.title}”? This cannot be undone.`,
+                )
+              )
+                deleteMutation.mutate();
+            }}
+          >
+            {deleteMutation.isPending ? "Deleting…" : "Delete artifact"}
+          </button>
         </div>
       </aside>
     </>

@@ -336,6 +336,51 @@ export async function updateArtifactPreview(
   return (await getArtifactById(env, artifact.id)) as Artifact;
 }
 
+// Permanent removal. Purge R2 first so a failed sweep leaves the artifact row
+// behind and a retry can finish the job; then drop D1 rows children-first in
+// one transaction. Moderation and super-admin audit events are kept. Keys come
+// from artifact_files (files may live under another org's prefix after a
+// workspace transfer) plus a sweep of the canonical prefix for interrupted
+// upload leftovers.
+export async function deleteArtifact(
+  env: Env,
+  artifact: Artifact,
+): Promise<void> {
+  const files = await env.DB.prepare(
+    `SELECT DISTINCT storage_key FROM artifact_files
+     WHERE version_id IN (SELECT id FROM artifact_versions WHERE artifact_id = ?)`,
+  )
+    .bind(artifact.id)
+    .all<{ storage_key: string }>();
+  const keys = new Set((files.results || []).map((row) => row.storage_key));
+  const prefix = `orgs/${artifact.org_id}/artifacts/${artifact.id}/`;
+  let cursor: string | undefined;
+  do {
+    const listing = await env.BUCKET.list(
+      cursor ? { prefix, cursor } : { prefix },
+    );
+    for (const object of listing.objects) keys.add(object.key);
+    cursor = listing.truncated ? listing.cursor : undefined;
+  } while (cursor);
+  const all = [...keys];
+  for (let i = 0; i < all.length; i += 1000)
+    await env.BUCKET.delete(all.slice(i, i + 1000));
+  const byArtifact = (sql: string) => env.DB.prepare(sql).bind(artifact.id);
+  await env.DB.batch([
+    byArtifact(
+      `DELETE FROM artifact_files
+       WHERE version_id IN (SELECT id FROM artifact_versions WHERE artifact_id = ?)`,
+    ),
+    byArtifact("DELETE FROM artifact_versions WHERE artifact_id = ?"),
+    byArtifact("DELETE FROM comments WHERE artifact_id = ?"),
+    byArtifact("DELETE FROM viewer_tokens WHERE artifact_id = ?"),
+    byArtifact("DELETE FROM views WHERE artifact_id = ?"),
+    byArtifact("DELETE FROM share_links WHERE artifact_id = ?"),
+    byArtifact("DELETE FROM legacy_artifact_paths WHERE artifact_id = ?"),
+    byArtifact("DELETE FROM artifacts WHERE id = ?"),
+  ]);
+}
+
 export async function createShareLink(
   env: Env,
   artifact: Artifact,
