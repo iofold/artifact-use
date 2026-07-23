@@ -22,6 +22,27 @@ import {
 
 const GATE_LEVELS = ["public", "email", "verified_email", "allowlist"];
 
+const SORTS = {
+  published: {
+    label: "Recently published",
+    compare: (a: ArtifactRow, b: ArtifactRow) =>
+      (b.completed_at || 0) - (a.completed_at || 0),
+  },
+  updated: {
+    label: "Recently updated",
+    compare: (a: ArtifactRow, b: ArtifactRow) => b.updated_at - a.updated_at,
+  },
+  views: {
+    label: "Most views",
+    compare: (a: ArtifactRow, b: ArtifactRow) => b.total_views - a.total_views,
+  },
+  title: {
+    label: "Title A–Z",
+    compare: (a: ArtifactRow, b: ArtifactRow) => a.title.localeCompare(b.title),
+  },
+} as const;
+type SortKey = keyof typeof SORTS;
+
 export default function Dashboard() {
   const { data, isPending } = useQuery({
     queryKey: ["overview"],
@@ -198,14 +219,17 @@ function ArtifactTable({
   onOpen: (id: string) => void;
 }) {
   const [query, setQuery] = useState("");
+  const [sort, setSort] = useState<SortKey>("published");
   const q = query.trim().toLowerCase();
-  const rows = artifacts.filter(
-    (a) =>
-      !q ||
-      `${a.title} ${a.url_key} ${a.gate_level} ${a.status}`
-        .toLowerCase()
-        .includes(q),
-  );
+  const rows = artifacts
+    .filter(
+      (a) =>
+        !q ||
+        `${a.title} ${a.url_key} ${a.gate_level} ${a.status}`
+          .toLowerCase()
+          .includes(q),
+    )
+    .sort((a, b) => SORTS[sort].compare(a, b) || b.updated_at - a.updated_at);
   return (
     <section className="artifacts" aria-label="Artifacts">
       <div className="art-toolbar">
@@ -213,13 +237,26 @@ function ArtifactTable({
           Artifacts{" "}
           <span className="pill">{formatNumber(artifacts.length)}</span>
         </h2>
-        <input
-          type="search"
-          placeholder="Search title, slug, gate…"
-          aria-label="Search artifacts"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-        />
+        <div className="art-controls">
+          <select
+            aria-label="Sort artifacts"
+            value={sort}
+            onChange={(e) => setSort(e.target.value as SortKey)}
+          >
+            {Object.entries(SORTS).map(([key, s]) => (
+              <option key={key} value={key}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+          <input
+            type="search"
+            placeholder="Search title, slug, gate…"
+            aria-label="Search artifacts"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+        </div>
       </div>
       <div className="art-table">
         <div className="art-head">
@@ -228,7 +265,9 @@ function ArtifactTable({
           <span className="num">Views</span>
           <span className="num art-7d">7d</span>
           <span className="num art-fb">Comments</span>
-          <span className="art-date">Updated</span>
+          <span className="art-date">
+            {sort === "published" ? "Published" : "Updated"}
+          </span>
         </div>
         {rows.map((artifact) => {
           const views7 = weekViews(daily, artifact.id);
@@ -259,7 +298,13 @@ function ArtifactTable({
                   <em> ({formatNumber(artifact.open_comments)} open)</em>
                 ) : null}
               </span>
-              <span className="art-date">{ago(artifact.updated_at)}</span>
+              <span className="art-date">
+                {sort === "published"
+                  ? artifact.completed_at
+                    ? ago(artifact.completed_at)
+                    : "—"
+                  : ago(artifact.updated_at)}
+              </span>
             </button>
           );
         })}
