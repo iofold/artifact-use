@@ -6,6 +6,7 @@ import {
   postForm,
   type SuperArtifact,
   type SuperEvent,
+  type SuperOverview,
   type SuperModerationEvent,
   type SuperUser,
 } from "../api";
@@ -20,6 +21,15 @@ import {
   formatBytes,
   formatNumber,
 } from "../ui";
+
+function orgLabel(data: SuperOverview, id: string | null): string {
+  return (id && data.workspaces.find((w) => w.id === id)?.name) || id || "?";
+}
+function userLabel(data: SuperOverview, id: string | null): string {
+  if (!id) return "?";
+  const user = data.users.find((u) => u.id === id);
+  return user?.email || user?.name || id;
+}
 
 export default function SuperAdmin() {
   const { data, isPending, error } = useQuery({
@@ -330,8 +340,10 @@ export default function SuperAdmin() {
                 <span>
                   <strong>{event.artifact_title || event.artifact_id}</strong>
                   <small>
-                    {event.from_org_id} → {event.to_org_id} ({event.to_user_id})
-                    · by {event.actor_user_id}
+                    {orgLabel(data, event.from_org_id)} →{" "}
+                    {orgLabel(data, event.to_org_id)} (
+                    {userLabel(data, event.to_user_id)}) · by{" "}
+                    {userLabel(data, event.actor_user_id)}
                   </small>
                 </span>
                 <time>{ago(event.created_at)}</time>
@@ -353,7 +365,7 @@ export default function SuperAdmin() {
                     {event.action} {event.artifact_title || event.org_id}
                   </strong>
                   <small>
-                    {event.scope} · by {event.actor_user_id}
+                    {event.scope} · by {userLabel(data, event.actor_user_id)}
                     {event.reason ? ` · ${event.reason}` : ""}
                   </small>
                 </span>
@@ -366,6 +378,7 @@ export default function SuperAdmin() {
 
       {openArtifact ? (
         <SuperSheet
+          data={data}
           artifact={openArtifact}
           events={data.events.filter(
             (event) => event.artifact_id === openArtifact.id,
@@ -429,11 +442,13 @@ function UserRow({ user }: { user: SuperUser }) {
 }
 
 function SuperSheet({
+  data,
   artifact,
   events,
   moderationEvents,
   onClose,
 }: {
+  data: SuperOverview;
   artifact: SuperArtifact;
   events: SuperEvent[];
   moderationEvents: SuperModerationEvent[];
@@ -565,6 +580,7 @@ function SuperSheet({
             <li>
               <span>
                 <small>Owner org</small>
+                <strong>{orgLabel(data, artifact.org_id)}</strong>
                 <code>{artifact.org_id}</code>
               </span>
               <CopyButtonInline text={artifact.org_id} />
@@ -654,7 +670,7 @@ function SuperSheet({
               <div className="moderation-action-row workspace-action">
                 <span>
                   <strong>Entire workspace</strong>
-                  <small>{artifact.org_id}</small>
+                  <small>{orgLabel(data, artifact.org_id)}</small>
                 </span>
                 {artifact.org_suspended ? (
                   <button
@@ -697,7 +713,8 @@ function SuperSheet({
                       {event.action} {event.scope}
                     </strong>
                     <small>
-                      {event.reason || "restored"} · by {event.actor_user_id}
+                      {event.reason || "restored"} · by{" "}
+                      {userLabel(data, event.actor_user_id)}
                     </small>
                   </span>
                   <time>{ago(event.created_at)}</time>
@@ -716,24 +733,41 @@ function SuperSheet({
             }}
           >
             <div>
-              <label htmlFor="t-org">Target WorkOS org</label>
-              <input
+              <label htmlFor="t-org">Target workspace</label>
+              <select
                 id="t-org"
-                placeholder="org_…"
                 required
                 value={target.org}
-                onChange={(e) => setTarget({ ...target, org: e.target.value })}
-              />
+                onChange={(e) => setTarget({ org: e.target.value, user: "" })}
+              >
+                <option value="">Choose workspace…</option>
+                {data.workspaces
+                  .filter((w) => w.id !== artifact.org_id)
+                  .map((w) => (
+                    <option key={w.id} value={w.id}>
+                      {w.name || w.id}
+                    </option>
+                  ))}
+              </select>
             </div>
             <div>
-              <label htmlFor="t-user">Target WorkOS user</label>
-              <input
+              <label htmlFor="t-user">Target member</label>
+              <select
                 id="t-user"
-                placeholder="user_…"
                 required
+                disabled={!target.org}
                 value={target.user}
                 onChange={(e) => setTarget({ ...target, user: e.target.value })}
-              />
+              >
+                <option value="">Choose member…</option>
+                {data.users
+                  .filter((u) => u.workspace_ids.includes(target.org))
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.email || u.name || u.id}
+                    </option>
+                  ))}
+              </select>
             </div>
             <button type="submit" disabled={transfer.isPending}>
               {transfer.isPending ? "Moving…" : "Move artifact"}
@@ -761,10 +795,12 @@ function SuperSheet({
                 <li key={event.id}>
                   <span>
                     <strong>
-                      {event.from_org_id} → {event.to_org_id}
+                      {orgLabel(data, event.from_org_id)} →{" "}
+                      {orgLabel(data, event.to_org_id)}
                     </strong>
                     <small>
-                      to {event.to_user_id} · by {event.actor_user_id}
+                      to {userLabel(data, event.to_user_id)} · by{" "}
+                      {userLabel(data, event.actor_user_id)}
                     </small>
                   </span>
                   <time>{ago(event.created_at)}</time>

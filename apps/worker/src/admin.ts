@@ -1,6 +1,10 @@
 import type { Artifact, Creator, Env, GateLevel } from "./types";
 import { mintCreatorToken, requirePermission, safeCreator } from "./auth";
-import { listWorkspaces, type WorkspaceRow } from "./workspaces";
+import {
+  listWorkspaces,
+  resolveWorkspaceOrg,
+  type WorkspaceRow,
+} from "./workspaces";
 import {
   createComment,
   listComments,
@@ -16,6 +20,7 @@ import {
   getArtifactByUrlKey,
   getArtifactForOrg,
   listArtifactsForOrg,
+  moveArtifactToOrg,
   updateArtifactAccess,
   updateArtifactPreview,
 } from "./db";
@@ -29,7 +34,7 @@ import {
   publicArtifactUrl,
 } from "./util";
 
-const ARTIFACT_ACTIONS = new Set(["stats", "share-links", "comments"]);
+const ARTIFACT_ACTIONS = new Set(["stats", "share-links", "comments", "move"]);
 
 export async function handleAdminApi(
   request: Request,
@@ -172,6 +177,51 @@ export async function handleAdminApi(
         );
       }
       return json({ artifact: updated });
+    }
+
+    // Self-serve move between the caller's own workspaces: membership in the
+    // target is the whole authorization; created_by is preserved (gifting to
+    // another user stays a super-admin web operation).
+    if (request.method === "POST" && parsed.action === "move") {
+      requirePermission(creator, env, "artifacts:manage_access");
+      const body = (await request.json().catch(() => ({}))) as {
+        workspace?: string;
+      };
+      const requested = String(body.workspace || "").trim();
+      if (!requested)
+        return error(
+          400,
+          "invalid_workspace",
+          "workspace (target org id or slug) is required",
+        );
+      let targetOrgId: string;
+      try {
+        targetOrgId = await resolveWorkspaceOrg(env, creator.sub, requested);
+      } catch (e) {
+        return error(
+          403,
+          "workspace_forbidden",
+          e instanceof Error
+            ? e.message
+            : "you are not a member of the target workspace",
+        );
+      }
+      if (targetOrgId === artifact.org_id)
+        return error(
+          400,
+          "same_workspace",
+          "artifact is already in that workspace",
+        );
+      const slug = await moveArtifactToOrg(env, artifact, targetOrgId, {
+        newOwner: null,
+        actor: creator.sub,
+        action: "move_artifact",
+      });
+      return json({
+        ok: true,
+        artifact: { ...artifact, org_id: targetOrgId, slug },
+        note: "public url_key is unchanged; manage the artifact via the target workspace from now on",
+      });
     }
 
     if (request.method === "DELETE" && !parsed.action) {

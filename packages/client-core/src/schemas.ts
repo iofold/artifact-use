@@ -113,6 +113,7 @@ export const artifactManageTool: ToolSchema = {
           "set_preview",
           "share_link",
           "delete",
+          "move",
           "workspaces",
         ],
       },
@@ -136,6 +137,11 @@ export const artifactManageTool: ToolSchema = {
       recipient_email: { type: "string" },
       recipient_label: { type: "string" },
       expires_days: { type: "number" },
+      to_workspace: {
+        type: "string",
+        description:
+          "move: target workspace (org id or slug). The credential's user must be a member of it; the artifact keeps its public URL and creator, and is managed from the target workspace afterwards.",
+      },
       confirm: {
         type: "boolean",
         description:
