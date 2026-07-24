@@ -127,7 +127,7 @@ lives under `plugins/codex/artifact-use`.
 
 - `artifact_publish`: publish single HTML, small inline multi-file payloads, or a local `dir` when using the bundled stdio MCP.
 - `artifact_upload_session`: create a draft and receive a 6-hour upload token for direct HTTP file upload from a shell/curl-capable agent.
-- `artifact_manage`: list artifacts, fetch stats, update access, edit public preview copy with `set_preview`, create share links, or list workspaces with `action: "workspaces"`. Use the returned `url_key` from `action: "list"` for exact management calls.
+- `artifact_manage`: list artifacts, fetch stats, update access, edit public preview copy with `set_preview`, create share links, move an artifact to another workspace its user belongs to with `action: "move"` (`to_workspace`: org id or slug; URL and creator preserved), permanently delete with `action: "delete"` (requires `confirm: true`; removes every version, file, share link, comment, and view record), or list workspaces with `action: "workspaces"`. Use the returned `url_key` from `action: "list"` for exact management calls.
 - `artifact_comments`: list, reply to, resolve, or reopen comment threads.
 
 ## Workspaces
