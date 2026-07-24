@@ -6,7 +6,93 @@ import type {
   Env,
   GateLevel,
 } from "./types";
-import { artifactUrlKey, nowSec, randomId, sha256Hex } from "./util";
+import {
+  artifactUrlCode,
+  artifactUrlKey,
+  nowSec,
+  randomId,
+  sha256Hex,
+  slugify,
+} from "./util";
+
+// Re-home an artifact (with versions, share links, audit trail) into another
+// org. newOwner reassigns created_by (super-admin gifting); null preserves
+// attribution (self-serve moves between the actor's own workspaces). R2
+// objects stay under their original keys — artifact_files.storage_key is
+// authoritative. Returns the slug used in the target org (deduped on
+// collision); the public url_key never changes.
+export async function moveArtifactToOrg(
+  env: Env,
+  artifact: Artifact,
+  targetOrgId: string,
+  opts: { newOwner: string | null; actor: string; action: string },
+): Promise<string> {
+  const slug = await transferSlug(env, artifact, targetOrgId);
+  const now = Math.max(nowSec(), Number(artifact.updated_at || 0) + 1);
+  const owner = opts.newOwner;
+  await env.DB.batch([
+    owner
+      ? env.DB.prepare(
+          "UPDATE artifact_versions SET org_id = ?, created_by = ? WHERE artifact_id = ?",
+        ).bind(targetOrgId, owner, artifact.id)
+      : env.DB.prepare(
+          "UPDATE artifact_versions SET org_id = ? WHERE artifact_id = ?",
+        ).bind(targetOrgId, artifact.id),
+    ...(owner
+      ? [
+          env.DB.prepare(
+            "UPDATE share_links SET created_by = ? WHERE artifact_id = ?",
+          ).bind(owner, artifact.id),
+        ]
+      : []),
+    env.DB.prepare(
+      "UPDATE artifacts SET org_id = ?, slug = ?, created_by = COALESCE(?, created_by), updated_at = ? WHERE id = ?",
+    ).bind(targetOrgId, slug, owner, now, artifact.id),
+    env.DB.prepare(
+      `INSERT INTO super_admin_events
+       (id, actor_user_id, artifact_id, action, from_org_id, to_org_id, to_user_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    ).bind(
+      randomId("evt"),
+      opts.actor,
+      artifact.id,
+      opts.action,
+      artifact.org_id,
+      targetOrgId,
+      owner ?? opts.actor,
+      now,
+    ),
+  ]);
+  return slug;
+}
+
+async function transferSlug(
+  env: Env,
+  artifact: Artifact,
+  targetOrgId: string,
+): Promise<string> {
+  const existing = await env.DB.prepare(
+    "SELECT id FROM artifacts WHERE org_id = ? AND slug = ? AND id <> ? LIMIT 1",
+  )
+    .bind(targetOrgId, artifact.slug, artifact.id)
+    .first<{ id: string }>();
+  if (!existing) return artifact.slug;
+  const code = artifactUrlCode(artifact.id);
+  for (let i = 0; i < 20; i += 1) {
+    const suffix = i ? `-${code}-${i}` : `-${code}`;
+    const base = slugify(artifact.slug || "artifact", "artifact")
+      .slice(0, Math.max(1, 63 - suffix.length))
+      .replace(/-+$/g, "");
+    const slug = `${base || "artifact"}${suffix}`;
+    const collision = await env.DB.prepare(
+      "SELECT id FROM artifacts WHERE org_id = ? AND slug = ? AND id <> ? LIMIT 1",
+    )
+      .bind(targetOrgId, slug, artifact.id)
+      .first<{ id: string }>();
+    if (!collision) return slug;
+  }
+  throw new Error("could not find a unique slug for target org");
+}
 
 export async function getArtifactByLegacyPath(
   env: Env,

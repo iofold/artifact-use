@@ -49,6 +49,7 @@ import {
   createShareLink,
   deleteArtifact,
   migratePublisherDataToOrg,
+  moveArtifactToOrg,
   updateArtifactAccess,
   updateArtifactPreview,
 } from "./db";
@@ -58,7 +59,6 @@ import {
   normalizeArtifactDescription,
 } from "./preview";
 import {
-  artifactUrlCode,
   artifactPathPrefix,
   asArray,
   error,
@@ -71,7 +71,6 @@ import {
   publicArtifactUrl,
   randomId,
   siteBaseUrl,
-  slugify,
   SYSTEM_SECURITY_HEADERS,
   wantsHtml,
 } from "./util";
@@ -2263,69 +2262,12 @@ async function transferArtifactOwner(
     .bind(artifactId)
     .first<Artifact>();
   if (!artifact) return error(404, "artifact_not_found", "artifact not found");
-  const slug = await transferSlug(env, artifact, targetOrgId);
-  const now = nowSec();
-  await env.DB.batch([
-    env.DB.prepare(
-      "UPDATE artifact_versions SET org_id = ?, created_by = ? WHERE artifact_id = ?",
-    ).bind(targetOrgId, targetUserId, artifact.id),
-    env.DB.prepare(
-      "UPDATE share_links SET created_by = ? WHERE artifact_id = ?",
-    ).bind(targetUserId, artifact.id),
-    env.DB.prepare(
-      "UPDATE artifacts SET org_id = ?, slug = ?, created_by = ?, updated_at = ? WHERE id = ?",
-    ).bind(targetOrgId, slug, targetUserId, now, artifact.id),
-    env.DB.prepare(
-      `INSERT INTO super_admin_events
-       (id, actor_user_id, artifact_id, action, from_org_id, to_org_id, to_user_id, created_at)
-       VALUES (?, ?, ?, 'transfer_artifact', ?, ?, ?, ?)`,
-    ).bind(
-      randomId("evt"),
-      session.sub,
-      artifact.id,
-      artifact.org_id,
-      targetOrgId,
-      targetUserId,
-      now,
-    ),
-  ]);
+  await moveArtifactToOrg(env, artifact, targetOrgId, {
+    newOwner: targetUserId,
+    actor: session.sub,
+    action: "transfer_artifact",
+  });
   return redirect(`/admin/super?open=${encodeURIComponent(artifact.id)}`);
-}
-
-async function transferSlug(
-  env: Env,
-  artifact: Artifact,
-  targetOrgId: string,
-): Promise<string> {
-  const existing = await env.DB.prepare(
-    "SELECT id FROM artifacts WHERE org_id = ? AND slug = ? AND id <> ? LIMIT 1",
-  )
-    .bind(targetOrgId, artifact.slug, artifact.id)
-    .first<{ id: string }>();
-  if (!existing) return artifact.slug;
-  const code = artifactUrlCode(artifact.id);
-  for (let i = 0; i < 20; i += 1) {
-    const slug = transferCandidateSlug(artifact.slug, code, i);
-    const collision = await env.DB.prepare(
-      "SELECT id FROM artifacts WHERE org_id = ? AND slug = ? AND id <> ? LIMIT 1",
-    )
-      .bind(targetOrgId, slug, artifact.id)
-      .first<{ id: string }>();
-    if (!collision) return slug;
-  }
-  throw new Error("could not find a unique slug for target org");
-}
-
-function transferCandidateSlug(
-  slug: string,
-  code: string,
-  attempt: number,
-): string {
-  const suffix = attempt ? `-${code}-${attempt}` : `-${code}`;
-  const base = slugify(slug || "artifact", "artifact")
-    .slice(0, Math.max(1, 63 - suffix.length))
-    .replace(/-+$/g, "");
-  return `${base || "artifact"}${suffix}`;
 }
 
 async function workosUserInOrg(

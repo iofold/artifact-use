@@ -194,6 +194,10 @@ async function callTool(
         path: `/api/v1/artifacts/${ref}`,
         init: { method: "DELETE", headers },
       },
+      move: {
+        path: `/api/v1/artifacts/${ref}/move`,
+        init: postJson({ workspace: args.to_workspace }),
+      },
     };
     const route = routes[action];
     if (!route) throw new Error(`unknown artifact_manage action: ${action}`);
