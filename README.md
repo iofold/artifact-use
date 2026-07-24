@@ -67,6 +67,8 @@ Their screenshots, stills, and synthetic data are documented in
 
 - **Stable artifact URLs** under `/go/{artifact-slug}-{six-character-code}/`.
 - **Immutable versions** with atomic current-version promotion.
+- **Lifecycle management**: move artifacts between workspaces (URL-stable) and
+  permanently delete them — from the dashboard, API, or MCP.
 - **Cloudflare-native storage** using Workers, R2, and D1.
 - **Access gates**: `public`, `email`, `verified_email`, and `allowlist`.
 - **Rich link previews** with public-safe Open Graph/X metadata, branded

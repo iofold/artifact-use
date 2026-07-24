@@ -47,6 +47,8 @@ Tools:
 
 `artifact_upload_session` creates a draft version and returns a 6-hour bearer `upload_token`, `upload_base`, and `complete_url`. Use it when an agent has filesystem and shell/curl access so bytes move directly over HTTP instead of through MCP/model context.
 
+`artifact_manage` also covers the artifact lifecycle: `move` relocates an artifact into another workspace the credential's user belongs to (`POST /api/v1/artifacts/{ref}/move` with `{"workspace": "<org id or slug>"}`; public URL and creator unchanged), and `delete` permanently removes an artifact and all its data (`DELETE /api/v1/artifacts/{ref}`; MCP requires `confirm: true`).
+
 ## Publish HTML
 
 ```http
