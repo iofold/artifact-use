@@ -1832,7 +1832,10 @@
       "[popover]{position:fixed;inset:auto;margin:0;padding:0;border:0;overflow:visible;background:transparent;width:auto;height:auto;max-width:none;max-height:none}",
       ".au-launch{position:fixed;right:18px;bottom:18px;z-index:2147483647;display:flex;align-items:center;gap:8px;border:0;border-radius:8px;background:#12383b;color:#fff;padding:10px 14px;font-weight:750;box-shadow:0 10px 30px rgba(0,0,0,.2);cursor:pointer}",
       ".au-badge{min-width:20px;height:20px;padding:0 6px;border-radius:10px;background:#f3a712;color:#1b1206;font-size:12px;font-weight:800;display:inline-flex;align-items:center;justify-content:center}",
-      ".au-panel{display:none;position:fixed;right:18px;top:18px;z-index:2147483647;width:min(420px,calc(100vw - 36px));height:min(680px,calc(100vh - 36px));background:#fff;border:1px solid #cdd7d4;border-radius:10px;box-shadow:0 24px 70px rgba(0,0,0,.28);overflow:hidden;flex-direction:column}",
+      // Height is viewport-proportional so the panel shrinks before it can
+      // dominate short viewports (scaled Mac/Windows displays); max-height
+      // guards the 320px floor on windows shorter than the floor itself.
+      ".au-panel{display:none;position:fixed;right:18px;top:18px;z-index:2147483647;width:min(420px,calc(100vw - 36px));height:clamp(320px,78dvh,680px);max-height:calc(100vh - 36px);background:#fff;border:1px solid #cdd7d4;border-radius:10px;box-shadow:0 24px 70px rgba(0,0,0,.28);overflow:hidden;flex-direction:column}",
       ".au-panel.is-open{display:flex}",
       ".au-head{height:46px;flex:0 0 auto;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #e2e8e6;padding:0 8px 0 14px;user-select:none;touch-action:none}",
       "@media (min-width:641px){.au-head{cursor:grab}.au-head:active{cursor:grabbing}}",
