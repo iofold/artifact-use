@@ -27,7 +27,7 @@
     "mcp": "npm --workspace packages/mcp-server run dev"
   },
   "devDependencies": {
-    "@types/node": "^22.15.30",
+    "@types/node": "^26.1.1",
     "prettier": "^3.5.3",
     "typescript": "^5.8.3"
   },
