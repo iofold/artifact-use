@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink } from "react-router";
 import { api, type Me } from "./api";
 
 export function Logo({ size = 20 }: { size?: number }) {
