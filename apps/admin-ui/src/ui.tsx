@@ -25,6 +25,10 @@ export function Logo({ size = 20 }: { size?: number }) {
 // switches workspaces in place.
 function WorkspaceMenu() {
   const [open, setOpen] = useState(false);
+  // The org a clicked row is navigating to. The switch is a full-page
+  // navigation, so this state only lives until unload — its job is instant
+  // feedback: spinner on the clicked row, everything else inert.
+  const [switchingTo, setSwitchingTo] = useState<string | null>(null);
   const rootRef = useRef<HTMLDivElement>(null);
   const { data } = useQuery({
     queryKey: ["workspace-context"],
@@ -32,13 +36,13 @@ function WorkspaceMenu() {
     staleTime: 60_000,
   });
   useEffect(() => {
-    if (!open) return;
+    if (!open || switchingTo) return;
     const close = (event: MouseEvent) => {
       if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", close);
     return () => document.removeEventListener("mousedown", close);
-  }, [open]);
+  }, [open, switchingTo]);
   if (!data) return null;
   const active = data.workspaces.find((w) => w.active);
   const name =
@@ -68,18 +72,40 @@ function WorkspaceMenu() {
         </svg>
       </button>
       {open ? (
-        <div className="ws-menu-panel" role="menu">
+        <div
+          className={`ws-menu-panel${switchingTo ? " switching" : ""}`}
+          role="menu"
+          aria-busy={!!switchingTo}
+        >
           {data.workspaces.map((workspace) =>
             workspace.switch_url ? (
               <a
                 key={workspace.org_id}
                 role="menuitem"
+                className={
+                  switchingTo === workspace.org_id ? "is-switching" : undefined
+                }
+                aria-disabled={
+                  switchingTo !== null && switchingTo !== workspace.org_id
+                }
                 href={workspace.switch_url}
                 title={workspace.org_id}
+                onClick={(event) => {
+                  if (switchingTo) {
+                    event.preventDefault();
+                    return;
+                  }
+                  setSwitchingTo(workspace.org_id);
+                }}
               >
                 {workspace.org_name || workspace.org_id}
-                {workspace.org_slug ? (
+                {switchingTo === workspace.org_id ? (
+                  <small>Switching…</small>
+                ) : workspace.org_slug ? (
                   <small>{workspace.org_slug}</small>
+                ) : null}
+                {switchingTo === workspace.org_id ? (
+                  <span className="ws-spin" aria-hidden="true" />
                 ) : null}
               </a>
             ) : (
