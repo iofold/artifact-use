@@ -16,7 +16,12 @@ import {
   getFile,
   getVersion,
 } from "./db";
-import { getViewerSession, renderGate } from "./gate";
+import {
+  getViewerSession,
+  issueViewerSession,
+  renderGate,
+  signedInViewer,
+} from "./gate";
 import { getPublisherSessionAuth } from "./publisher";
 import { unavailableArtifactResponse } from "./moderation";
 import {
@@ -102,6 +107,30 @@ export async function servePublic(
       // how to get in, instead of a 200 HTML email form.
       if (!wantsHtml(request)) return gateJson(env, artifact);
       const url = new URL(request.url);
+      // Signed-in members of the artifact's workspace skip the gate: their
+      // WorkOS login already proves the email the gate would collect, at a
+      // strictly higher bar than the OTP. `au_sso=1` marks the cookie-setting
+      // bounce — if it comes back sessionless (cookies blocked), the manual
+      // gate renders instead of redirect-looping. Non-members fall through to
+      // the gate page, where their signed-in email becomes a one-click
+      // consent rather than a silent pass.
+      const signedIn =
+        request.method === "GET"
+          ? await signedInViewer(request, env, artifact)
+          : null;
+      if (signedIn?.member && url.searchParams.get("au_sso") !== "1") {
+        const bounce = new URL(url);
+        bounce.searchParams.set("au_sso", "1");
+        return issueViewerSession(
+          request,
+          env,
+          artifact,
+          signedIn.email,
+          true,
+          null,
+          `${bounce.pathname}${bounce.search}${bounce.hash}`,
+        );
+      }
       const share = await sharePrefill(
         env,
         artifact,
@@ -112,6 +141,7 @@ export async function servePublic(
         path,
         share.email || "",
         share.id || "",
+        signedIn?.email || "",
       );
       const gateHtml = injectArtifactMetadata(
         await gate.text(),
@@ -125,6 +155,13 @@ export async function servePublic(
         headers: gate.headers,
       });
     }
+  }
+  // The gate passed; drop the SSO bounce marker so it never lingers in the
+  // address bar or in copied links.
+  const requestUrl = new URL(request.url);
+  if (requestUrl.searchParams.has("au_sso")) {
+    requestUrl.searchParams.delete("au_sso");
+    return Response.redirect(requestUrl.toString(), 302);
   }
   const version = await getVersion(env, artifact.current_version_id);
   if (!version || version.status !== "complete")
@@ -330,17 +367,7 @@ export async function handleArtifactContext(
   if (!auth || auth.session.orgId !== artifact.org_id) return viewer();
   // Defense-in-depth: an artifact page may only ask about itself, so hostile
   // artifact JS cannot probe a visiting publisher's other artifacts.
-  const referer = request.headers.get("Referer");
-  if (referer) {
-    try {
-      const ref = new URL(referer);
-      if (
-        ref.origin === url.origin &&
-        !ref.pathname.startsWith(publicArtifactPath(env, artifact.url_key))
-      )
-        return viewer();
-    } catch {}
-  }
+  if (refererOutsideArtifact(request, env, artifact)) return viewer();
   return json({
     role: "publisher",
     admin_url: `/admin?open=${encodeURIComponent(artifact.id)}`,
@@ -444,6 +471,29 @@ export async function handleComments(
 // credential — creator token or OAuth JWT from the owning org — so the
 // publisher's agent can read, reply to, and resolve threads with the token it
 // already holds instead of minting a viewer session for its own artifact.
+// True when a Referer is present, same-origin, and points OUTSIDE the given
+// artifact's path — the shared containment rule keeping hostile artifact JS
+// from exercising a visiting publisher's global admin cookie beyond the page
+// it runs on. Absent or unparsable referers pass (cross-site callers never
+// carry the SameSite=Lax cookie anyway).
+function refererOutsideArtifact(
+  request: Request,
+  env: Env,
+  artifact: Artifact,
+): boolean {
+  const referer = request.headers.get("Referer");
+  if (!referer) return false;
+  try {
+    const ref = new URL(referer);
+    return (
+      ref.origin === new URL(request.url).origin &&
+      !ref.pathname.startsWith(publicArtifactPath(env, artifact.url_key))
+    );
+  } catch {
+    return false;
+  }
+}
+
 async function commentIdentity(
   request: Request,
   env: Env,
@@ -452,24 +502,33 @@ async function commentIdentity(
 ): Promise<CommentAuthor | null> {
   const session = await getViewerSession(request, env, artifact);
   if (session) return { email: session.email, viewId: session.view_id };
-  if (!bearerToken(request)) return null;
-  try {
-    // Lax: the artifact names the workspace here — a user-scoped credential
-    // qualifies through membership of the artifact's own org.
-    const creator = await getCreator(request, env, { laxWorkspace: true });
-    if (!creator) return null;
-    if (creator.tokenScope === "user" && !creator.workspaceSelected) {
-      await resolveWorkspaceOrg(env, creator.sub, artifact.org_id);
-    } else if (creator.orgId !== artifact.org_id) return null;
-    requirePermission(
-      creator,
-      env,
-      mode === "read" ? "artifacts:read" : "artifacts:publish",
-    );
-    return { email: creator.email || creator.sub, viewId: null };
-  } catch {
-    return null;
+  if (bearerToken(request)) {
+    try {
+      // Lax: the artifact names the workspace here — a user-scoped credential
+      // qualifies through membership of the artifact's own org.
+      const creator = await getCreator(request, env, { laxWorkspace: true });
+      if (!creator) return null;
+      if (creator.tokenScope === "user" && !creator.workspaceSelected) {
+        await resolveWorkspaceOrg(env, creator.sub, artifact.org_id);
+      } else if (creator.orgId !== artifact.org_id) return null;
+      requirePermission(
+        creator,
+        env,
+        mode === "read" ? "artifacts:read" : "artifacts:publish",
+      );
+      return { email: creator.email || creator.sub, viewId: null };
+    } catch {
+      return null;
+    }
   }
+  // Signed-in members of the artifact's workspace comment as themselves —
+  // the same trust the admin UI extends — so their own widget never asks for
+  // an email. Members only: for anyone else this cookie identity would let a
+  // public artifact attribute comments to a visitor who never consented.
+  const signedIn = await signedInViewer(request, env, artifact);
+  if (signedIn?.member && !refererOutsideArtifact(request, env, artifact))
+    return { email: signedIn.email, viewId: null };
+  return null;
 }
 
 // Machine-readable 401 for the comments route: unlike gateJson this is

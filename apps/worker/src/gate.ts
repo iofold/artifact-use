@@ -9,6 +9,8 @@ import {
 import { getArtifactById, getArtifactByUrlKey, insertView } from "./db";
 import { EmailDeliveryError, sendVerificationEmail } from "./mailer";
 import { unavailableArtifactResponse } from "./moderation";
+import { getPublisherSessionAuth } from "./publisher";
+import { resolveWorkspaceOrg } from "./workspaces";
 import {
   clearRateLimit,
   hashRateKey,
@@ -50,24 +52,61 @@ export async function getViewerSession(
   return session;
 }
 
+// The signed-in identity riding on the request, if any. A publisher session
+// carries a WorkOS-authenticated email — strictly stronger proof than the
+// gate's own OTP — so gates may honor it. Membership of the artifact's own
+// workspace (directly or via the multi-workspace snapshot) decides HOW: members
+// pass silently, everyone else gets a one-click consent so merely opening a
+// link never discloses an email the viewer didn't agree to share.
+export async function signedInViewer(
+  request: Request,
+  env: Env,
+  artifact: Artifact,
+): Promise<{ email: string; member: boolean } | null> {
+  const auth = await getPublisherSessionAuth(request, env);
+  const email = normalizeEmail(auth?.session.email || "");
+  if (!auth || !validEmail(email)) return null;
+  if (auth.session.orgId === artifact.org_id) return { email, member: true };
+  try {
+    await resolveWorkspaceOrg(env, auth.session.sub, artifact.org_id);
+    return { email, member: true };
+  } catch {
+    return { email, member: false };
+  }
+}
+
 export function renderGate(
   artifact: Artifact,
   redirectTo: string,
   prefillEmail = "",
   shareLinkId = "",
+  sessionEmail = "",
 ): Response {
   const verified = requiresVerified(artifact.gate_level);
   const action = verified ? "/_au/gate/start" : "/_au/gate/email";
+  // One-click for signed-in viewers, unless an allowlist would reject their
+  // email anyway — then only the manual form (with a different email) helps.
+  const canContinueAs =
+    !!sessionEmail &&
+    (artifact.gate_level !== "allowlist" || isAllowed(artifact, sessionEmail));
+  const hidden = `<input type="hidden" name="artifact_key" value="${escapeHtml(artifact.url_key)}">
+  <input type="hidden" name="redirect_to" value="${escapeHtml(redirectTo)}">
+  <input type="hidden" name="share_link_id" value="${escapeHtml(shareLinkId)}">`;
+  const continueAs = canContinueAs
+    ? `<p class="muted">You're signed in — continue with one click, or use a different email below.</p>
+<form method="post" action="/_au/gate/session">
+  ${hidden}
+  <button type="submit">Continue as ${escapeHtml(sessionEmail)}</button>
+</form>`
+    : `<p class="muted">Enter your email to continue.</p>`;
   return htmlPage(
     artifact.title,
     `<h1>${escapeHtml(artifact.title)}</h1>
-<p class="muted">Enter your email to continue.</p>
+${continueAs}
 <form method="post" action="${action}">
-  <input type="hidden" name="artifact_key" value="${escapeHtml(artifact.url_key)}">
-  <input type="hidden" name="redirect_to" value="${escapeHtml(redirectTo)}">
-  <input type="hidden" name="share_link_id" value="${escapeHtml(shareLinkId)}">
+  ${hidden}
   <label>Email</label>
-  <input name="email" type="email" autocomplete="email" value="${escapeHtml(prefillEmail)}" required>
+  <input name="email" type="email" autocomplete="email" value="${escapeHtml(prefillEmail || (canContinueAs ? sessionEmail : ""))}" required>
   <button type="submit">${verified ? "Send code" : "Continue"}</button>
 </form>`,
   );
@@ -113,6 +152,65 @@ export async function handleGateRoute(
         false,
         shareLinkId,
         redirectTo,
+      );
+    }
+
+    if (request.method === "POST" && path === "/_au/gate/session") {
+      const form = await request.formData();
+      const artifact = await formArtifact(env, form);
+      if (!artifact)
+        return error(404, "artifact_not_found", "artifact not found");
+      const unavailable = unavailableArtifactResponse(request, artifact);
+      if (unavailable) return unavailable;
+      if (artifact.gate_level === "public")
+        return error(400, "gate_not_required", "this artifact is not gated");
+      // Consent must be a top-level form submit from this artifact's own gate
+      // page. Published artifacts run untrusted JS on this same origin, so the
+      // Referer path and fetch metadata are the line between a deliberate
+      // click and a drive-by disclosure of the signed-in email.
+      if (!consentRequestOk(request, env, artifact))
+        return error(
+          403,
+          "consent_required",
+          "continue from the artifact's own gate page",
+        );
+      const viewer = await signedInViewer(request, env, artifact);
+      if (!viewer)
+        return error(
+          401,
+          "sign_in_required",
+          "no signed-in session; use the email form instead",
+        );
+      if (!viewer.member && !isAllowed(artifact, viewer.email))
+        return wantsHtml(request)
+          ? htmlPage(
+              artifact.title,
+              `<p class="error">This email is not allowed for this artifact.</p>`,
+            )
+          : error(
+              403,
+              "email_not_allowed",
+              "this email is not allowed for this artifact",
+            );
+      // Shares the plain email gate's issuance bucket: one IP gets 60 viewer
+      // sessions an hour across both paths.
+      const ipHash = await hashRateKey(requestIp(request));
+      const sessionLimit = await rateLimit(
+        env,
+        `gate:email:ip:hour:${ipHash}`,
+        60,
+        60 * 60,
+      );
+      if (!sessionLimit.allowed)
+        return rateLimitedResponse(sessionLimit, request, artifact.title);
+      return issueViewerSession(
+        request,
+        env,
+        artifact,
+        viewer.email,
+        true,
+        String(form.get("share_link_id") || "") || null,
+        safeArtifactRedirect(env, artifact, request, form.get("redirect_to")),
       );
     }
 
@@ -352,10 +450,40 @@ async function consumeVerified(
   );
 }
 
+// The gate/session consent POST must be a top-level navigation whose Referer
+// points into the target artifact's own path. Fetch metadata can't be forged
+// from JS (forbidden headers), and the gate page renders at the artifact URL
+// with no artifact JS, so a passing request is a human's form submit there. A
+// missing Referer is rejected: hostile artifacts control their own referrer
+// policy, so absence proves nothing. Viewers who strip Referer globally still
+// have the manual email form.
+function consentRequestOk(
+  request: Request,
+  env: Env,
+  artifact: Artifact,
+): boolean {
+  const mode = request.headers.get("Sec-Fetch-Mode");
+  if (mode && mode !== "navigate") return false;
+  const dest = request.headers.get("Sec-Fetch-Dest");
+  if (dest && dest !== "document") return false;
+  const referer = request.headers.get("Referer");
+  if (!referer) return false;
+  try {
+    const ref = new URL(referer);
+    return (
+      ref.origin === new URL(request.url).origin &&
+      ref.pathname.startsWith(publicArtifactPath(env, artifact.url_key))
+    );
+  } catch {
+    return false;
+  }
+}
+
 // Shared tail of every gate flow: record the view, mint the 30-day session,
 // and answer with a bearer token (agents / in-widget fetches) or a redirect
-// (browsers). Callers must pass an already-sanitized redirectTo.
-async function issueViewerSession(
+// (browsers). Callers must pass an already-sanitized redirectTo. Also the tail
+// of the serve-time member auto-pass, which is why it is exported.
+export async function issueViewerSession(
   request: Request,
   env: Env,
   artifact: Artifact,
