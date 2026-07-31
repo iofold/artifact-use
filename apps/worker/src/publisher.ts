@@ -994,6 +994,8 @@ export async function handlePublisherAdmin(
       path === "/admin/super")
   )
     return spaShell(request, env, raw, session.exp);
+  if (path === "/admin/switch" && request.method === "GET")
+    return switchWorkspace(request, env, session);
   if (request.method !== "GET" && !(await verifyAdminCsrf(request, raw, env)))
     return csrfFailed();
   if (path === "/admin/super/transfer" && request.method === "POST")
@@ -1504,7 +1506,7 @@ async function adminCreateWorkspaceJson(
     org_id: orgId,
     org_name: created?.org_name || name,
     org_slug: created?.org_slug || "",
-    switch_url: `/login?organization_id=${encodeURIComponent(orgId)}`,
+    switch_url: `/admin/switch?org=${encodeURIComponent(orgId)}`,
   });
 }
 
@@ -1526,6 +1528,63 @@ async function resolveMintTarget(
     orgId: await resolveWorkspaceOrg(env, session.sub, workspace),
     scope: "org",
   };
+}
+
+// In-place workspace switch: the session already proves the user, and the
+// membership snapshot proves membership AND role in the target org, so
+// re-minting the publisher cookie here replaces the WorkOS re-authorization
+// hop (multiple seconds, sometimes a full login page) with a single redirect.
+// A target the snapshot cannot vouch for falls back to the OAuth flow — which
+// also stays the path that honors org-level WorkOS auth policies.
+async function switchWorkspace(
+  request: Request,
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const target = (url.searchParams.get("org") || "").trim();
+  if (!isWorkosOrgId(target))
+    return error(400, "invalid_workspace", "org must be a WorkOS org id");
+  if (target === session.orgId) return redirect("/admin");
+  // A cross-site link must not silently re-point someone's admin session.
+  // Same-origin navigations (the switcher) and direct address-bar loads pass;
+  // browsers too old for fetch metadata send no header and also pass.
+  const site = request.headers.get("Sec-Fetch-Site");
+  if (site && site !== "same-origin" && site !== "none")
+    return redirect("/admin");
+  try {
+    await resolveWorkspaceOrg(env, session.sub, target);
+  } catch {
+    return redirect(`/login?organization_id=${encodeURIComponent(target)}`);
+  }
+  const rows = await listWorkspaces(env, session.sub).catch(() => []);
+  // Least privilege: the OLD org's roles/permissions never carry over, an
+  // unknown snapshot role demotes to member (re-entering through WorkOS
+  // recovers it), and roles are never left empty — isTeamAdmin reads an
+  // empty session as legacy-admin.
+  const role = rows.find((row) => row.org_id === target)?.role || "member";
+  const next: PublisherSession = {
+    typ: "publisher",
+    sub: session.sub,
+    orgId: target,
+    email: session.email,
+    name: session.name,
+    role,
+    roles: [role],
+    permissions: [],
+    sessionId: session.sessionId || null,
+    exp: session.exp,
+  };
+  const headers = new Headers();
+  headers.append(
+    "Set-Cookie",
+    cookie(
+      SESSION_COOKIE,
+      await signPayload(next, env),
+      Math.max(0, session.exp - nowSec()),
+    ),
+  );
+  return redirect("/admin", headers);
 }
 
 // The signed-in workspace plus every other workspace this user could switch
@@ -1555,7 +1614,7 @@ async function adminWorkspaceContextJson(
       switch_url:
         row.org_id === session.orgId
           ? null
-          : `/login?organization_id=${encodeURIComponent(row.org_id)}`,
+          : `/admin/switch?org=${encodeURIComponent(row.org_id)}`,
     })),
   });
 }

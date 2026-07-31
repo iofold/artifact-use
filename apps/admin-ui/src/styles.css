@@ -1482,6 +1482,40 @@ code {
   font-size: 13px !important;
   color: var(--accent) !important;
 }
+/* While a switch navigates, the clicked row keeps a spinner and everything
+   else goes inert so a second click can't start a competing navigation. */
+.ws-menu-panel.switching a:not(.is-switching),
+.ws-menu-panel.switching .ws-menu-manage {
+  opacity: 0.45;
+  pointer-events: none;
+}
+.ws-menu-panel a.is-switching {
+  position: relative;
+  background: var(--line-soft);
+  padding-right: 32px;
+}
+.ws-spin {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  margin-top: -7px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: ws-spin 0.7s linear infinite;
+}
+@keyframes ws-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ws-spin {
+    animation-duration: 1.6s;
+  }
+}
 @media (max-width: 720px) {
   .ws-nav {
     max-width: 120px;
