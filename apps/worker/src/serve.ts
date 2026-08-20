@@ -202,7 +202,13 @@ export async function servePublic(
   const contentType =
     obj.httpMetadata?.contentType || row.content_type || mimeFor(row.path);
   const isHtml = isHtmlPath || mediaType(contentType) === "text/html";
-  const headers = objectHeaders(obj, contentType, artifact.gate_level, isHtml);
+  const headers = objectHeaders(
+    obj,
+    contentType,
+    artifact.gate_level,
+    isHtml,
+    row.path,
+  );
   if (!("body" in obj))
     return new Response(null, {
       status: preconditionFailed(request.headers) ? 412 : 304,
@@ -278,11 +284,12 @@ function objectHeaders(
   contentType: string,
   gateLevel: Artifact["gate_level"],
   isHtml: boolean,
+  path: string,
 ): Headers {
   const headers = new Headers(COMMON_HEADERS);
   obj.writeHttpMetadata(headers);
   headers.set("Content-Type", contentType);
-  headers.set("Cache-Control", cacheControl(gateLevel, isHtml));
+  headers.set("Cache-Control", cacheControl(gateLevel, isHtml, path));
   headers.set("Last-Modified", obj.uploaded.toUTCString());
   if (!isHtml) {
     headers.set("ETag", obj.httpEtag);
@@ -291,11 +298,25 @@ function objectHeaders(
   return headers;
 }
 
-function cacheControl(
+// Bundler-emitted assets carry a content hash in the filename (e.g. Vite's
+// assets/<name>-<hash>.<ext>), so a given path can never serve different
+// bytes — safe to cache as immutable. Gated artifacts still get `private`
+// (browser cache only), and HTML stays no-store so gate checks and widget
+// injection always run.
+const HASHED_ASSET_RE = /(^|\/)assets\/[^/]+-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/i;
+
+export function cacheControl(
   gateLevel: Artifact["gate_level"],
   isHtml: boolean,
+  path: string,
 ): string {
-  if (isHtml || gateLevel !== "public") return "private, no-store";
+  if (isHtml) return "private, no-store";
+  if (HASHED_ASSET_RE.test(path)) {
+    return gateLevel === "public"
+      ? "public, max-age=31536000, immutable"
+      : "private, max-age=31536000, immutable";
+  }
+  if (gateLevel !== "public") return "private, no-store";
   return "public, max-age=300, must-revalidate";
 }
 
