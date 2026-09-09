@@ -23,6 +23,7 @@ import {
   handleComments,
   servePublic,
 } from "./serve";
+import { UPSTREAM_PATH } from "./upstream";
 import { error, json, secureSystemResponse, wantsHtml } from "./util";
 
 const CORS = {
@@ -77,7 +78,7 @@ async function htmlErrorAdapter(
 ): Promise<Response> {
   if (response.status < 400) return response;
   if (!wantsHtml(request)) return response;
-  if (AGENT_PATHS.test(path)) return response;
+  if (AGENT_PATHS.test(path) || UPSTREAM_PATH.test(path)) return response;
   const contentType = response.headers.get("Content-Type") || "";
   if (!contentType.includes("application/json")) return response;
   let detail = "";
@@ -183,7 +184,13 @@ async function dispatch(
     if (path === "/_au/artifact-context")
       return handleArtifactContext(request, env);
     if (path === "/_au/agent-token") return handleAgentToken(request, env);
-    if (request.method !== "GET" && request.method !== "HEAD")
+    // Artifact files are read-only; the reserved `_api/` upstream proxy under
+    // an artifact accepts the write methods its backend does.
+    if (
+      request.method !== "GET" &&
+      request.method !== "HEAD" &&
+      !UPSTREAM_PATH.test(path)
+    )
       return error(405, "method_not_allowed", "method not allowed");
     return servePublic(request, env, path);
   }

@@ -1,4 +1,10 @@
-import type { Artifact, ArtifactVersion, Env, PublishManifest } from "./types";
+import type {
+  Artifact,
+  ArtifactVersion,
+  Env,
+  PublishManifest,
+  ViewerSession,
+} from "./types";
 import { abuseMailto } from "./abuse";
 import { getCreator, requirePermission, signViewerSession } from "./auth";
 import { resolveWorkspaceOrg } from "./workspaces";
@@ -30,6 +36,7 @@ import {
   renderArtifactPreviewDocument,
 } from "./preview";
 import { commentWriteRateLimit } from "./rl";
+import { UPSTREAM_SEGMENT, proxyUpstream } from "./upstream";
 import { FEEDBACK_WIDGET_JS } from "./widget/feedback.generated";
 import {
   bearerToken,
@@ -87,8 +94,12 @@ export async function servePublic(
     return Response.redirect(url.toString(), 301);
   }
   const linkPreview = isLinkPreviewRequest(request);
+  // Reserved sub-path: gated viewers' requests to the creator's upstream
+  // backend. Never HTML, never a file lookup; the gate below still applies.
+  const isUpstream = rest[0] === UPSTREAM_SEGMENT;
+  let session: ViewerSession | null = null;
   if (artifact.gate_level !== "public") {
-    const session = await getViewerSession(request, env, artifact);
+    session = await getViewerSession(request, env, artifact);
     if (
       !session ||
       (requiresVerified(artifact.gate_level) && !session.verified)
@@ -105,7 +116,7 @@ export async function servePublic(
       }
       // Machine-readable gate: a non-browser fetch gets a 401 + JSON describing
       // how to get in, instead of a 200 HTML email form.
-      if (!wantsHtml(request)) return gateJson(env, artifact);
+      if (isUpstream || !wantsHtml(request)) return gateJson(env, artifact);
       const url = new URL(request.url);
       // Signed-in members of the artifact's workspace skip the gate: their
       // WorkOS login already proves the email the gate would collect, at a
@@ -136,9 +147,16 @@ export async function servePublic(
         artifact,
         url.searchParams.get("v"),
       );
+      // Send the viewer back to the exact URL they asked for once the gate
+      // passes: artifacts keep state in the query string, and losing it here
+      // silently reset that state. The share prefill and SSO bounce markers
+      // are consumed by the gate itself and stay out of the redirect.
+      const keep = new URLSearchParams(url.search);
+      keep.delete("v");
+      keep.delete("au_sso");
       const gate = renderGate(
         artifact,
-        path,
+        keep.size ? `${path}?${keep}` : path,
         share.email || "",
         share.id || "",
         signedIn?.email || "",
@@ -163,6 +181,8 @@ export async function servePublic(
     requestUrl.searchParams.delete("au_sso");
     return Response.redirect(requestUrl.toString(), 302);
   }
+  if (isUpstream)
+    return proxyUpstream(request, env, artifact, session, rest.slice(1));
   const version = await getVersion(env, artifact.current_version_id);
   if (!version || version.status !== "complete")
     return error(404, "version_not_found", "artifact version not found");

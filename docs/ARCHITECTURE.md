@@ -72,3 +72,16 @@ Viewer gates are intentionally DocSend-style:
 - `allowlist`: email/domain allowlist plus verified email.
 
 Future SSO gates can be added without changing creator auth.
+
+## Upstream Proxy
+
+An artifact may name one HTTPS backend (`artifact_upstreams`, one row per
+artifact). The reserved `_api/` path under the artifact URL forwards to it
+after the gate check in `servePublic`, so the backend inherits the artifact's
+viewer gate instead of running its own login: the Worker attaches the stored
+bearer secret and the viewer's gate identity (`X-Artifact-Viewer-Email`), the
+published HTML holds no credential, and the backend only ever sees requests
+from viewers who passed the gate. Request and response headers are
+allowlisted, upstream cookies are dropped, and proxied responses are never
+cached. Upstream URLs are limited to public hostnames over HTTPS; the secret is
+write-only through the API.
