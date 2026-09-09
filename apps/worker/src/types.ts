@@ -86,6 +86,15 @@ export interface Artifact {
   org_moderation_reason?: string | null;
 }
 
+export interface ArtifactUpstream {
+  artifact_id: string;
+  base_url: string;
+  secret: string | null;
+  created_by: string | null;
+  created_at: number;
+  updated_at: number;
+}
+
 export interface ArtifactVersion {
   id: string;
   artifact_id: string;

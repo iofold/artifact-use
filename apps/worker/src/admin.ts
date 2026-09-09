@@ -14,23 +14,28 @@ import {
 import { agentSetupPrompt } from "./llms";
 import { commentWriteRateLimit } from "./rl";
 import {
+  clearArtifactUpstream,
   createShareLink,
   deleteArtifact,
   getArtifactByLegacyPath,
   getArtifactByUrlKey,
   getArtifactForOrg,
+  getArtifactUpstream,
   listArtifactsForOrg,
   moveArtifactToOrg,
+  setArtifactUpstream,
   updateArtifactAccess,
   updateArtifactPreview,
 } from "./db";
 import { normalizeArtifactDescription } from "./preview";
+import { normalizeUpstreamUrl, upstreamSummary } from "./upstream";
 import {
   error,
   GATE_LEVELS,
   json,
   nowSec,
   normalizeEmail,
+  publicArtifactPath,
   publicArtifactUrl,
 } from "./util";
 
@@ -138,7 +143,13 @@ export async function handleAdminApi(
 
     if (request.method === "GET" && !parsed.action) {
       requirePermission(creator, env, "artifacts:read");
-      return json({ artifact });
+      return json({
+        artifact,
+        upstream: upstreamSummary(
+          await getArtifactUpstream(env, artifact.id),
+          publicArtifactPath(env, artifact.url_key),
+        ),
+      });
     }
 
     if (request.method === "PATCH" && !parsed.action) {
@@ -148,6 +159,7 @@ export async function handleAdminApi(
         description?: string | null;
         gate_level?: GateLevel;
         allowlist?: unknown;
+        upstream?: { base_url?: unknown; secret?: unknown } | null;
       };
       const level = body.gate_level || null;
       if (level && !GATE_LEVELS.has(level))
@@ -176,7 +188,46 @@ export async function handleAdminApi(
             : normalizeArtifactDescription(body.description),
         );
       }
-      return json({ artifact: updated });
+      // Upstream backend: `null` clears it; an object replaces both fields, so
+      // a URL change must resend the secret. The secret is write-only.
+      if (body.upstream === null) {
+        await clearArtifactUpstream(env, updated);
+      } else if (body.upstream !== undefined) {
+        if (typeof body.upstream !== "object")
+          return error(
+            400,
+            "invalid_upstream",
+            "upstream must be null or { base_url, secret? }",
+          );
+        const baseUrl = normalizeUpstreamUrl(
+          String(body.upstream.base_url || ""),
+          env,
+        );
+        if (!baseUrl)
+          return error(
+            400,
+            "invalid_upstream",
+            "upstream.base_url must be an https:// URL to a public hostname (no IP literals, credentials, query, or fragment)",
+          );
+        const secret =
+          body.upstream.secret === undefined || body.upstream.secret === null
+            ? null
+            : String(body.upstream.secret);
+        if (secret !== null && (!secret.trim() || secret.length > 1024))
+          return error(
+            400,
+            "invalid_upstream",
+            "upstream.secret must be a non-empty string of at most 1024 characters",
+          );
+        await setArtifactUpstream(env, updated, baseUrl, secret, creator.sub);
+      }
+      return json({
+        artifact: updated,
+        upstream: upstreamSummary(
+          await getArtifactUpstream(env, updated.id),
+          publicArtifactPath(env, updated.url_key),
+        ),
+      });
     }
 
     // Self-serve move between the caller's own workspaces: membership in the

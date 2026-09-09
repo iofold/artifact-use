@@ -186,6 +186,13 @@ async function callTool(
           method: "PATCH",
         },
       },
+      set_upstream: {
+        path: `/api/v1/artifacts/${ref}`,
+        init: {
+          ...postJson({ upstream: upstreamPatch(args) }),
+          method: "PATCH",
+        },
+      },
       share_link: {
         path: `/api/v1/artifacts/${ref}/share-links`,
         init: postJson(args),
@@ -255,6 +262,17 @@ async function callTool(
     throw new Error(`unknown artifact_comments action: ${action}`);
   }
   throw new Error(`unknown tool: ${name}`);
+}
+
+// `upstream_url` set -> replace the artifact's upstream backend (secret
+// optional); empty/absent -> clear it.
+function upstreamPatch(
+  args: Record<string, unknown>,
+): { base_url: string; secret: string | null } | null {
+  const baseUrl = String(args.upstream_url || "").trim();
+  if (!baseUrl) return null;
+  const secret = String(args.upstream_secret || "").trim();
+  return { base_url: baseUrl, secret: secret || null };
 }
 
 async function publishInlineFiles(

@@ -97,6 +97,13 @@ async function manageArtifact(
       title: args.title,
       description: args.description,
     });
+  if (action === "set_upstream") {
+    const baseUrl = String(args.upstream_url || "").trim();
+    const secret = String(args.upstream_secret || "").trim();
+    return api(conf, "PATCH", `/api/v1/artifacts/${artifactRef}`, {
+      upstream: baseUrl ? { base_url: baseUrl, secret: secret || null } : null,
+    });
+  }
   if (action === "share_link")
     return api(
       conf,

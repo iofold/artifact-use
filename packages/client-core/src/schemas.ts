@@ -99,7 +99,7 @@ export const artifactUploadSessionTool: ToolSchema = {
 export const artifactManageTool: ToolSchema = {
   name: "artifact_manage",
   description:
-    "List artifacts, fetch stats, update access or public link-preview details, create a tracked share link, permanently delete an artifact, or list the workspaces this credential can publish to.",
+    "List artifacts, fetch stats, update access or public link-preview details, point an artifact at an upstream backend that gated viewers reach via its `_api/` path, create a tracked share link, permanently delete an artifact, or list the workspaces this credential can publish to.",
   inputSchema: {
     type: "object",
     required: ["action"],
@@ -111,6 +111,7 @@ export const artifactManageTool: ToolSchema = {
           "stats",
           "set_access",
           "set_preview",
+          "set_upstream",
           "share_link",
           "delete",
           "move",
@@ -134,6 +135,16 @@ export const artifactManageTool: ToolSchema = {
           "set_preview: the public link-preview summary. Visible even when the artifact is gated; pass an empty string to clear it.",
       },
       allowlist: { type: "object" },
+      upstream_url: {
+        type: "string",
+        description:
+          "set_upstream: https:// base URL of the artifact's backend. Requests to <artifact url>_api/<path> are forwarded there after the artifact gate passes, with X-Artifact-Viewer-Email set to the viewer's gate email. Omit or pass an empty string to remove the upstream.",
+      },
+      upstream_secret: {
+        type: "string",
+        description:
+          "set_upstream: bearer token sent to the upstream as Authorization: Bearer <secret>. Write-only; never returned.",
+      },
       recipient_email: { type: "string" },
       recipient_label: { type: "string" },
       expires_days: { type: "number" },

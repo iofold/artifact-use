@@ -179,3 +179,52 @@ Gate levels:
 - `email`
 - `verified_email`
 - `allowlist`
+
+## Upstream Backend
+
+An artifact may point at one HTTPS backend. Once a viewer has passed the
+artifact gate, requests to the reserved `_api/` path under the artifact URL are
+forwarded to that backend, so an interactive artifact can talk to a live
+service without running its own login and without shipping a credential in
+its HTML.
+
+```http
+PATCH /api/v1/artifacts/{artifact_key}
+{
+  "upstream": {
+    "base_url": "https://intake.example.com",
+    "secret": "backend bearer token"
+  }
+}
+```
+
+- `base_url` must be `https://` to a public hostname: no IP literals,
+  credentials, query, or fragment, and never the artifact host itself.
+- `secret` is optional and write-only. Setting `upstream` replaces both fields;
+  `"upstream": null` removes the backend.
+- `GET /api/v1/artifacts/{artifact_key}` returns `upstream: { base_url, path,
+has_secret, updated_at }` or `null`. The secret is never returned.
+
+How a proxied request reaches the backend:
+
+```http
+GET  {artifact url}_api/api/items?x=1   ->  GET  {base_url}/api/items?x=1
+POST {artifact url}_api/api/items       ->  POST {base_url}/api/items
+```
+
+- `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, and `DELETE` are forwarded; bodies up
+  to 10 MiB; 60 s upstream timeout (`504 upstream_timeout`), unreachable
+  backend `502 upstream_unreachable`, no backend configured `404 no_upstream`.
+- Forwarded request headers: `Accept`, `Accept-Language`, `Content-Type`,
+  `If-None-Match`, `If-Modified-Since`, `Range`, plus
+  `Authorization: Bearer <secret>` (when set), `X-Artifact-Key`,
+  `X-Artifact-Viewer-Email` (the gate email, empty on public artifacts),
+  `X-Artifact-Viewer-Verified` (`1`/`0`), `X-Artifact-Viewer-Id`, and
+  `X-Forwarded-For`. Cookies and other viewer headers are not forwarded.
+- Returned response headers are limited to content and caching metadata
+  (`Content-Type`, `Content-Disposition`, `Content-Language`,
+  `Content-Range`, `Accept-Ranges`, `ETag`, `Last-Modified`, `Retry-After`,
+  `Vary`, `X-Request-Id`); `Cache-Control` is always `private, no-store`. The
+  backend's cookies and CORS headers never reach the viewer.
+- Without a viewer session the path answers the machine-readable gate (`401`
+  JSON) regardless of `Accept`; the page must be opened through the gate first.

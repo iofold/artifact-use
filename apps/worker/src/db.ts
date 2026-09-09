@@ -1,5 +1,6 @@
 import type {
   Artifact,
+  ArtifactUpstream,
   ArtifactFile,
   ArtifactVersion,
   Creator,
@@ -463,8 +464,53 @@ export async function deleteArtifact(
     byArtifact("DELETE FROM views WHERE artifact_id = ?"),
     byArtifact("DELETE FROM share_links WHERE artifact_id = ?"),
     byArtifact("DELETE FROM legacy_artifact_paths WHERE artifact_id = ?"),
+    byArtifact("DELETE FROM artifact_upstreams WHERE artifact_id = ?"),
     byArtifact("DELETE FROM artifacts WHERE id = ?"),
   ]);
+}
+
+// One optional HTTPS backend per artifact, reached by gated viewers through the
+// reserved `_api/` path (see upstream.ts). The secret is forwarded as a bearer
+// token and is never returned by any API response.
+export async function getArtifactUpstream(
+  env: Env,
+  artifactId: string,
+): Promise<ArtifactUpstream | null> {
+  return env.DB.prepare(
+    "SELECT * FROM artifact_upstreams WHERE artifact_id = ?",
+  )
+    .bind(artifactId)
+    .first<ArtifactUpstream>();
+}
+
+export async function setArtifactUpstream(
+  env: Env,
+  artifact: Artifact,
+  baseUrl: string,
+  secret: string | null,
+  createdBy: string | null,
+): Promise<ArtifactUpstream> {
+  const now = nowSec();
+  await env.DB.prepare(
+    `INSERT INTO artifact_upstreams (artifact_id, base_url, secret, created_by, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT(artifact_id) DO UPDATE SET
+       base_url = excluded.base_url,
+       secret = excluded.secret,
+       updated_at = excluded.updated_at`,
+  )
+    .bind(artifact.id, baseUrl, secret, createdBy, now, now)
+    .run();
+  return (await getArtifactUpstream(env, artifact.id)) as ArtifactUpstream;
+}
+
+export async function clearArtifactUpstream(
+  env: Env,
+  artifact: Artifact,
+): Promise<void> {
+  await env.DB.prepare("DELETE FROM artifact_upstreams WHERE artifact_id = ?")
+    .bind(artifact.id)
+    .run();
 }
 
 export async function createShareLink(
