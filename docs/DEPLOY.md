@@ -170,6 +170,12 @@ ARTIFACT_USE_TERMS_URL = "https://example.com/terms"
 When either variable is empty or invalid, its footer link stays hidden and the
 corresponding local `/privacy` or `/terms` route returns `404`.
 
+If you point the variables at this worker's own `/legal/<page>` path, put the
+pages at `apps/worker/public/legal/<page>.html` (the folder is gitignored, so
+keep a copy outside the checkout). `npm run deploy` and `deploy:prod` run
+`scripts/check-legal-assets.mjs` first and refuse to deploy when a configured
+page is missing, because a deploy from a fresh checkout otherwise ships a 404.
+
 ## Selective Browser Integrity Check bypass
 
 Browser Integrity Check can reject legitimate command-line and agent clients with
@@ -210,6 +216,18 @@ python3 -c 'import urllib.request; print(urllib.request.urlopen("https://artifac
 Also read one public artifact with curl, Codex, and Claude. Admin/auth pages should
 retain their normal Cloudflare protections, and application auth, gates, CSRF,
 moderation, and D1 limits remain in force on skipped product paths.
+
+## Scheduled maintenance
+
+`[triggers] crons` in `wrangler.toml` runs the worker's `scheduled` handler
+every six hours. It purges upload sessions that never completed (drafts older
+than 24 hours, above the six-hour session ceiling) together with their R2
+objects, and deletes artifact rows that have no versions and nothing attached.
+Keep the trigger when you copy the config; without it, limit-rejected and
+crashed publishes accumulate in storage.
+
+Explicit-route deployments also need routes for `/robots.txt` and
+`/favicon.ico` (both are in the example config).
 
 ## Deploy
 
