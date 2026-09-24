@@ -150,14 +150,16 @@ export async function handleArtifactPreviewAsset(
   if (request.method !== "GET" && request.method !== "HEAD")
     return previewError(405, "method_not_allowed");
   const urlKey = decodeURIComponent(match[1] || "");
-  const revision = decodeURIComponent(match[2] || "");
   const artifact = await getArtifactByUrlKey(env, urlKey);
   if (!artifact || !artifact.current_version_id)
     return previewError(404, "preview_not_found");
   const unavailable = unavailableArtifactResponse(request, artifact);
   if (unavailable) return unavailable;
-  if (revision !== previewRevision(artifact))
-    return previewError(404, "preview_not_found");
+  // Chat apps cache the card URL per message, so after a republish old
+  // messages keep asking for the previous revision. Any revision resolves to
+  // the current card rather than a broken image (Slack unfurls 404ed 15
+  // times in one month before this).
+  const revision = previewRevision(artifact);
 
   const storageKey = `previews/${artifact.id}/${revision}.png`;
   const cached = await env.BUCKET.get(storageKey);
