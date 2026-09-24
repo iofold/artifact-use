@@ -22,6 +22,7 @@ import {
   getFile,
   getVersionForOrg,
   listFilesForVersion,
+  purgeVersion,
   revertVersionToDraft,
   updateArtifactPreview,
   upsertArtifact,
@@ -53,6 +54,10 @@ interface StartBody {
   gate_level?: GateLevel;
   entrypoint?: string;
   ttl_seconds?: number;
+  // Optional pre-flight declaration so an over-limit package is refused
+  // before a single byte is uploaded (see declaredLimitsResponse).
+  file_count?: number;
+  package_bytes?: number;
 }
 
 interface PublishActor {
@@ -74,6 +79,8 @@ export async function handlePublish(
       const suspended = await suspendedOrganizationResponse(env, creator.orgId);
       if (suspended) return suspended;
       const body = (await request.json()) as StartBody;
+      const overLimit = declaredLimitsResponse(env, body);
+      if (overLimit) return overLimit;
       return json(await createDraft(env, creator, body));
     }
 
@@ -88,6 +95,8 @@ export async function handlePublish(
       const suspended = await suspendedOrganizationResponse(env, creator.orgId);
       if (suspended) return suspended;
       const body = (await request.json()) as StartBody;
+      const overLimit = declaredLimitsResponse(env, body);
+      if (overLimit) return overLimit;
       const ttl = uploadSessionTtl(body.ttl_seconds);
       if (ttl instanceof Response) return ttl;
       const draft = await createDraft(env, creator, body);
@@ -231,7 +240,12 @@ export async function handlePublish(
           readLimit(env, "count"),
         );
         if (validation instanceof Response) {
-          await revertVersionToDraft(env, actor.orgId, version.id);
+          // A package over the size or count limit can never complete, so
+          // keeping its files around only leaks storage (three such
+          // rejections held 357 MB of R2 before this existed). Other
+          // rejections leave the draft open for a corrected manifest.
+          if (validation.status === 413) await purgeVersion(env, version);
+          else await revertVersionToDraft(env, actor.orgId, version.id);
           return validation;
         }
         await completeVersion(
@@ -461,6 +475,26 @@ function parseSha256(request: Request): string | Response {
   if (!/^[a-f0-9]{64}$/.test(sha256))
     return error(400, "invalid_sha256", "X-Artifact-Sha256 is invalid");
   return sha256;
+}
+
+// Clients that already know their package shape (every folder publisher does)
+// can declare it up front and get the 413 before uploading anything.
+function declaredLimitsResponse(env: Env, body: StartBody): Response | null {
+  const count = Number(body.file_count);
+  if (Number.isFinite(count) && count > readLimit(env, "count"))
+    return error(
+      413,
+      "too_many_files",
+      `file count ${count} exceeds the limit of ${readLimit(env, "count")}`,
+    );
+  const bytes = Number(body.package_bytes);
+  if (Number.isFinite(bytes) && bytes > readLimit(env, "package"))
+    return error(
+      413,
+      "package_too_large",
+      `package size ${bytes} exceeds the limit of ${readLimit(env, "package")} bytes`,
+    );
+  return null;
 }
 
 function uploadSessionTtl(value: unknown): number | Response {
