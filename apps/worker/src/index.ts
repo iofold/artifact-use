@@ -23,6 +23,7 @@ import {
   handleComments,
   servePublic,
 } from "./serve";
+import { sweepAbandonedUploads } from "./maintenance";
 import { UPSTREAM_PATH } from "./upstream";
 import { error, json, secureSystemResponse, wantsHtml } from "./util";
 
@@ -35,6 +36,15 @@ const CORS = {
 };
 
 export default {
+  // Cron (see [triggers] in wrangler.toml): abandoned upload sessions and
+  // empty artifact shells are swept so limit-rejected packages stop leaking.
+  async scheduled(
+    _controller: ScheduledController,
+    env: Env,
+    ctx: ExecutionContext,
+  ): Promise<void> {
+    ctx.waitUntil(sweepAbandonedUploads(env));
+  },
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
@@ -147,6 +157,12 @@ async function dispatch(
     if (path === "/") return renderHome(request, env);
     if (path === "/privacy") return renderPrivacyPolicy(env);
     if (path === "/terms") return renderTermsOfService(env);
+    if (path === "/robots.txt") return robotsTxt();
+    if (path === "/favicon.ico")
+      return Response.redirect(
+        `${env.SITE_BASE_URL.replace(/\/$/, "")}/_au/artifact-icon.svg`,
+        301,
+      );
     if (path === "/llms.txt") return llmsTxt(env);
     if (path === "/llms-full.txt") return llmsFullTxt(env);
     if (
@@ -194,6 +210,32 @@ async function dispatch(
       return error(405, "method_not_allowed", "method not allowed");
     return servePublic(request, env, path);
   }
+}
+
+// Artifact pages stay crawlable so their `noindex` header is seen and honored;
+// only the operator and machine surfaces are kept out of crawlers entirely.
+function robotsTxt(): Response {
+  const body = [
+    "User-agent: *",
+    "Disallow: /admin",
+    "Disallow: /api/",
+    "Disallow: /mcp",
+    "Disallow: /_au/",
+    "Disallow: /login",
+    "Disallow: /signin",
+    "Disallow: /signup",
+    "Disallow: /invite",
+    "Disallow: /callback",
+    "Disallow: /logout",
+    "Disallow: /connect",
+    "",
+  ].join("\n");
+  return new Response(body, {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "public, max-age=3600",
+    },
+  });
 }
 
 async function authorizationServerMetadata(env: Env): Promise<unknown> {
