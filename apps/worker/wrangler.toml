@@ -110,6 +110,19 @@ zone_name = "example.com"
 pattern = "artifacts.example.com/health*"
 zone_name = "example.com"
 
+# Sweep abandoned upload sessions (drafts older than 24h) and empty artifact
+# shells every six hours; see src/maintenance.ts.
+[triggers]
+crons = ["23 */6 * * *"]
+
+[[routes]]
+pattern = "artifacts.example.com/robots.txt"
+zone_name = "example.com"
+
+[[routes]]
+pattern = "artifacts.example.com/favicon.ico"
+zone_name = "example.com"
+
 [[r2_buckets]]
 binding = "BUCKET"
 bucket_name = "artifact-use"
