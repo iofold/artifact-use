@@ -173,7 +173,7 @@ async function publishFiles(
     artifact: args.artifact,
     title: args.title,
     description: args.description,
-    gate_level: args.gate_level || "email",
+    ...(args.gate_level ? { gate_level: args.gate_level } : {}),
     entrypoint,
   })) as PublishStart;
   const total = normalized.reduce((sum, file) => sum + file.size, 0);

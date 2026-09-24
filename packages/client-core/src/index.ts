@@ -229,7 +229,7 @@ export async function publishFolder(
       artifact: input.artifact,
       title: input.title,
       description: input.description,
-      gate_level: input.gate_level || "email",
+      ...(input.gate_level ? { gate_level: input.gate_level } : {}),
       entrypoint,
       file_count: files.length,
       total_size: total,
@@ -240,7 +240,7 @@ export async function publishFolder(
     artifact: input.artifact,
     title: input.title,
     description: input.description,
-    gate_level: input.gate_level || "email",
+    ...(input.gate_level ? { gate_level: input.gate_level } : {}),
     entrypoint,
   })) as PublishStart;
   if (files.length > start.limits.file_count)
