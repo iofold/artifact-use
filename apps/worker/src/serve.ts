@@ -194,7 +194,15 @@ export async function servePublic(
   // segment), so directory-style URLs are detected from the raw request path.
   let assetPath = rest.join("/") || version.entrypoint || "index.html";
   if (rest.length && publicPath.endsWith("/")) assetPath += "/index.html";
-  assetPath = validateAssetPath(assetPath);
+  try {
+    assetPath = validateAssetPath(assetPath);
+  } catch {
+    // Reserved (`_au/…`, `_iof/…`, `cdn-cgi`) or malformed segments under an
+    // artifact URL are files that do not exist. Letting the validation error
+    // propagate surfaced it to real viewers as `500 internal_error` whenever a
+    // page linked `_au/comments` relative to its own path.
+    return error(404, "file_not_found", "file not found");
+  }
   const row = await getFile(env, version.id, assetPath);
   if (!row) return error(404, "file_not_found", "file not found");
   const rowType = row.content_type || mimeFor(row.path);
