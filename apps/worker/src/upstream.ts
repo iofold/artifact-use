@@ -6,13 +6,18 @@
 // page never holds a credential of its own.
 import type { Artifact, ArtifactUpstream, Env, ViewerSession } from "./types";
 import { getArtifactUpstream } from "./db";
-import { requestIp } from "./rl";
+import { hashRateKey, rateLimit, requestIp } from "./rl";
 import { error, siteBaseUrl } from "./util";
 
 export const UPSTREAM_SEGMENT = "_api";
 export const UPSTREAM_PATH = /\/_api(\/|$)/;
 
 const MAX_BODY_BYTES = 10 * 1024 * 1024;
+// One open tab polling every second saturated a small backend on 2026-09-09
+// (128k proxied requests in 44 hours from a single viewer). Per-viewer and
+// per-artifact ceilings per minute; the page receives 429 with Retry-After.
+export const UPSTREAM_VIEWER_LIMIT_PER_MIN = 120;
+export const UPSTREAM_ARTIFACT_LIMIT_PER_MIN = 1200;
 const UPSTREAM_TIMEOUT_MS = 60_000;
 const METHODS = new Set(["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"]);
 const FORWARD_REQUEST_HEADERS = [
@@ -89,6 +94,17 @@ export function upstreamSummary(
   };
 }
 
+function upstreamRateLimited(retryAfter: number): Response {
+  const base = error(
+    429,
+    "upstream_rate_limited",
+    "too many requests to this artifact's upstream backend; slow down and retry",
+  );
+  const headers = new Headers(base.headers);
+  headers.set("Retry-After", String(Math.max(1, Math.ceil(retryAfter))));
+  return new Response(base.body, { status: 429, headers });
+}
+
 export async function proxyUpstream(
   request: Request,
   env: Env,
@@ -98,9 +114,35 @@ export async function proxyUpstream(
 ): Promise<Response> {
   if (!METHODS.has(request.method))
     return error(405, "method_not_allowed", "method not allowed");
+  // A public artifact has no gate, so the proxy would hand the stored secret
+  // and a "viewer" identity to anyone on the internet. Configuration refuses
+  // the combination too; this is the backstop for rows that predate it.
+  if (artifact.gate_level === "public")
+    return error(
+      403,
+      "upstream_requires_gate",
+      "upstream backends are only reachable through a gated artifact; set a non-public gate",
+    );
   const upstream = await getArtifactUpstream(env, artifact.id);
   if (!upstream)
     return error(404, "no_upstream", "this artifact has no upstream backend");
+  const viewerKey = session
+    ? `v${session.view_id}`
+    : `ip${await hashRateKey(requestIp(request))}`;
+  const perViewer = await rateLimit(
+    env,
+    `upstream:${artifact.id}:${viewerKey}`,
+    UPSTREAM_VIEWER_LIMIT_PER_MIN,
+    60,
+  );
+  if (!perViewer.allowed) return upstreamRateLimited(perViewer.retryAfter);
+  const perArtifact = await rateLimit(
+    env,
+    `upstream:${artifact.id}`,
+    UPSTREAM_ARTIFACT_LIMIT_PER_MIN,
+    60,
+  );
+  if (!perArtifact.allowed) return upstreamRateLimited(perArtifact.retryAfter);
   const target = new URL(
     `${upstream.base_url}/${rest.join("/")}${new URL(request.url).search}`,
   );
