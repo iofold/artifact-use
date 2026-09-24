@@ -352,6 +352,42 @@ export async function completeVersion(
   ]);
 }
 
+// Remove an unfinished version and every byte it uploaded. Complete versions
+// are never touched: the SQL guard makes a stray call a no-op on the row, and
+// the object listing is scoped to the version's own prefix.
+export async function purgeVersion(
+  env: Env,
+  version: { id: string; org_id: string; artifact_id: string },
+): Promise<number> {
+  const files = await env.DB.prepare(
+    "SELECT storage_key FROM artifact_files WHERE version_id = ?",
+  )
+    .bind(version.id)
+    .all<{ storage_key: string }>();
+  const keys = new Set((files.results || []).map((row) => row.storage_key));
+  const prefix = `orgs/${version.org_id}/artifacts/${version.artifact_id}/versions/${version.id}/`;
+  let cursor: string | undefined;
+  do {
+    const listing = await env.BUCKET.list(
+      cursor ? { prefix, cursor } : { prefix },
+    );
+    for (const object of listing.objects) keys.add(object.key);
+    cursor = listing.truncated ? listing.cursor : undefined;
+  } while (cursor);
+  const all = [...keys];
+  for (let i = 0; i < all.length; i += 1000)
+    await env.BUCKET.delete(all.slice(i, i + 1000));
+  await env.DB.batch([
+    env.DB.prepare("DELETE FROM artifact_files WHERE version_id = ?").bind(
+      version.id,
+    ),
+    env.DB.prepare(
+      "DELETE FROM artifact_versions WHERE id = ? AND status != 'complete'",
+    ).bind(version.id),
+  ]);
+  return all.length;
+}
+
 // Comment tallies ride along so an agent can spot "which artifacts have open
 // feedback" from the plain list call without a per-artifact round trip.
 export async function listArtifactsForOrg(
