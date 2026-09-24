@@ -58,6 +58,7 @@ function fakeEnv(artifact: Artifact, upstream: ArtifactUpstream | null) {
         },
         async first() {
           if (sql.includes("FROM artifact_upstreams")) return upstream;
+          if (sql.includes("rate_counters")) return { count: 1 };
           if (sql.includes("FROM artifacts")) return artifact;
           return null;
         },

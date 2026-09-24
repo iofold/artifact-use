@@ -169,6 +169,14 @@ export async function handleAdminApi(
           ? undefined
           : JSON.stringify(body.allowlist);
       let updated = artifact;
+      // An upstream backend is only reachable through a gate (see
+      // upstream.ts); never let the two be combined from either direction.
+      if (level === "public" && (await getArtifactUpstream(env, artifact.id)))
+        return error(
+          409,
+          "upstream_requires_gate",
+          "this artifact has an upstream backend; clear it before making the artifact public",
+        );
       if (level || allowlistJson !== undefined) {
         updated = await updateArtifactAccess(
           env,
@@ -218,6 +226,12 @@ export async function handleAdminApi(
             400,
             "invalid_upstream",
             "upstream.secret must be a non-empty string of at most 1024 characters",
+          );
+        if (updated.gate_level === "public")
+          return error(
+            409,
+            "upstream_requires_gate",
+            "upstream backends require a gated artifact; set gate_level to email, verified_email or allowlist first",
           );
         await setArtifactUpstream(env, updated, baseUrl, secret, creator.sub);
       }
