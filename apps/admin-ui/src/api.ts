@@ -81,12 +81,18 @@ export type Comment = {
 
 export type ArtifactDetail = { shares: ShareLink[]; comments: Comment[] };
 
+// Expired tokens stay listed for 30 days after expiry so "why is my agent
+// getting 401s" has an answer; "expiring" means within the next 7 days.
+export type AgentTokenStatus = "active" | "expiring" | "expired";
+
 export type AgentToken = {
   id: string;
   label: string | null;
   source: string;
   created_at: number;
   expires_at: number;
+  last_used_at: number | null;
+  status: AgentTokenStatus;
 };
 
 export type ConnectInfo = {
@@ -137,6 +143,52 @@ export type WorkspaceEntry = {
 export type WorkspaceContext = {
   active_org_id: string;
   workspaces: WorkspaceEntry[];
+};
+
+// Seven days of MCP activity for the signed-in workspace, grouped by calling
+// harness, tool and error code. Super admins also see the unauthenticated
+// bucket (org-less events), which is where expired tokens and OAuth loops
+// show up.
+export type EventClient = {
+  client: string;
+  version: string | null;
+  calls: number;
+  failures: number;
+  avg_ms: number | null;
+  last_seen: number;
+  unauthenticated: number;
+};
+
+export type EventTool = {
+  tool: string;
+  action: string | null;
+  calls: number;
+  failures: number;
+  avg_ms: number | null;
+};
+
+export type EventError = { error_code: string; n: number };
+
+export type EventFailure = {
+  ts: number;
+  client: string | null;
+  client_version: string | null;
+  auth_kind: string | null;
+  method: string;
+  tool: string | null;
+  action: string | null;
+  status: number | null;
+  error_code: string | null;
+  duration_ms: number | null;
+};
+
+export type AgentEvents = {
+  since: number;
+  superAdmin: boolean;
+  clients: EventClient[];
+  tools: EventTool[];
+  errors: EventError[];
+  recentFailures: EventFailure[];
 };
 
 export function adminCsrfToken(cookieHeader = document.cookie): string {
@@ -328,6 +380,7 @@ export const api = {
       `/admin/api/connect${code ? `?code=${encodeURIComponent(code)}` : ""}`,
     ),
   team: () => getJson<TeamInfo>("/admin/api/team"),
+  events: () => getJson<AgentEvents>("/admin/api/events"),
   workspaceContext: () =>
     getJson<WorkspaceContext>("/admin/api/workspace-context"),
   renameWorkspace: (name: string) =>

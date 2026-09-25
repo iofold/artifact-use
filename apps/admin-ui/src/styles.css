@@ -1798,3 +1798,125 @@ code {
     grid-column: auto;
   }
 }
+/* Agents page: the event data is wide, so these are real tables that scroll
+   inside their own panel on narrow screens instead of breaking the page. */
+.agents-section {
+  padding-top: 26px;
+}
+.agents-section h2 {
+  margin: 0 0 6px;
+  font-size: 23px;
+}
+.section-note {
+  margin: 0 0 12px;
+}
+.agents-empty {
+  margin-top: 24px;
+}
+.agents-empty a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.agents-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr);
+  gap: 22px;
+  align-items: start;
+}
+.table-scroll {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+}
+.data-table th,
+.data-table td {
+  padding: 8px 14px;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+.data-table th {
+  color: var(--muted);
+  font: 600 10.5px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  border-bottom: 1px solid var(--line);
+  padding-top: 11px;
+  padding-bottom: 11px;
+}
+.data-table td {
+  border-bottom: 1px solid var(--line-soft);
+}
+.data-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+.data-table th.num,
+.data-table td.num {
+  text-align: right;
+}
+.data-table td small {
+  display: block;
+  color: var(--muted);
+  font: 11.5px var(--mono);
+  margin-top: 2px;
+}
+.data-table td code {
+  font-size: 12px;
+}
+.data-table .fail {
+  color: var(--danger);
+}
+.data-table .when {
+  color: var(--muted);
+  font-size: 12px;
+}
+.code-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.code-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--line-soft);
+  font-size: 13.5px;
+}
+.code-list li:last-child {
+  border-bottom: 0;
+}
+.code-list li small {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.code-list li small a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+.code-list .num {
+  font: 600 13px var(--mono);
+  white-space: nowrap;
+}
+@media (max-width: 940px) {
+  .agents-grid {
+    grid-template-columns: 1fr;
+  }
+}

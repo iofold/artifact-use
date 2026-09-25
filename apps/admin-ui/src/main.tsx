@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes } from "react-router";
+import Agents from "./pages/Agents";
 import Connect from "./pages/Connect";
 import Dashboard from "./pages/Dashboard";
 import SuperAdmin from "./pages/SuperAdmin";
@@ -21,6 +22,7 @@ createRoot(document.getElementById("root")!).render(
         <Routes>
           <Route path="/admin" element={<Dashboard />} />
           <Route path="/admin/connect" element={<Connect />} />
+          <Route path="/admin/agents" element={<Agents />} />
           <Route path="/admin/team" element={<Team />} />
           <Route path="/admin/super" element={<SuperAdmin />} />
           <Route path="*" element={<Navigate to="/admin" replace />} />
