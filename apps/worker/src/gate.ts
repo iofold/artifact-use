@@ -893,7 +893,7 @@ export async function resolveLinkAccess(
   linkId: string | null,
 ): Promise<LinkAccess> {
   const basic = basicCredentials(request);
-  const id = (linkId || basic?.user || "").trim();
+  const id = (linkId || basic?.user || "").trim().slice(0, 64);
   if (!id) return { kind: "none" };
   const link = await getShareLink(env, artifact.id, id);
   if (!link) return { kind: "none" };
