@@ -1,4 +1,4 @@
-import type { Env } from "./types";
+import type { Creator, Env } from "./types";
 import {
   artifactCommentsTool,
   artifactManageTool,
@@ -7,6 +7,12 @@ import {
 } from "@artifact-use/client-core/schemas";
 import { handleAdminApi } from "./admin";
 import { safeCreator } from "./auth";
+import {
+  authKindFor,
+  clientFromUserAgent,
+  recordMcpEvent,
+  type McpEventInput,
+} from "./events";
 import { handlePublish } from "./publish";
 import { error, json, mimeFor, sha256Hex } from "./util";
 import { WORKSPACE_HEADER } from "./workspaces";
@@ -20,63 +26,385 @@ const TOOLS = [
   artifactCommentsTool,
 ];
 
+export const SERVER_INFO = { name: "artifact-use", version: "0.2.0" };
+// Dual-era server (MCP 2026-07-28 "Versioning and Compatibility"): requests
+// that carry per-request _meta are served statelessly under the modern
+// revision; an `initialize` handshake selects legacy semantics.
+export const MODERN_PROTOCOL_VERSIONS = ["2026-07-28"];
+export const LEGACY_PROTOCOL_VERSIONS = [
+  "2025-11-25",
+  "2025-06-18",
+  "2025-03-26",
+];
+const META_VERSION = "io.modelcontextprotocol/protocolVersion";
+const META_CLIENT_CAPABILITIES = "io.modelcontextprotocol/clientCapabilities";
+const META_CLIENT_INFO = "io.modelcontextprotocol/clientInfo";
+const META_SERVER_INFO = "io.modelcontextprotocol/serverInfo";
+const INSTRUCTIONS =
+  "Publish HTML or static folders to a stable, gated URL and read the comments viewers leave. Publish only when the user asks. To update an existing artifact, pass its url_key (from a previous publish or artifact_manage list) as `artifact`; a new slug creates a new artifact. Share the returned url with the user.";
+// Tool definitions change with deploys, not per call; an hour is a safe cache.
+const LIST_TTL_MS = 60 * 60 * 1000;
+
+type RpcId = string | number | null;
+interface RpcRequest {
+  jsonrpc?: string;
+  id?: RpcId;
+  method?: string;
+  params?: Record<string, unknown>;
+}
+
+// Protocol-level failure (unknown tool, bad params): a JSON-RPC error.
+class RpcError extends Error {
+  readonly code: number;
+  readonly data?: unknown;
+  constructor(code: number, message: string, data?: unknown) {
+    super(message);
+    this.code = code;
+    this.data = data;
+  }
+}
+
+// Tool execution failure: reported inside the result with isError so models
+// stop mistaking a `{error}` payload for success.
+export class ToolError extends Error {
+  readonly code: string;
+  readonly status: number;
+  readonly detail: unknown;
+  constructor(code: string, message: string, status: number, detail?: unknown) {
+    super(message);
+    this.code = code;
+    this.status = status;
+    this.detail = detail;
+  }
+}
+
+function rpcResult(
+  id: RpcId,
+  result: Record<string, unknown>,
+  modern: boolean,
+  status = 200,
+): Response {
+  const body = modern
+    ? {
+        resultType: "complete",
+        ...result,
+        _meta: { [META_SERVER_INFO]: SERVER_INFO, ...(result._meta as object) },
+      }
+    : result;
+  return json({ jsonrpc: "2.0", id, result: body }, { status });
+}
+
+function rpcFailure(
+  id: RpcId,
+  code: number,
+  message: string,
+  status = 200,
+  data?: unknown,
+): Response {
+  return json(
+    {
+      jsonrpc: "2.0",
+      id,
+      error: { code, message, ...(data === undefined ? {} : { data }) },
+    },
+    { status },
+  );
+}
+
+// `=?base64?...?=` sentinel encoding for header-unsafe names (spec §Value
+// Encoding); plain values pass through.
+function decodeHeaderValue(value: string | null): string | null {
+  if (value === null) return null;
+  const match = /^=\?base64\?(.*)\?=$/.exec(value.trim());
+  if (!match) return value.trim();
+  try {
+    return new TextDecoder().decode(
+      Uint8Array.from(atob(match[1] || ""), (c) => c.charCodeAt(0)),
+    );
+  } catch {
+    return null;
+  }
+}
+
+function validateModernRequest(
+  request: Request,
+  body: RpcRequest,
+  meta: Record<string, unknown>,
+  metaVersion: string,
+): Response | null {
+  const id = body.id ?? null;
+  if (!MODERN_PROTOCOL_VERSIONS.includes(metaVersion))
+    return rpcFailure(id, -32022, "Unsupported protocol version", 400, {
+      supported: [...MODERN_PROTOCOL_VERSIONS, ...LEGACY_PROTOCOL_VERSIONS],
+      requested: metaVersion,
+    });
+  const headerVersion = request.headers.get("MCP-Protocol-Version");
+  if (!headerVersion)
+    return rpcFailure(
+      id,
+      -32020,
+      "Header mismatch: MCP-Protocol-Version header is required",
+      400,
+    );
+  if (headerVersion !== metaVersion)
+    return rpcFailure(
+      id,
+      -32020,
+      `Header mismatch: MCP-Protocol-Version header value '${headerVersion}' does not match body value '${metaVersion}'`,
+      400,
+    );
+  const method = request.headers.get("Mcp-Method");
+  if (!method || method !== body.method)
+    return rpcFailure(
+      id,
+      -32020,
+      method
+        ? `Header mismatch: Mcp-Method header value '${method}' does not match body value '${body.method}'`
+        : "Header mismatch: Mcp-Method header is required",
+      400,
+    );
+  if (body.method === "tools/call") {
+    const name = decodeHeaderValue(request.headers.get("Mcp-Name"));
+    const bodyName = String(body.params?.name || "");
+    if (!name || name !== bodyName)
+      return rpcFailure(
+        id,
+        -32020,
+        name
+          ? `Header mismatch: Mcp-Name header value '${name}' does not match body value '${bodyName}'`
+          : "Header mismatch: Mcp-Name header is required for tools/call",
+        400,
+      );
+  }
+  if (meta[META_CLIENT_CAPABILITIES] === undefined)
+    return rpcFailure(
+      id,
+      -32602,
+      `Invalid params: _meta['${META_CLIENT_CAPABILITIES}'] is required`,
+      400,
+    );
+  return null;
+}
+
+function discoverResult(): Record<string, unknown> {
+  return {
+    supportedVersions: MODERN_PROTOCOL_VERSIONS,
+    capabilities: { tools: {} },
+    instructions: INSTRUCTIONS,
+    ttlMs: LIST_TTL_MS,
+    cacheScope: "public",
+  };
+}
+
+async function errorCodeOf(response: Response): Promise<string | null> {
+  try {
+    const body = (await response.clone().json()) as {
+      error?: { code?: string };
+    };
+    return body.error?.code || null;
+  } catch {
+    return null;
+  }
+}
+
 export async function handleMcp(request: Request, env: Env): Promise<Response> {
+  const startedAt = Date.now();
+  // No SSE stream and no sessions are offered at this endpoint, so GET and
+  // DELETE are 405 before authentication (2026-07-28 §Earlier Streamable HTTP
+  // Revisions). Answering 401 here sent Codex into an OAuth retry loop every
+  // time it opened its stream: 3,232 GET 401s in one month.
+  if (request.method !== "POST")
+    return json(
+      {
+        error: {
+          code: "method_not_allowed",
+          message: "POST JSON-RPC to this endpoint; no SSE stream is offered",
+        },
+      },
+      { status: 405, headers: { Allow: "POST, OPTIONS" } },
+    );
+  const userAgent = request.headers.get("User-Agent") || "";
   // Lax: the MCP envelope only authenticates identity. Workspace selection
   // arrives per tool call (args.workspace) and is enforced by the API routes
   // each tool dispatches to.
   const auth = await safeCreator(request, env, { laxWorkspace: true });
-  if (auth instanceof Response) return auth;
-  if (request.method === "GET")
-    return json({ name: "artifact-use", transport: "streamable-http-minimal" });
-  if (request.method !== "POST")
-    return error(405, "method_not_allowed", "POST required");
-  const body = (await request.json()) as {
-    id?: string | number;
-    method?: string;
-    params?: Record<string, unknown>;
-  };
-  const id = body.id ?? null;
+  const creator = auth instanceof Response ? null : auth;
+  let body: RpcRequest;
   try {
-    if (body.method === "initialize") {
-      return json({
-        jsonrpc: "2.0",
-        id,
-        result: {
-          protocolVersion: "2025-06-18",
-          capabilities: { tools: {} },
-          serverInfo: { name: "artifact-use", version: "0.1.0" },
-        },
-      });
+    body = (await request.json()) as RpcRequest;
+  } catch {
+    return rpcFailure(null, -32700, "Parse error", 400);
+  }
+  const method = String(body.method || "");
+  const params = (body.params || {}) as Record<string, unknown>;
+  const meta = ((params._meta as Record<string, unknown>) || {}) as Record<
+    string,
+    unknown
+  >;
+  const metaVersion =
+    typeof meta[META_VERSION] === "string"
+      ? (meta[META_VERSION] as string)
+      : null;
+  const headerVersion = request.headers.get("MCP-Protocol-Version");
+  const modern =
+    metaVersion !== null ||
+    (headerVersion !== null &&
+      MODERN_PROTOCOL_VERSIONS.includes(headerVersion));
+  const clientInfo =
+    (meta[META_CLIENT_INFO] as { name?: unknown; version?: unknown }) ||
+    (method === "initialize"
+      ? (params.clientInfo as { name?: unknown; version?: unknown })
+      : undefined);
+  const fromUa = clientFromUserAgent(userAgent);
+  const event: McpEventInput = {
+    creator,
+    authKind: authKindFor(creator),
+    client:
+      clientInfo && typeof clientInfo.name === "string"
+        ? clientInfo.name.toLowerCase().slice(0, 60)
+        : fromUa.client,
+    clientVersion:
+      clientInfo && typeof clientInfo.version === "string"
+        ? clientInfo.version.slice(0, 40)
+        : fromUa.version,
+    userAgent,
+    protocolVersion:
+      metaVersion ||
+      headerVersion ||
+      (method === "initialize" && typeof params.protocolVersion === "string"
+        ? (params.protocolVersion as string)
+        : null),
+    method: method || "(none)",
+    tool: method === "tools/call" ? String(params.name || "") : null,
+    action:
+      method === "tools/call" &&
+      params.arguments &&
+      typeof (params.arguments as Record<string, unknown>).action === "string"
+        ? String((params.arguments as Record<string, unknown>).action)
+        : null,
+    ok: true,
+    durationMs: 0,
+  };
+  const finish = async (response: Response): Promise<Response> => {
+    event.durationMs = Date.now() - startedAt;
+    if (!event.ok || response.status >= 400) {
+      event.ok = false;
+      event.status = event.status ?? response.status;
+      event.errorCode = event.errorCode ?? (await errorCodeOf(response));
     }
-    if (body.method === "tools/list")
-      return json({ jsonrpc: "2.0", id, result: { tools: TOOLS } });
-    if (body.method !== "tools/call")
-      return json({
-        jsonrpc: "2.0",
-        id,
-        error: { code: -32601, message: "method not found" },
-      });
-    const params = body.params || {};
+    await recordMcpEvent(env, event);
+    return response;
+  };
+
+  if (auth instanceof Response) return finish(auth);
+  const id = body.id ?? null;
+  // Notifications carry no id and expect no body.
+  if (body.id === undefined || body.id === null) {
+    if (method.startsWith("notifications/"))
+      return finish(new Response(null, { status: 202 }));
+  }
+  if (modern) {
+    const invalid = validateModernRequest(
+      request,
+      body,
+      meta,
+      metaVersion || headerVersion || "",
+    );
+    if (invalid) return finish(invalid);
+  }
+
+  try {
+    if (method === "server/discover")
+      return finish(rpcResult(id, discoverResult(), true));
+    if (method === "initialize") {
+      const requested = String(params.protocolVersion || "");
+      return finish(
+        rpcResult(
+          id,
+          {
+            protocolVersion: LEGACY_PROTOCOL_VERSIONS.includes(requested)
+              ? requested
+              : "2025-06-18",
+            capabilities: { tools: {} },
+            serverInfo: SERVER_INFO,
+            instructions: INSTRUCTIONS,
+          },
+          false,
+        ),
+      );
+    }
+    if (method === "ping") return finish(rpcResult(id, {}, modern));
+    if (method === "tools/list")
+      return finish(
+        rpcResult(
+          id,
+          modern
+            ? { tools: TOOLS, ttlMs: LIST_TTL_MS, cacheScope: "private" }
+            : { tools: TOOLS },
+          modern,
+        ),
+      );
+    if (method !== "tools/call")
+      return finish(rpcFailure(id, -32601, "Method not found"));
     const name = String(params.name || "");
-    const args = (params.arguments || {}) as Record<string, unknown>;
-    const result = await callTool(request, env, name, args);
-    return json({
-      jsonrpc: "2.0",
-      id,
-      result: {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-        structuredContent: result,
-      },
-    });
+    const args = { ...((params.arguments || {}) as Record<string, unknown>) };
+    if (!creator) return finish(error(401, "unauthorized", "unauthorized"));
+    try {
+      const result = await callTool(request, env, creator, name, args);
+      return finish(
+        rpcResult(
+          id,
+          {
+            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            structuredContent: result,
+          },
+          modern,
+        ),
+      );
+    } catch (e) {
+      if (e instanceof RpcError) throw e;
+      const failure =
+        e instanceof ToolError
+          ? e
+          : new ToolError(
+              "invalid_arguments",
+              e instanceof Error ? e.message : "tool failed",
+              400,
+            );
+      event.ok = false;
+      event.status = failure.status;
+      event.errorCode = failure.code;
+      const structured = {
+        error: {
+          code: failure.code,
+          message: failure.message,
+          status: failure.status,
+          ...(failure.detail === undefined ? {} : { detail: failure.detail }),
+        },
+      };
+      return finish(
+        rpcResult(
+          id,
+          {
+            isError: true,
+            content: [
+              { type: "text", text: JSON.stringify(structured, null, 2) },
+            ],
+            structuredContent: structured,
+          },
+          modern,
+        ),
+      );
+    }
   } catch (e) {
-    return json({
-      jsonrpc: "2.0",
-      id,
-      error: {
-        code: -32000,
-        message: e instanceof Error ? e.message : "tool failed",
-      },
-    });
+    if (e instanceof RpcError)
+      return finish(rpcFailure(id, e.code, e.message, 200, e.data));
+    event.ok = false;
+    event.status = 500;
+    event.errorCode = "internal_error";
+    return finish(
+      rpcFailure(id, -32000, e instanceof Error ? e.message : "tool failed"),
+    );
   }
 }
 
@@ -107,6 +435,7 @@ function callApi(
 async function callTool(
   request: Request,
   env: Env,
+  _creator: Creator,
   name: string,
   args: Record<string, unknown>,
 ): Promise<unknown> {
@@ -132,7 +461,7 @@ async function callTool(
       "/api/v1/publish/html",
       postJson(args),
     );
-    return r.json();
+    return toolResponse(r);
   }
   if (name === "artifact_upload_session") {
     const r = await callApi(
@@ -142,7 +471,7 @@ async function callTool(
       "/api/v1/publish/upload-session",
       postJson(args),
     );
-    return r.json();
+    return toolResponse(r);
   }
   if (name === "artifact_manage") {
     const action = String(args.action || "");
@@ -215,7 +544,7 @@ async function callTool(
       route.path,
       route.init,
     );
-    return r.json();
+    return toolResponse(r);
   }
   if (name === "artifact_comments") {
     const action = String(args.action || "");
@@ -236,7 +565,7 @@ async function callTool(
         { method: "GET", headers },
         q.size ? `?${q}` : "",
       );
-      return r.json();
+      return toolResponse(r);
     }
     if (action === "post") {
       const r = await callApi(
@@ -250,18 +579,33 @@ async function callTool(
           page_path: args.page_path,
         }),
       );
-      return r.json();
+      return toolResponse(r);
     }
     if (action === "resolve" || action === "reopen") {
       const r = await callApi(request, env, handleAdminApi, path, {
         ...postJson({ id: args.comment_id, resolved: action === "resolve" }),
         method: "PATCH",
       });
-      return r.json();
+      return toolResponse(r);
     }
     throw new Error(`unknown artifact_comments action: ${action}`);
   }
-  throw new Error(`unknown tool: ${name}`);
+  throw new RpcError(-32602, `unknown tool: ${name}`);
+}
+
+// API responses come back as-is on success; a non-2xx becomes a ToolError so
+// the caller sees isError instead of a success envelope wrapping `{error}`.
+async function toolResponse(response: Response): Promise<unknown> {
+  const body = (await response.json()) as {
+    error?: { code?: string; message?: string };
+  };
+  if (response.ok) return body;
+  throw new ToolError(
+    body.error?.code || "request_failed",
+    body.error?.message || `request failed with status ${response.status}`,
+    response.status,
+    body,
+  );
 }
 
 // `upstream_url` set -> replace the artifact's upstream backend (secret
@@ -369,9 +713,7 @@ function postJsonInit(
 }
 
 async function readJsonOrThrow(response: Response): Promise<unknown> {
-  const body = await response.json();
-  if (!response.ok) throw new Error(JSON.stringify(body));
-  return body;
+  return toolResponse(response);
 }
 
 function decodeBase64(value: string): Uint8Array {

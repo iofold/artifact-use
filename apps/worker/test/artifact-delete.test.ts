@@ -83,8 +83,18 @@ test("DELETE outside the caller's workspace is a 404 and touches nothing", async
 test("mcp delete refuses to run without confirm: true", async () => {
   const state = deleteEnv(artifact);
   const response = await handleMcp(mcpDeleteRequest({}), state.env);
-  const body = (await response.json()) as { error?: { message?: string } };
-  assert.ok(body.error?.message?.includes("confirm: true"));
+  // Tool-usage failures are reported inside the result with isError, not as
+  // a JSON-RPC protocol error, so models read them as failures.
+  const body = (await response.json()) as {
+    result?: {
+      isError?: boolean;
+      structuredContent?: { error?: { message?: string } };
+    };
+  };
+  assert.equal(body.result?.isError, true);
+  assert.ok(
+    body.result?.structuredContent?.error?.message?.includes("confirm: true"),
+  );
   assert.equal(state.deletedKeys.length, 0);
   assert.equal(state.batchedSql.length, 0);
 });
