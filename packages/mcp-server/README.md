@@ -1,4 +1,4 @@
-# @artifact-use/mcp-server
+# @iofold/artifact-use-mcp
 
 Local stdio MCP server for [Artifact Use](https://artifacts.iofold.com). It
 exposes the same four tools as the hosted endpoint (`artifact_publish`,
@@ -13,7 +13,7 @@ harness cannot speak hosted MCP with OAuth; otherwise prefer
   "mcpServers": {
     "artifact-use": {
       "command": "npx",
-      "args": ["-y", "@artifact-use/mcp-server"],
+      "args": ["-y", "@iofold/artifact-use-mcp"],
       "env": {
         "ARTIFACT_USE_API_BASE": "https://artifacts.iofold.com",
         "ARTIFACT_USE_TOKEN": "au_creator_..."

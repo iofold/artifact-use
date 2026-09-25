@@ -48,8 +48,9 @@ Notable changes to Artifact Use are documented here.
 - The repository root is an Agent Plugins 1.0 package (`plugin.json`,
   `mcp.json`) with a Claude Code plugin/marketplace (`.claude-plugin/`) and a
   Codex marketplace (`.agents/plugins/marketplace.json`).
-- `@artifact-use/cli`, `@artifact-use/mcp-server` and
-  `@artifact-use/client-core` are publishable at 0.2.0 (`files` limited to
+- `@iofold/artifact-use` (CLI), `@iofold/artifact-use-mcp` (stdio MCP server)
+  and `@iofold/artifact-use-core` (shared client) are publishable at 0.2.0
+  under the `@iofold` npm scope (renamed from `@artifact-use/*`) (`files` limited to
   `dist`, READMEs, `prepack` builds); not yet published.
 
 ## 0.1.0

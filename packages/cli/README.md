@@ -1,4 +1,4 @@
-# @artifact-use/cli
+# @iofold/artifact-use
 
 JSON-first command line for [Artifact Use](https://artifacts.iofold.com):
 publish HTML tools, dashboards, and whole static folders as stable, gated,
@@ -10,7 +10,7 @@ comments. Built for coding agents and shell workflows; every command takes
 export ARTIFACT_USE_API_BASE=https://artifacts.iofold.com
 export ARTIFACT_USE_TOKEN='au_creator_...'   # mint at /admin/connect
 
-npx -y @artifact-use/cli publish-folder --json '{
+npx -y @iofold/artifact-use publish-folder --json '{
   "artifact": "claims-demo",
   "title": "Claims Demo",
   "dir": "dist",

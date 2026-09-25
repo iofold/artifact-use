@@ -1,11 +1,11 @@
-# @artifact-use/client-core
+# @iofold/artifact-use-core
 
 Shared internals for the [Artifact Use](https://artifacts.iofold.com) CLI
-(`@artifact-use/cli`) and stdio MCP server (`@artifact-use/mcp-server`):
+(`@iofold/artifact-use`) and stdio MCP server (`@iofold/artifact-use-mcp`):
 configuration resolution (`ARTIFACT_USE_API_BASE`, `ARTIFACT_USE_TOKEN`,
 workspace pins), the authenticated `api()` helper, the folder walker and
 manifest builder, direct file upload, `publishFolder`, and the MCP tool
-schemas (`@artifact-use/client-core/schemas`).
+schemas (`@iofold/artifact-use-core/schemas`).
 
 Install one of those packages instead unless you are building your own client.
 The API is small and may change between minor versions.

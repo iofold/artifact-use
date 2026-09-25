@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { api, publishFolder, resolveConfig } from "@artifact-use/client-core";
+import { api, publishFolder, resolveConfig } from "@iofold/artifact-use-core";
 
 const SCHEMAS = {
   "publish-folder": {

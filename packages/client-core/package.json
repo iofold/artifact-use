@@ -1,5 +1,5 @@
 {
-  "name": "@artifact-use/client-core",
+  "name": "@iofold/artifact-use-core",
   "version": "0.2.0",
   "description": "Shared publish client, folder walker, and MCP tool schemas used by the Artifact Use CLI and stdio MCP server.",
   "license": "MIT",
