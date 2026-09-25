@@ -17,7 +17,7 @@ const USER_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";
 export type ConnectRequestRow = {
   device_code: string;
   user_code: string;
-  status: "pending" | "approved" | "claimed";
+  status: "pending" | "approved" | "claimed" | "expired";
   agent_label: string | null;
   token: string | null;
   token_id: string | null;
@@ -92,13 +92,27 @@ async function pollConnect(request: Request, env: Env): Promise<Response> {
       "token_already_claimed",
       "the token for this connect request was already delivered",
     );
+  if (row.status === "expired")
+    return error(
+      410,
+      "connect_expired",
+      "connect request expired before approval; start a new one",
+    );
   if (row.status === "pending") {
-    if (row.expires_at < nowSec())
+    if (row.expires_at < nowSec()) {
+      // Rows used to stay "pending" forever (nine of twelve in production),
+      // which made the admin page and the data both misleading.
+      await env.DB.prepare(
+        "UPDATE connect_requests SET status = 'expired' WHERE device_code = ? AND status = 'pending'",
+      )
+        .bind(deviceCode)
+        .run();
       return error(
         410,
         "connect_expired",
         "connect request expired before approval; start a new one",
       );
+    }
     return json({ status: "pending", interval: POLL_INTERVAL_SEC });
   }
   // Approved: deliver the token exactly once.

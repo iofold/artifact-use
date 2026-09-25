@@ -102,3 +102,29 @@ test("old drafts are purged from D1 and R2, then the empty shell artifact goes",
   // one batch for the version purge, one for the artifact delete
   assert.equal(statements.length, 2 + 9);
 });
+
+test("stale pending connect requests are marked expired by the sweep", async () => {
+  const { expireStaleConnectRequests } = await import("../src/maintenance.ts");
+  const seen: Array<{ sql: string; params: unknown[] }> = [];
+  const env = {
+    DB: {
+      prepare(sql: string) {
+        const make = (params: unknown[]) => ({
+          bind: (...next: unknown[]) => make(next),
+          async run() {
+            seen.push({ sql, params });
+            return { meta: { changes: 9 } };
+          },
+        });
+        return make([]);
+      },
+    },
+  } as unknown as Env;
+  const changed = await expireStaleConnectRequests(env, NOW);
+  assert.equal(changed, 9);
+  assert.match(
+    seen[0]?.sql || "",
+    /SET status = 'expired' WHERE status = 'pending'/,
+  );
+  assert.equal(seen[0]?.params[0], NOW);
+});
