@@ -174,6 +174,21 @@ async function artifactByUrlKeyInOrg(
   return byKey && byKey.org_id === orgId ? byKey : null;
 }
 
+// The artifact a publish call names, if it exists in the workspace. Agents
+// routinely hand back the url_key they were given (slug plus the
+// six-character code) as the "artifact" on republish; treating it as a new
+// slug silently created duplicates, so both spellings resolve here.
+export async function findArtifactForPublish(
+  env: Env,
+  orgId: string,
+  ref: string,
+): Promise<Artifact | null> {
+  return (
+    (await getArtifactForOrg(env, orgId, ref)) ||
+    (await artifactByUrlKeyInOrg(env, orgId, ref))
+  );
+}
+
 export async function upsertArtifact(
   env: Env,
   creator: Creator,
@@ -182,12 +197,11 @@ export async function upsertArtifact(
   description: string | null,
   gateLevel: GateLevel | null,
 ): Promise<Artifact> {
-  // Agents routinely hand back the url_key they were given (slug plus the
-  // six-character code) as the "artifact" on republish. Treating it as a new
-  // slug silently created duplicates; resolve it to the existing artifact.
-  const existing =
-    (await getArtifactForOrg(env, creator.orgId, artifactSlug)) ||
-    (await artifactByUrlKeyInOrg(env, creator.orgId, artifactSlug));
+  const existing = await findArtifactForPublish(
+    env,
+    creator.orgId,
+    artifactSlug,
+  );
   const now = Math.max(nowSec(), Number(existing?.updated_at || 0) + 1);
   if (existing) {
     await env.DB.prepare(
@@ -263,6 +277,53 @@ export async function getVersion(
   return env.DB.prepare("SELECT * FROM artifact_versions WHERE id = ?")
     .bind(id)
     .first<ArtifactVersion>();
+}
+
+// A version scoped to its artifact, whatever its status: the caller decides
+// whether a draft is acceptable. A foreign id is null, never a hint.
+export async function getVersionForArtifact(
+  env: Env,
+  artifactId: string,
+  id: string,
+): Promise<ArtifactVersion | null> {
+  if (!id) return null;
+  return env.DB.prepare(
+    "SELECT * FROM artifact_versions WHERE id = ? AND artifact_id = ?",
+  )
+    .bind(id, artifactId)
+    .first<ArtifactVersion>();
+}
+
+// Every servable version, newest first. Drafts and aborted uploads are not
+// versions from the viewer's point of view and never appear here.
+export async function listCompleteVersions(
+  env: Env,
+  artifactId: string,
+): Promise<ArtifactVersion[]> {
+  const res = await env.DB.prepare(
+    `SELECT * FROM artifact_versions
+     WHERE artifact_id = ? AND status = 'complete'
+     ORDER BY created_at DESC, id DESC`,
+  )
+    .bind(artifactId)
+    .all<ArtifactVersion>();
+  return res.results || [];
+}
+
+// Promote (or roll back to) a version: the stable URL serves it from now on.
+// updated_at stays monotonic so the preview image URL always changes.
+export async function setCurrentVersion(
+  env: Env,
+  artifact: Artifact,
+  versionId: string,
+): Promise<Artifact> {
+  const now = Math.max(nowSec(), Number(artifact.updated_at || 0) + 1);
+  await env.DB.prepare(
+    "UPDATE artifacts SET current_version_id = ?, updated_at = ? WHERE id = ?",
+  )
+    .bind(versionId, now, artifact.id)
+    .run();
+  return (await getArtifactById(env, artifact.id)) as Artifact;
 }
 
 export async function getFile(
