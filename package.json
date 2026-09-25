@@ -16,7 +16,7 @@
     "build": "npm run build -w packages/client-core && npm run build -w packages/cli && npm run build -w packages/mcp-server && npm run build -w apps/worker",
     "typecheck": "npm run build -w packages/client-core && npm run typecheck --workspaces",
     "test": "npm run test:worker && npm run test:packages && npm run typecheck",
-    "test:worker": "node --import tsx --test apps/worker/test/*.test.ts",
+    "test:worker": "npm run widget:build -w apps/worker && npm run llms:build -w apps/worker && node --import tsx --test apps/worker/test/*.test.ts",
     "test:setup-prompts": "node --import tsx --test apps/worker/test/setup-prompts.test.ts",
     "test:security-smoke": "node --import tsx apps/worker/test/security-smoke.mjs",
     "format": "prettier --write .",
