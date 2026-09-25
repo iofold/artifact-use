@@ -168,6 +168,8 @@ GET /api/v1/artifacts/{artifact_key}
 PATCH /api/v1/artifacts/{artifact_key}
 GET /api/v1/artifacts/{artifact_key}/stats
 POST /api/v1/artifacts/{artifact_key}/share-links
+GET /api/v1/artifacts/{artifact_key}/share-links
+DELETE /api/v1/artifacts/{artifact_key}/share-links/{link_id}
 GET /api/v1/artifacts/{artifact_key}/comments
 ```
 
@@ -192,12 +194,109 @@ PATCH /api/v1/artifacts/{artifact_key}
 
 The title, description, generated thumbnail, and favicon are intentionally available to link-preview crawlers. Access gates continue to protect every artifact file.
 
-Gate levels:
+Gate levels (`gate_level` on publish and on `PATCH`):
 
-- `public`
-- `email`
-- `verified_email`
-- `allowlist`
+- `public`: anyone with the link; no view is recorded.
+- `email`: the viewer types an email and is let in. The address is
+  syntax-checked and its domain must publish an MX or A record (checked over
+  DNS-over-HTTPS, fail-open on resolver errors), but it is never verified;
+  the admin labels these views "self-reported".
+- `verified_email`: the "share with a client" preset. A one-time code proves
+  the inbox, so every view is attributable.
+- `allowlist`: `verified_email` restricted to listed addresses and domains.
+
+`PATCH` also accepts `access_preset` as a friendlier alias for the same four
+levels: `open`, `email`, `client` (= `verified_email`), `restricted`
+(= `allowlist`). No other levels exist.
+
+Every artifact URL is unlisted: responses carry `X-Robots-Tag: noindex,
+nofollow`, so only people holding the URL (or a share link) can find it.
+
+### Reading as the publisher
+
+A request carrying a creator token (or MCP OAuth token) of the artifact's
+workspace passes the gate for reads — `GET`/`HEAD` of pages, assets and the
+`_au/index.json` descriptor — with no viewer session and no view row. An
+agent can fetch the URL it just published with the token it already holds;
+the gate dance is only for viewers outside the workspace. The upstream `_api/`
+proxy still needs a viewer session, because the backend expects a viewer
+identity.
+
+### Share links
+
+A share link passes the artifact's gate on the publisher's say-so, at every
+gate level, until it expires, is revoked, or reaches its open limit. Every
+open (one per viewer session, never per asset) increments `open_count` and
+`last_opened_at`. The viewer opens `{artifact url}?v={link_id}`.
+
+```http
+POST /api/v1/artifacts/{artifact_key}/share-links
+{
+  "kind": "password",
+  "label": "Board deck",
+  "expires_days": 7,
+  "max_opens": 3
+}
+```
+
+Fields: `kind` (`recipient` default, `password`, `open`), `label`,
+`recipient_email` and `recipient_label` (recipient links), `passcode` (password
+links only; 6–72 characters, generated when omitted), `expires_days` (1–365),
+`max_opens` (1–100000).
+
+- `recipient`: the URL itself is the credential for one named person. Views
+  are attributed to `recipient_email` (unverified) or, without one, to
+  `link:{id}`.
+- `password`: the viewer types a passcode; no email is asked. Views are
+  recorded as `link:{id}`. The passcode is hashed (PBKDF2-SHA256, per-link
+  salt) and returned exactly once, in the creation response.
+- `open`: anyone holding the unguessable id passes. Views are `link:{id}`.
+
+The response is the link object plus, for password links, `passcode`:
+
+```json
+{
+  "id": "3f9c1b2e8a7d4c50",
+  "kind": "password",
+  "label": "Board deck",
+  "recipient_email": null,
+  "recipient_label": null,
+  "url": "https://artifacts.iofold.com/go/board-deck-a1b2c3/?v=3f9c1b2e8a7d4c50",
+  "state": "active",
+  "expires_at": 1760000000,
+  "revoked_at": null,
+  "max_opens": 3,
+  "open_count": 0,
+  "last_opened_at": null,
+  "view_count": 0,
+  "created_at": 1759400000,
+  "passcode": "kf7m-2pqx-9dn4",
+  "note": "Share the url and the passcode separately; ..."
+}
+```
+
+`GET .../share-links` returns `{"links": [...]}` with the same objects
+(`state` is `active`, `expired`, `revoked` or `exhausted`; never a passcode).
+`DELETE .../share-links/{link_id}` revokes and returns
+`{"ok": true, "id", "state": "revoked"}`; sessions minted through that link
+stop working immediately. Creating, listing and revoking all require
+`artifacts:manage_access`.
+
+How a viewer or agent passes a link:
+
+- `recipient` and `open`: a browser `GET` with `?v=` is redirected to the
+  same URL without the id, with the viewer cookie set; a non-browser `GET`
+  (`Accept` without `text/html`) is served inline with the cookie attached.
+- `password`: browsers get a passcode form; non-browser clients get `401`
+  with `link_kind: "password"` and `link_id`. Exchange the passcode for a
+  bearer token with `POST /_au/gate/link` (form fields `artifact_key`,
+  `link`, `passcode`; `Accept: application/json`), or send
+  `Authorization: Basic base64("{link_id}:{passcode}")` on the artifact URL
+  (a view is recorded per request without the bearer). Ten wrong guesses per
+  link and IP in 15 minutes answer `429`.
+- Expired, revoked or exhausted links answer `410` with `error.code`
+  `link_expired`, `link_revoked` or `link_exhausted` (and a plain page for
+  browsers).
 
 ## Upstream Backend
 

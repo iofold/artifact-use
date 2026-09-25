@@ -298,11 +298,14 @@ plus `dir` and `dry_run` on `artifact_publish`.
 - `artifact_manage`: `list` (returns `url_key` and `open_comments` per
   artifact), `stats`, `set_access` (`gate_level`, `allowlist`), `set_preview`
   (`title`, `description`), `set_upstream` (`upstream_url`, optional write-only
-  `upstream_secret`; omit `upstream_url` to remove), `share_link`
-  (`recipient_email`, `recipient_label`, `expires_days`), `move`
-  (`to_workspace`; URL and creator preserved), `delete` (requires
-  `confirm: true`; removes every version, file, share link, comment, and view
-  record), and `workspaces`.
+  `upstream_secret`; omit `upstream_url` to remove), `share_link` (`kind`:
+  `recipient` default, `password`, or `open`; `label`, `recipient_email`,
+  `recipient_label`, `passcode` for password links — generated when omitted
+  and returned once — `expires_days`, `max_opens`; returns the link with its
+  `url`), `share_links` (list with `open_count`, `last_opened_at`, `state`),
+  `revoke_link` (`link_id`), `move` (`to_workspace`; URL and creator
+  preserved), `delete` (requires `confirm: true`; removes every version,
+  file, share link, comment, and view record), and `workspaces`.
 - `artifact_comments`: `list` (`status` open|resolved|all, `since`,
   `page_path`, `limit`), `post` (`body`, optional `parent_id`), `resolve` and
   `reopen` (`comment_id`).
@@ -330,10 +333,20 @@ Results and errors:
 - Titles and descriptions are public link-preview copy even when the artifact
   is gated. Pass a concise `description` (or let HTML publishes derive one) and
   never put secrets, recipient details, or confidential content in either.
-- Default gate is `email`; use `verified_email` when inbox control matters,
-  `allowlist` for restricted customer material, and `public` only for
-  intentionally low-sensitivity artifacts. Upstream backends (section 12)
-  require a non-public gate.
+- Default gate is `email` (the viewer's word, checked for syntax and a real
+  mail domain, never verified); use `verified_email` — the "share with a
+  client" preset — when every view must be attributable, `allowlist` for
+  restricted customer material, and `public` only for intentionally
+  low-sensitivity artifacts. Upstream backends (section 12) require a
+  non-public gate. `set_access` also takes `access_preset`: `open`, `email`,
+  `client` (= `verified_email`), `restricted` (= `allowlist`).
+- Share links are how a gated artifact reaches people without an account: a
+  link passes the gate at every level until it expires, is revoked, or hits
+  `max_opens`. Use `recipient` for one named person (views attributed to
+  them), `password` when the viewer should type a passcode instead of an
+  email (send the passcode separately from the URL), and `open` for "anyone
+  with the link". Every artifact URL is unlisted (search engines are told
+  not to index it); a share link does not change that.
 
 <!-- llms.txt -->
 
@@ -478,7 +491,8 @@ artifact-use publish-folder --json '{
 }'
 ```
 
-Share link:
+Share link (`kind` defaults to `recipient`; `password` links return the
+passcode once; `open` links pass for anyone holding the URL):
 
 ```bash
 artifact-use share --json '{
@@ -486,6 +500,13 @@ artifact-use share --json '{
   "recipient_email": "viewer@example.com",
   "recipient_label": "Viewer",
   "expires_days": 14
+}'
+
+artifact-use share --json '{
+  "artifact": "claims-demo-a1b2c3",
+  "kind": "password",
+  "label": "Board review",
+  "max_opens": 5
 }'
 ```
 
@@ -550,7 +571,7 @@ Report:
 - Artifact slug and `url_key` (the user needs the `url_key` to ask for a
   republish later).
 - Whether it was a new artifact or a republish, and the share link if one was
-  created.
+  created (for a password link, the passcode — it is shown only once).
 - Viewports and interactions checked.
 - Any skipped checks, assumptions, or the JSON error body if something failed.
 
@@ -615,13 +636,25 @@ repository routes sharing requests through Artifact Use:
 
 Reading a gated artifact as an agent (no browser needed):
 
-- A gated artifact returns `401` JSON to non-browser requests (`Accept` without
-  `text/html`) describing how to authenticate.
+- The publishing workspace's own token (`au_creator_...` or MCP OAuth) reads
+  a gated artifact directly — `GET`/`HEAD` of pages, assets and the
+  descriptor — with no viewer session and no view recorded. Fetch the URL you
+  just published with the token you already hold.
+- Otherwise a gated artifact returns `401` JSON to non-browser requests
+  (`Accept` without `text/html`) describing how to authenticate.
 - Machine descriptor (structure and files): `GET {artifact-url}_au/index.json`.
 - Read any page or file directly with `GET`; HTML is served as-is (the comments
   widget is not injected for agent requests).
+- A share link (`{artifact-url}?v={link_id}`) passes the gate by itself:
+  `recipient` and `open` links are served inline (cookie attached); a
+  `password` link answers `401` with `link_kind: "password"` — exchange the
+  passcode for a bearer with `POST /_au/gate/link` (form `artifact_key`,
+  `link`, `passcode`; `Accept: application/json`) or send
+  `Authorization: Basic base64("{link_id}:{passcode}")` on each request.
+  Expired, revoked or exhausted links answer `410`.
 - Authenticate with a viewer-session bearer token: email gates self-serve via
-  `POST /_au/gate/email` (`Accept: application/json`); `verified_email` and
+  `POST /_au/gate/email` (`Accept: application/json`; the address must parse
+  and its domain must have MX or A records); `verified_email` and
   `allowlist` gates self-serve if you can read the inbox
   (`POST /_au/gate/start`, read the one-time code, `POST /_au/gate/verify`), or
   are delegated by the human via "Hand to your agent" in the comments widget
@@ -650,3 +683,6 @@ receive an artifact link from a human:
 - Viewer-session tokens are scoped to one artifact's viewer endpoints (files
   and `/_au/comments`). They cannot publish, list other artifacts, or read
   stats; use a creator token or MCP for those.
+- A session minted through a share link carries the link's identity
+  (`recipient_email`, or `link:{id}` for password and open links) and stops
+  working the moment the link is revoked or expires.
