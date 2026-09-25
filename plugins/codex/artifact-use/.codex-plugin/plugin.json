@@ -1,19 +1,24 @@
 {
   "name": "artifact-use",
   "version": "0.1.0",
-  "description": "Publish and manage gated, tenant-scoped artifacts through Artifact Use without Cloudflare credentials.",
+  "description": "Publish agent output as stable, gated, reviewable links through Artifact Use without Cloudflare credentials.",
   "author": {
-    "name": "Artifact Use contributors"
+    "name": "Artifact Use contributors",
+    "url": "https://github.com/iofold/artifact-use"
   },
+  "homepage": "https://artifacts.iofold.com",
+  "repository": "https://github.com/iofold/artifact-use",
+  "license": "MIT",
+  "keywords": ["artifacts", "publishing", "static-hosting", "mcp", "review"],
   "skills": "./skills/",
   "interface": {
     "displayName": "Artifact Use",
-    "shortDescription": "Publish artifacts with WorkOS auth.",
-    "longDescription": "Artifact Use lets Codex publish single-file or folder artifacts to a hosted Cloudflare-backed service through MCP/CLI using WorkOS OAuth tokens, with tenant-prefixed URLs, viewer gates, stats, and share links.",
+    "shortDescription": "Publish artifacts as gated, reviewable links.",
+    "longDescription": "Artifact Use lets Codex publish single-file or folder artifacts (HTML tools, dashboards, static folders, images, PDFs) to a hosted Cloudflare-backed service over MCP with OAuth sign-in. Every artifact gets a stable /go/ URL, immutable versions, a viewer gate, share links, stats, and reviewer comments the agent can read and resolve. It publishes only when asked and republishes the same link on request.",
     "developerName": "Artifact Use contributors",
     "category": "Productivity",
     "capabilities": ["mcp", "artifact-publishing", "static-hosting"],
-    "defaultPrompt": "Publish this artifact with Artifact Use."
+    "defaultPrompt": "Publish this artifact with Artifact Use and give me the review link."
   },
   "mcpServers": "./.mcp.json"
 }

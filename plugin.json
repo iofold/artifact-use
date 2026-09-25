@@ -1,0 +1,22 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "artifact-use",
+  "version": "0.1.0",
+  "description": "Publish agent output as stable, gated, reviewable links: HTML tools, dashboards, static folders, images and PDFs through the Artifact Use MCP server, with comments that come back to the agent.",
+  "author": {
+    "name": "Artifact Use contributors",
+    "url": "https://github.com/iofold/artifact-use"
+  },
+  "homepage": "https://artifacts.iofold.com",
+  "repository": "https://github.com/iofold/artifact-use",
+  "license": "MIT",
+  "keywords": [
+    "artifacts",
+    "publishing",
+    "static-hosting",
+    "mcp",
+    "review",
+    "comments",
+    "cloudflare"
+  ]
+}

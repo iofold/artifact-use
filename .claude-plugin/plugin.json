@@ -1,0 +1,21 @@
+{
+  "name": "artifact-use",
+  "displayName": "Artifact Use",
+  "version": "0.1.0",
+  "description": "Publish agent output as stable, gated, reviewable links through the Artifact Use MCP server; publishes only when asked and brings reviewer comments back to the agent.",
+  "author": {
+    "name": "Artifact Use contributors",
+    "url": "https://github.com/iofold/artifact-use"
+  },
+  "homepage": "https://artifacts.iofold.com",
+  "repository": "https://github.com/iofold/artifact-use",
+  "license": "MIT",
+  "keywords": ["artifacts", "publishing", "static-hosting", "mcp", "review"],
+  "skills": "./skills/",
+  "mcpServers": {
+    "artifact-use": {
+      "type": "http",
+      "url": "https://artifacts.iofold.com/mcp"
+    }
+  }
+}
