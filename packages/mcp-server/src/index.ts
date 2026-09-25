@@ -132,12 +132,32 @@ async function commentOnArtifact(
   args: Record<string, unknown>,
 ): Promise<unknown> {
   const action = String(args.action || "");
+  if (action === "subscribe")
+    return api(conf, "POST", "/api/v1/webhooks", {
+      url: args.url,
+      events: args.events,
+      artifact: args.artifact || undefined,
+      secret: args.secret,
+    });
+  if (action === "unsubscribe") {
+    const id = String(args.webhook_id || "").trim();
+    if (!id)
+      throw new Error("artifact_comments unsubscribe requires webhook_id");
+    return api(conf, "DELETE", `/api/v1/webhooks/${encodeURIComponent(id)}`);
+  }
+  if (action === "webhooks") return api(conf, "GET", "/api/v1/webhooks");
   const artifact = String(args.artifact || "");
   if (!artifact) throw new Error("artifact_comments requires artifact");
   const path = `/api/v1/artifacts/${encodeURIComponent(artifact)}/comments`;
   if (action === "list") {
     const q = new URLSearchParams();
-    for (const key of ["status", "since", "page_path", "limit"] as const) {
+    for (const key of [
+      "status",
+      "since",
+      "page_path",
+      "limit",
+      "wait",
+    ] as const) {
       if (args[key] !== undefined && args[key] !== null && args[key] !== "")
         q.set(key, String(args[key]));
     }
