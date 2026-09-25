@@ -7,8 +7,10 @@ https://artifacts.iofold.com/mcp
 ```
 
 The endpoint is Streamable HTTP, POST only: `GET /mcp` answers `405` and there
-is no SSE stream. It requires authentication from the first request and
-advertises OAuth protected-resource metadata at
+is no SSE stream. It speaks MCP 2026-07-28 (stateless, `Mcp-Method` header,
+`server/discover`) and still accepts the 2025-03-26, 2025-06-18 and
+2025-11-25 revisions for older clients. It requires authentication from the
+first request and advertises OAuth protected-resource metadata at
 `/.well-known/oauth-protected-resource`.
 
 The repository also ships a local stdio MCP server (`@artifact-use/mcp-server`)
@@ -84,10 +86,13 @@ Token lifecycle:
 
 - Creator tokens expire 90 days after minting by default and can be revoked
   from `/admin/connect`; revocation takes effect on the token's next use.
-- An expired token receives `401` with `error.code` `token_expired` and a
-  `renew_url` pointing at `/admin/connect`. Over MCP the tool result carries
+- An expired token receives `401` with `error.code` `token_expired` and
+  `error.renew_url` pointing at `/admin/connect` (a revoked token gets
+  `token_revoked` with the same `renew_url`). Over MCP the tool result carries
   `isError: true` and `structuredContent.error.code` `token_expired`. Mint a new
-  token and swap it in; nothing else changes.
+  token and swap it in; nothing else changes. The admin's connect page shows
+  each token's status and last use, and an expiry reminder email goes out
+  seven days before a token expires.
 - WorkOS-authenticated identities can mint programmatically with
   `POST /api/v1/tokens` `{"label": "...", "expires_days": 90}` (optionally
   `"scope": "user"`, see Workspaces). Creator tokens cannot mint further

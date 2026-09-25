@@ -165,8 +165,9 @@ Configure a URL-only HTTP server:
 ```
 
 The endpoint requires auth from the first request, answers `GET /mcp` with
-`405` (there is no SSE stream; use POST), and advertises protected-resource
-metadata at `https://artifacts.iofold.com/.well-known/oauth-protected-resource`.
+`405` (there is no SSE stream; use POST), speaks MCP 2026-07-28 as well as the
+2025 revisions, and advertises protected-resource metadata at
+`https://artifacts.iofold.com/.well-known/oauth-protected-resource`.
 
 ### Creator token: CLI, stdio MCP, HTTP API, and non-OAuth clients
 
@@ -196,9 +197,10 @@ Token lifecycle:
   once and points the agent at `/llms.txt`; the token can be pasted into a
   config or exported as `ARTIFACT_USE_TOKEN`.
 - Tokens expire 90 days after minting by default. An expired token gets `401`
-  with `error.code` `token_expired` and a `renew_url`; over MCP the tool result
-  has `isError: true` and `structuredContent.error.code` `token_expired`. Tell
-  the user to mint a new token at the renew URL and swap it in; no other
+  with `error.code` `token_expired` and `error.renew_url` (a revoked one gets
+  `token_revoked` with the same `renew_url`); over MCP the tool result has
+  `isError: true` and `structuredContent.error.code` `token_expired`. Tell the
+  user to mint a new token at the renew URL and swap it in; no other
   configuration changes.
 - Tokens are revocable from the same page; revocation applies on the next use.
   Keep tokens out of repositories, logs, config committed to source control,
@@ -320,8 +322,8 @@ Results and errors:
   Publish results include `url`, `artifact.url_key`, and `artifact.slug`; use
   the `url_key` for every later management call and never guess it.
 - Tool failures come back as a result with `isError: true` and
-  `structuredContent.error = {code, message, status}` (the same `code` the HTTP
-  API uses: `token_expired`, `workspace_forbidden`, `artifact_not_found`,
+  `structuredContent.error = {code, message, status}` plus an optional `detail`
+  carrying the API's error body (the same `code` the HTTP API uses: `token_expired`, `workspace_forbidden`, `artifact_not_found`,
   `invalid_gate_level`, `too_many_files`, `package_too_large`,
   `file_too_large`, ...). Read the code before retrying; a `401 token_expired`
   is not fixed by retrying.
