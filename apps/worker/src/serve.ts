@@ -11,11 +11,17 @@ import { getCreator, requirePermission, signViewerSession } from "./auth";
 import { resolveWorkspaceOrg } from "./workspaces";
 import {
   type CommentAuthor,
+  agentPresence,
+  clampWait,
   createComment,
+  creatorCommentAuthor,
   listComments,
+  markSentToAgent,
   positiveInteger,
   reanchorComment,
   resolveComment,
+  touchArtifactWatch,
+  waitForComments,
 } from "./comments";
 import {
   getArtifactByLegacyPath,
@@ -541,13 +547,17 @@ export async function handleArtifactContext(
   if (request.method !== "GET")
     return error(405, "method_not_allowed", "method not allowed");
   const url = new URL(request.url);
-  const viewer = () => json({ role: "viewer" });
   const artifact = await getArtifactByUrlKey(
     env,
     url.searchParams.get("artifact_key") || "",
   );
   if (!artifact) return error(404, "artifact_not_found", "artifact not found");
-  if (artifact.status !== "active" || artifact.org_suspended) return viewer();
+  if (artifact.status !== "active" || artifact.org_suspended)
+    return json({ role: "viewer" });
+  // Agent presence is page-level, not identity-level: every viewer may know
+  // whether the publishing agent has checked this artifact recently.
+  const agent = await agentPresence(env, artifact.id);
+  const viewer = () => json({ role: "viewer", agent });
   const auth = await getPublisherSessionAuth(request, env);
   if (!auth || auth.session.orgId !== artifact.org_id) return viewer();
   // Defense-in-depth: an artifact page may only ask about itself, so hostile
@@ -556,6 +566,7 @@ export async function handleArtifactContext(
   return json({
     role: "publisher",
     admin_url: `/admin?open=${encodeURIComponent(artifact.id)}`,
+    agent,
   });
 }
 
@@ -581,13 +592,20 @@ export async function handleComments(
     // session or a workspace credential.
     if (!author && artifact.gate_level !== "public")
       return commentsUnauthorized(env, artifact, "read");
+    // The publishing agent reading through this route counts as watching.
+    if (author?.creator)
+      await touchArtifactWatch(env, artifact, author.label || "agent");
+    const filters = {
+      status: url.searchParams.get("status"),
+      since: Number(url.searchParams.get("since")) || null,
+      pagePath: url.searchParams.get("page_path"),
+      limit: Number(url.searchParams.get("limit")) || null,
+    };
+    const wait = clampWait(url.searchParams.get("wait"));
     return json(
-      await listComments(env, artifact, {
-        status: url.searchParams.get("status"),
-        since: Number(url.searchParams.get("since")) || null,
-        pagePath: url.searchParams.get("page_path"),
-        limit: Number(url.searchParams.get("limit")) || null,
-      }),
+      wait
+        ? await waitForComments(env, artifact, filters, wait)
+        : await listComments(env, artifact, filters),
     );
   }
   if (request.method === "POST") {
@@ -619,6 +637,7 @@ export async function handleComments(
       id?: unknown;
       resolved?: unknown;
       target?: unknown;
+      sent_to_agent?: unknown;
     };
     const artifact = await getArtifactByUrlKey(env, body.artifact_key || "");
     if (!artifact)
@@ -631,6 +650,18 @@ export async function handleComments(
     if (!id) return error(400, "invalid_comment", "comment id is required");
     const limited = await commentWriteRateLimit(request, env, author.email);
     if (limited) return limited;
+    // "Send to agent": flag the thread for the publishing agent (fires the
+    // comment.sent_to_agent webhook and surfaces under status=sent).
+    if (body.sent_to_agent !== undefined) {
+      const sent = await markSentToAgent(
+        env,
+        artifact,
+        id,
+        body.sent_to_agent !== false,
+      );
+      if (!sent) return error(404, "comment_not_found", "comment not found");
+      return json({ ok: true, comment: sent });
+    }
     if (body.target !== undefined) {
       const reanchored = await reanchorComment(env, artifact, id, body.target);
       if (reanchored === null)
@@ -712,14 +743,26 @@ async function commentIdentity(
   mode: "read" | "write",
 ): Promise<CommentAuthor | null> {
   const session = await getViewerSession(request, env, artifact);
-  if (session) return { email: session.email, viewId: session.view_id };
+  if (session) {
+    // A delegated "Hand to your agent" session writes as an agent under the
+    // viewer's email; a plain gate session is the human viewer.
+    return session.agent
+      ? {
+          email: session.email,
+          viewId: session.view_id,
+          kind: "agent",
+          label: session.agent,
+        }
+      : { email: session.email, viewId: session.view_id };
+  }
   const creator = await creatorForArtifact(
     request,
     env,
     artifact,
     mode === "read" ? "artifacts:read" : "artifacts:publish",
   );
-  if (creator) return { email: creator.email || creator.sub, viewId: null };
+  // The publishing workspace's own credential: the agent, attributed as such.
+  if (creator) return creatorCommentAuthor(creator);
   if (bearerToken(request)) return null;
   // Signed-in members of the artifact's workspace comment as themselves —
   // the same trust the admin UI extends — so their own widget never asks for
@@ -881,7 +924,7 @@ function artifactDescriptor(
     feedback: {
       endpoint: `${site}/_au/comments`,
       auth: "same bearer as reads; the publishing workspace's own token (au_creator_.../MCP OAuth) also works",
-      list: `GET ${site}/_au/comments?artifact_key=${artifact.url_key}&status=open|resolved|all&since=<unix>&page_path=<path> -> threaded comments (parent_comment_id links replies to roots)`,
+      list: `GET ${site}/_au/comments?artifact_key=${artifact.url_key}&status=open|sent|resolved|all&since=<unix>&page_path=<path>&wait=<1..25> -> threaded comments (parent_comment_id links replies to roots); wait long-polls for a comment newer than since and returns next_since to carry`,
       post: {
         method: "POST",
         body: {
@@ -959,6 +1002,8 @@ export async function handleAgentToken(
       view_id: session.view_id,
       exp,
       ...(session.link_id ? { link_id: session.link_id } : {}),
+      // Comments written with this token render as "via agent · delegated".
+      agent: "delegated",
     },
     env,
   );

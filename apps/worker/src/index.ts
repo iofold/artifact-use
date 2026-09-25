@@ -26,9 +26,11 @@ import {
 import {
   expireStaleConnectRequests,
   notifyExpiringTokens,
+  retryWebhookDeliveries,
   sweepAbandonedUploads,
 } from "./maintenance";
 import { UPSTREAM_PATH } from "./upstream";
+import { handleWebhooksApi } from "./webhooks";
 import { error, json, secureSystemResponse, wantsHtml } from "./util";
 
 const CORS = {
@@ -50,6 +52,7 @@ export default {
     ctx.waitUntil(sweepAbandonedUploads(env));
     ctx.waitUntil(notifyExpiringTokens(env));
     ctx.waitUntil(expireStaleConnectRequests(env));
+    ctx.waitUntil(retryWebhookDeliveries(env));
   },
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -199,6 +202,8 @@ async function dispatch(
       return handleConnectApi(request, env, path);
     if (path.startsWith("/api/v1/publish/"))
       return handlePublish(request, env, path);
+    if (path === "/api/v1/webhooks" || path.startsWith("/api/v1/webhooks/"))
+      return handleWebhooksApi(request, env, path);
     if (path.startsWith("/api/v1/")) return handleAdminApi(request, env, path);
     if (path.startsWith("/_au/gate/"))
       return handleGateRoute(request, env, path);
