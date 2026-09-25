@@ -20,7 +20,9 @@ import {
   claimVersionForCompletion,
   completeVersion,
   createDraftVersion,
+  findArtifactForPublish,
   getFile,
+  getVersion,
   getVersionForOrg,
   listFilesForVersion,
   purgeVersion,
@@ -29,6 +31,7 @@ import {
   upsertArtifact,
   upsertFileIfDraft,
 } from "./db";
+import { publishLinks, versionUrl } from "./versions";
 import { suspendedOrganizationResponse } from "./moderation";
 import {
   extractArtifactDescription,
@@ -49,12 +52,14 @@ import {
   bearerToken,
   error,
   GATE_LEVELS,
+  isSlug,
   json,
   mimeFor,
   nowSec,
   publicArtifactUrl,
   randomId,
   readLimit,
+  sha256Hex,
   validateAssetPath,
 } from "./util";
 
@@ -69,6 +74,10 @@ interface StartBody {
   // before a single byte is uploaded (see declaredLimitsResponse).
   file_count?: number;
   package_bytes?: number;
+  // Optimistic concurrency: the version the caller last published or read.
+  // A republish is refused (409 version_conflict) when the artifact has
+  // moved on, before anything is created (see baseVersionConflict).
+  base_version_id?: string;
 }
 
 interface PublishActor {
@@ -97,6 +106,8 @@ export async function handlePublish(
       const body = (await request.json()) as StartBody;
       const overLimit = declaredLimitsResponse(env, body);
       if (overLimit) return overLimit;
+      const conflict = await baseVersionConflict(env, creator, body);
+      if (conflict) return conflict;
       return json(await createDraft(env, creator, body));
     }
 
@@ -115,6 +126,8 @@ export async function handlePublish(
       if (overLimit) return overLimit;
       const ttl = uploadSessionTtl(body.ttl_seconds);
       if (ttl instanceof Response) return ttl;
+      const conflict = await baseVersionConflict(env, creator, body);
+      if (conflict) return conflict;
       const draft = await createDraft(env, creator, body);
       const expiresAt = nowSec() + ttl;
       const uploadToken = await signUploadToken(
@@ -292,6 +305,9 @@ export async function handlePublish(
           artifact,
           version_id: version.id,
           url: artifact ? publicArtifactUrl(env, artifact.url_key) : null,
+          links: artifact
+            ? publishLinks(env, artifact.url_key, version.id)
+            : null,
           note: UNLISTED_NOTE,
           ...(findings.length ? { warnings: findings } : {}),
         });
@@ -322,6 +338,8 @@ export async function handlePublish(
           : [];
       if (findings.length && !allowsSecrets(body))
         return secretsDetectedResponse(findings);
+      const conflict = await baseVersionConflict(env, creator, body);
+      if (conflict) return conflict;
       // Pin the entrypoint after the spread so a caller-supplied one stays ignored.
       const draftBody = { ...body, entrypoint: "index.html" };
       if (body.description === undefined) {
@@ -330,8 +348,12 @@ export async function handlePublish(
       }
       const { artifact, version } = await createDraft(env, creator, draftBody);
       const storageKey = `orgs/${creator.orgId}/artifacts/${version.artifact_id}/versions/${version.id}/files/index.html`;
+      // Recorded so version diffs can tell an unchanged page from a changed
+      // one by hash, like uploaded files.
+      const sha256 = await sha256Hex(bytes);
       await env.BUCKET.put(storageKey, bytes, {
         httpMetadata: { contentType: "text/html; charset=utf-8" },
+        customMetadata: { sha256 },
       });
       const upserted = await upsertFileIfDraft(
         env,
@@ -341,7 +363,7 @@ export async function handlePublish(
         storageKey,
         "text/html; charset=utf-8",
         bytes.byteLength,
-        null,
+        sha256,
       );
       if (!upserted)
         return error(409, "version_not_draft", "version is not writable");
@@ -352,6 +374,7 @@ export async function handlePublish(
             path: "index.html",
             content_type: "text/html; charset=utf-8",
             size: bytes.byteLength,
+            sha256,
           },
         ],
       };
@@ -367,6 +390,7 @@ export async function handlePublish(
         artifact,
         version_id: version.id,
         url: publicArtifactUrl(env, artifact.url_key),
+        links: publishLinks(env, artifact.url_key, version.id),
         note: UNLISTED_NOTE,
         ...(findings.length ? { warnings: findings } : {}),
       });
@@ -568,6 +592,47 @@ function declaredLimitsResponse(env: Env, body: StartBody): Response | null {
       `package size ${bytes} exceeds the limit of ${readLimit(env, "package")} bytes`,
     );
   return null;
+}
+
+// Optimistic concurrency for republishes. A caller that names the version it
+// last saw (`base_version_id`) is refused when the artifact's current version
+// is a different one: another agent or person published in between, and a
+// blind republish would silently clobber their work. Checked before the
+// draft exists, so a refusal creates nothing. An artifact that does not
+// exist yet has no current version, which is also a conflict: the caller
+// clearly expected to be republishing.
+async function baseVersionConflict(
+  env: Env,
+  creator: Creator,
+  body: StartBody,
+): Promise<Response | null> {
+  const base = String(body.base_version_id ?? "").trim();
+  if (!base) return null;
+  const ref = String(body.artifact || "");
+  const existing = isSlug(ref)
+    ? await findArtifactForPublish(env, creator.orgId, ref)
+    : null;
+  const currentId = existing?.current_version_id || null;
+  if (currentId === base) return null;
+  const current = currentId ? await getVersion(env, currentId) : null;
+  return json(
+    {
+      error: {
+        code: "version_conflict",
+        message: currentId
+          ? `the artifact's current version is ${currentId}, not base_version_id ${base}: someone published in between. Review the current version (artifact_manage versions or diff), merge, then republish with base_version_id set to ${currentId}.`
+          : `base_version_id ${base} was given but the artifact has no published version yet; publish without base_version_id to create it.`,
+        current_version_id: currentId,
+        current_created_at: current?.created_at ?? null,
+        current_url:
+          existing && currentId
+            ? versionUrl(env, existing.url_key, currentId)
+            : null,
+        base_version_id: base,
+      },
+    },
+    { status: 409 },
+  );
 }
 
 function uploadSessionTtl(value: unknown): number | Response {
