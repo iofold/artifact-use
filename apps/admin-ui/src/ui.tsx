@@ -150,6 +150,7 @@ export function Shell({ me, children }: { me?: Me; children: ReactNode }) {
             Admin
           </NavLink>
           <NavLink to="/admin/connect">Connect an agent</NavLink>
+          <NavLink to="/admin/agents">Agents</NavLink>
           <NavLink to="/admin/team">Team</NavLink>
           <a href="/logout">Sign out</a>
         </nav>
@@ -358,6 +359,18 @@ export function ago(ts: number | null | undefined): string {
   if (delta < 3600) return `${Math.floor(delta / 60)}m ago`;
   if (delta < 86400) return `${Math.floor(delta / 3600)}h ago`;
   return `${Math.floor(delta / 86400)}d ago`;
+}
+
+// A share as a percentage: one decimal under 10%, whole numbers above,
+// "0%" when nothing happened and "<0.1%" rather than a misleading "0%" when
+// something did.
+export function formatRate(part: number, whole: number): string {
+  if (!whole || !part) return "0%";
+  const rate = (part / whole) * 100;
+  if (rate >= 10) return `${Math.round(rate)}%`;
+  if (rate < 0.1) return "<0.1%";
+  const fixed = rate.toFixed(1);
+  return `${fixed.endsWith(".0") ? fixed.slice(0, -2) : fixed}%`;
 }
 
 export function dateLabel(ts: number | null | undefined): string {
