@@ -1,5 +1,5 @@
 {
-  "name": "artifact-use",
+  "name": "artifact-use-cli",
   "version": "0.2.0",
   "description": "JSON-first CLI for Artifact Use: publish HTML and static folders as stable, gated, reviewable links and manage comments, access, and share links.",
   "license": "MIT",

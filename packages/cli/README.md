@@ -10,7 +10,7 @@ comments. Built for coding agents and shell workflows; every command takes
 export ARTIFACT_USE_API_BASE=https://artifacts.iofold.com
 export ARTIFACT_USE_TOKEN='au_creator_...'   # mint at /admin/connect
 
-npx -y artifact-use publish-folder --json '{
+npx -y artifact-use-cli publish-folder --json '{
   "artifact": "claims-demo",
   "title": "Claims Demo",
   "dir": "dist",
