@@ -144,21 +144,116 @@ The injected comments popup uses the viewer session cookie from the artifact
 gate.
 
 ```http
-GET /_au/comments?artifact_key={url_key}
+GET /_au/comments?artifact_key={url_key}&status=open|sent|resolved|all&since=<unix>&wait=<1..25>&page_path=<path>&limit=<n>
 POST /_au/comments
 PATCH /_au/comments
 ```
+
+`GET` returns `{comments, count, has_more, next_since}`. Each comment carries
+`parent_comment_id` (replies), `resolved` / `resolved_at` / `resolved_by`,
+`sent_to_agent_at`, `author_kind` (`human` or `agent`), `agent_label`, and
+`target` (parsed) next to `target_json`. `status=sent` lists the unresolved
+threads a viewer flagged with "Send to agent"; replies follow their root for
+every status filter.
+
+Long-poll instead of polling: with `wait` (seconds, at most 25) the request is
+held until a comment newer than `since` exists (checked every 2 s) and answers
+`[]` with a fresh `next_since` on timeout. Pass `next_since` back as `since`
+on the next call. A comment from the boundary second may repeat, so
+de-duplicate by `id`; when `has_more` is true `next_since` does not advance,
+so re-list with a larger `limit` first.
 
 `POST /_au/comments` creates either a top-level comment or a reply when
 `parent_id` is supplied. Include `artifact_key` in the JSON body. An optional
 `client_ref` (up to 64 characters, unique per artifact) makes the post
 idempotent: a retry with the same `client_ref` after a lost response returns
 the comment that was already created. `PATCH /_au/comments` accepts
-`artifact_key`, `id`, and `resolved` to mark comments resolved or reopen them.
-The publisher endpoint `POST /api/v1/artifacts/{artifact_key}/comments`
-accepts the same `body`, `parent_id`, `page_path`, and `client_ref` fields.
-Existing comments from earlier schema versions remain top-level, unresolved
-comments after migration.
+`artifact_key`, `id`, and one of `resolved` (resolve or reopen), `target`
+(re-anchor), or `sent_to_agent` (`true` flags the thread root for the
+publishing agent, even when `id` is a reply, and fires the
+`comment.sent_to_agent` webhook; `false` clears the flag).
+
+The publisher endpoint `/api/v1/artifacts/{artifact_key}/comments` speaks the
+same shapes (`GET` with the same filters including `wait`; `POST` with `body`,
+`parent_id`, `page_path`, `target`, `client_ref`; `PATCH` with `id`,
+`resolved`). Comments written there, or with a delegated "Hand to your agent"
+session on `/_au/comments`, are recorded as `author_kind: "agent"` with the
+token's label (`agent_label`), and the widget shows "via agent" on them. Every
+creator-side `GET` also records agent presence, which the page shows as
+"an agent checked this page N min ago" (`GET /_au/artifact-context` returns
+`agent: {watching, last_seen_at, label}`; `watching` is true within 10
+minutes).
+
+`page_path` is normalised on write: a trailing `index.html` and trailing slash
+are stripped, so `/go/x/`, `/go/x/index.html` and `/go/x` are the one key
+`/go/x`; the `page_path` filter accepts any of the three.
+
+`target` (version 3) keeps the earlier fields (`selector`, `label`, `path`,
+`text`, `anchors`, `rect`, `version_id`) and adds the element context the
+widget captures: `tag`, `caption` (alt, aria-label, title, figcaption or SVG
+title), `src` (media file basename), `heading` (the nearest preceding h1–h3),
+`index` (nth same-tag sibling), `page_title`, and `viewport` `{w, h, dpr}`.
+Comments anchored before this carry `v: 2` targets without the extra fields.
+
+## Webhooks
+
+Push instead of polling: subscribe an HTTPS URL to comment events for one
+artifact or for every artifact in the workspace.
+
+```http
+POST /api/v1/webhooks
+{
+  "url": "https://hooks.example.com/artifact-use",
+  "artifact": "claims-demo-a1b2c3",
+  "events": ["comment.created", "comment.sent_to_agent"],
+  "secret": "optional, 8 to 256 characters"
+}
+GET /api/v1/webhooks
+DELETE /api/v1/webhooks/{id}
+```
+
+- Events: `comment.created`, `comment.replied`, `comment.resolved`,
+  `comment.reopened`, `comment.sent_to_agent`; omitted `events` means all
+  five. Omit `artifact` to subscribe the whole workspace. At most 20 active
+  webhooks per workspace.
+- `POST` and `DELETE` require `artifacts:manage_access` (creator tokens have
+  it); `GET` requires `artifacts:read`. The response to `POST` carries the
+  `secret` once (generated as `whsec_...` when not supplied); `GET` never
+  returns it. `url` follows the upstream-backend rules: `https://` to a
+  public hostname, no credentials or fragment (a query string is allowed).
+- Delivery is `POST {url}` with `Content-Type: application/json` and the
+  headers `X-Artifact-Use-Event: <event>`, `X-Artifact-Use-Delivery: <id>`
+  (de-duplicate on it) and `X-Artifact-Use-Signature: sha256=<hex
+HMAC-SHA256 of the raw body with the secret>`. Any 2xx within 10 s is a
+  success; redirects are not followed.
+- The first attempt is made right after the write. Failures are retried
+  1 m, 5 m, 30 m, 2 h and 12 h later by the maintenance cron, then dropped.
+  `GET` shows `pending`, `last_delivery_at` and `last_status` per webhook.
+
+Payload:
+
+```json
+{
+  "event": "comment.replied",
+  "artifact": {
+    "id": "art_...",
+    "url_key": "claims-demo-a1b2c3",
+    "url": "https://artifacts.iofold.com/go/claims-demo-a1b2c3/",
+    "title": "Claims Demo"
+  },
+  "comment": { "id": 43, "parent_comment_id": 42, "body": "...", "...": "..." },
+  "thread": {
+    "id": 42,
+    "parent_comment_id": null,
+    "body": "...",
+    "...": "..."
+  },
+  "occurred_at": 1758800000
+}
+```
+
+`comment` is the comment the event is about and `thread` its root (the same
+object for a root comment); both use the comment shape above.
 
 ## Admin
 
@@ -173,6 +268,9 @@ POST /api/v1/artifacts/{artifact_key}/share-links
 GET /api/v1/artifacts/{artifact_key}/share-links
 DELETE /api/v1/artifacts/{artifact_key}/share-links/{link_id}
 GET /api/v1/artifacts/{artifact_key}/comments
+POST /api/v1/webhooks
+GET /api/v1/webhooks
+DELETE /api/v1/webhooks/{id}
 ```
 
 User-scoped creator tokens (`"scope": "user"` on `POST /api/v1/tokens`)
