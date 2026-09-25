@@ -31,6 +31,11 @@ const SCHEMAS = {
         type: "string",
         enum: ["public", "email", "verified_email", "allowlist"],
       },
+      allow_secrets: {
+        type: "boolean",
+        description:
+          "Publish even when the HTML contains what look like credentials (the server otherwise refuses with secrets_detected).",
+      },
     },
   },
   preview: {
