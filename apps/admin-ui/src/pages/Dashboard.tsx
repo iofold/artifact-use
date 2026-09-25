@@ -5,8 +5,12 @@ import {
   api,
   postForm,
   type ArtifactRow,
+  type CreatedShareLink,
   type DailyRow,
   type Overview,
+  type RecentView,
+  type ShareLink,
+  type ShareLinkKind,
 } from "../api";
 import {
   BarChart,
@@ -20,7 +24,50 @@ import {
   formatNumber,
 } from "../ui";
 
-const GATE_LEVELS = ["public", "email", "verified_email", "allowlist"];
+// The four gate levels, described by what they mean for the person opening
+// the link. `verified_email` is the "share with a client" preset: a one-time
+// code proves the inbox, so every view is attributable.
+const GATE_LEVELS: Array<{ value: string; label: string; hint: string }> = [
+  { value: "public", label: "public", hint: "anyone with the link" },
+  { value: "email", label: "email", hint: "asks for an email, unverified" },
+  {
+    value: "verified_email",
+    label: "verified_email",
+    hint: "share with a client: one-time code",
+  },
+  {
+    value: "allowlist",
+    label: "allowlist",
+    hint: "verified, listed emails or domains only",
+  },
+];
+
+const LINK_KINDS: Array<{ value: ShareLinkKind; label: string; hint: string }> =
+  [
+    {
+      value: "recipient",
+      label: "Recipient",
+      hint: "the URL is the credential for one named person",
+    },
+    {
+      value: "password",
+      label: "Passcode",
+      hint: "the viewer types a passcode; no email asked",
+    },
+    { value: "open", label: "Open", hint: "anyone holding the URL gets in" },
+  ];
+
+// How a recorded view identified itself: proven, vouched for by a link, or
+// typed into the plain email gate.
+function ViewerBadge({
+  view,
+}: {
+  view: Pick<RecentView, "verified" | "via_link">;
+}) {
+  if (view.verified) return <span className="pill ok">verified</span>;
+  if (view.via_link) return <span className="pill">via link</span>;
+  return <span className="pill self-reported">self-reported</span>;
+}
 
 type SortKey = "title" | "views" | "views7" | "comments" | "published";
 
@@ -101,7 +148,9 @@ export default function Dashboard() {
             {data.recent.slice(0, 18).map((view, i) => (
               <li key={i}>
                 <span>
-                  <strong>{view.email}</strong>
+                  <strong>
+                    {view.email} <ViewerBadge view={view} />
+                  </strong>
                   <small>{view.title || view.url_key || view.slug}</small>
                 </span>
                 <time>{ago(view.ts)}</time>
@@ -403,6 +452,230 @@ function Onboarding({ docsUrl }: { docsUrl: string }) {
   );
 }
 
+function LinkRow({
+  link,
+  revoking,
+  onRevoke,
+}: {
+  link: ShareLink;
+  revoking: boolean;
+  onRevoke: () => void;
+}) {
+  const kind = LINK_KINDS.find((k) => k.value === link.kind);
+  const name =
+    link.label ||
+    link.recipient_label ||
+    link.recipient_email ||
+    `${kind?.label || "Link"} ${link.id.slice(0, 6)}`;
+  const opens = link.max_opens
+    ? `${formatNumber(link.open_count)}/${formatNumber(link.max_opens)} opens`
+    : `${formatNumber(link.open_count)} opens`;
+  const detail = [
+    kind?.label.toLowerCase() || link.kind,
+    link.recipient_email && link.label ? link.recipient_email : null,
+    opens,
+    link.last_opened_at
+      ? `last opened ${ago(link.last_opened_at)}`
+      : "never opened",
+    link.expires_at && link.state === "active"
+      ? `expires ${dateLabel(link.expires_at)}`
+      : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <li>
+      <span>
+        <strong>
+          {name}{" "}
+          <span
+            className={`pill${link.state === "active" ? " ok" : link.state === "revoked" ? " danger" : ""}`}
+          >
+            {link.state}
+          </span>
+        </strong>
+        <small>{detail}</small>
+      </span>
+      <span className="link-actions">
+        {link.state === "active" ? (
+          <>
+            <CopyButton
+              text={link.url}
+              label="Copy URL"
+              className="button small ghost"
+            />
+            <button
+              type="button"
+              className="button small ghost danger"
+              disabled={revoking}
+              onClick={onRevoke}
+            >
+              Revoke
+            </button>
+          </>
+        ) : null}
+      </span>
+    </li>
+  );
+}
+
+const EMPTY_LINK_FORM = {
+  kind: "recipient" as ShareLinkKind,
+  label: "",
+  recipient_email: "",
+  recipient_label: "",
+  passcode: "",
+  expires_days: "",
+  max_opens: "",
+};
+
+function LinkCreateForm({
+  artifact,
+  onCreated,
+}: {
+  artifact: ArtifactRow;
+  onCreated: () => void;
+}) {
+  const [form, setForm] = useState(EMPTY_LINK_FORM);
+  const [created, setCreated] = useState<CreatedShareLink | null>(null);
+  const mutation = useMutation({
+    mutationFn: () =>
+      api.createShareLink({ artifact_key: artifact.url_key, ...form }),
+    onSuccess: (link) => {
+      setCreated(link);
+      setForm(EMPTY_LINK_FORM);
+      onCreated();
+    },
+  });
+  const kind = LINK_KINDS.find((k) => k.value === form.kind);
+  const set = (patch: Partial<typeof EMPTY_LINK_FORM>) =>
+    setForm({ ...form, ...patch });
+  return (
+    <>
+      {created ? (
+        <div className="link-created" role="status">
+          <strong>
+            {created.kind === "password" ? "Passcode link" : "Link"} created
+          </strong>
+          <div className="copywrap">
+            <CopyButton text={created.url} />
+            <input readOnly value={created.url} />
+          </div>
+          {created.passcode ? (
+            <>
+              <div className="copywrap">
+                <CopyButton text={created.passcode} />
+                <input readOnly value={created.passcode} />
+              </div>
+              <small>
+                Send the passcode separately from the URL. It is shown only now
+                and never stored.
+              </small>
+            </>
+          ) : null}
+          <button
+            type="button"
+            className="button small ghost"
+            onClick={() => setCreated(null)}
+          >
+            Done
+          </button>
+        </div>
+      ) : null}
+      <form
+        className="link-form"
+        onSubmit={(e) => {
+          e.preventDefault();
+          mutation.mutate();
+        }}
+      >
+        <label>
+          <span>Kind</span>
+          <select
+            value={form.kind}
+            onChange={(e) => set({ kind: e.target.value as ShareLinkKind })}
+          >
+            {LINK_KINDS.map((k) => (
+              <option key={k.value} value={k.value}>
+                {k.label} — {k.hint}
+              </option>
+            ))}
+          </select>
+        </label>
+        {form.kind === "recipient" ? (
+          <>
+            <label>
+              <span>Recipient email</span>
+              <input
+                type="email"
+                placeholder="client@example.com"
+                value={form.recipient_email}
+                onChange={(e) => set({ recipient_email: e.target.value })}
+              />
+            </label>
+            <label>
+              <span>Recipient name</span>
+              <input
+                placeholder="optional"
+                value={form.recipient_label}
+                onChange={(e) => set({ recipient_label: e.target.value })}
+              />
+            </label>
+          </>
+        ) : (
+          <label>
+            <span>Label</span>
+            <input
+              placeholder={
+                form.kind === "password" ? "Board deck" : "Launch review"
+              }
+              value={form.label}
+              onChange={(e) => set({ label: e.target.value })}
+            />
+          </label>
+        )}
+        {form.kind === "password" ? (
+          <label>
+            <span>Passcode</span>
+            <input
+              placeholder="auto-generated when blank"
+              autoComplete="off"
+              value={form.passcode}
+              onChange={(e) => set({ passcode: e.target.value })}
+            />
+          </label>
+        ) : null}
+        <label>
+          <span>Expires in days</span>
+          <input
+            inputMode="numeric"
+            placeholder="never"
+            value={form.expires_days}
+            onChange={(e) => set({ expires_days: e.target.value })}
+          />
+        </label>
+        <label>
+          <span>Max opens</span>
+          <input
+            inputMode="numeric"
+            placeholder="unlimited"
+            value={form.max_opens}
+            onChange={(e) => set({ max_opens: e.target.value })}
+          />
+        </label>
+        <button type="submit" disabled={mutation.isPending}>
+          {mutation.isPending
+            ? "Creating…"
+            : `Create ${kind?.label.toLowerCase() || ""} link`}
+        </button>
+        {mutation.isError ? (
+          <p className="mini error">{mutation.error.message}</p>
+        ) : null}
+      </form>
+    </>
+  );
+}
+
 function ArtifactSheet({
   artifact,
   onClose,
@@ -464,18 +737,6 @@ function ArtifactSheet({
         gate_level: "allowlist",
         allowlist_lines: allowlist,
       }),
-    onSettled: invalidate,
-  });
-  const [share, setShare] = useState({ email: "", label: "", days: "" });
-  const shareMutation = useMutation({
-    mutationFn: () =>
-      postForm("/admin/artifact/share-link", {
-        artifact_key: artifact.url_key,
-        recipient_email: share.email,
-        recipient_label: share.label,
-        expires_days: share.days,
-      }),
-    onSuccess: () => setShare({ email: "", label: "", days: "" }),
     onSettled: invalidate,
   });
   const revokeShare = useMutation({
@@ -570,8 +831,8 @@ function ArtifactSheet({
                   onChange={(e) => setGate(e.target.value)}
                 >
                   {GATE_LEVELS.map((level) => (
-                    <option key={level} value={level}>
-                      {level}
+                    <option key={level.value} value={level.value}>
+                      {level.label} — {level.hint}
                     </option>
                   ))}
                 </select>
@@ -679,7 +940,9 @@ function ArtifactSheet({
                 {recentViews.map((view, i) => (
                   <li key={i}>
                     <span>
-                      <strong>{view.email}</strong>
+                      <strong>
+                        {view.email} <ViewerBadge view={view} />
+                      </strong>
                     </span>
                     <time>{ago(view.ts)}</time>
                   </li>
@@ -687,69 +950,29 @@ function ArtifactSheet({
               </ul>
             </>
           ) : null}
-          <h3>Share links</h3>
+          <h3>Links</h3>
+          <p className="mini">
+            A link passes this artifact's gate on its own — for one named
+            recipient, behind a passcode, or for anyone holding it — until it
+            expires, runs out of opens, or you revoke it.
+          </p>
           {isPending ? (
             <Skeleton style={{ height: 46 }} />
           ) : detail?.shares.length ? (
             <ul className="detail-list links-list">
-              {detail.shares.slice(0, 8).map((link) => (
-                <li key={link.id}>
-                  <span>
-                    <strong>
-                      {link.recipient_label ||
-                        link.recipient_email ||
-                        "Unlabeled link"}
-                    </strong>
-                    <small>
-                      {formatNumber(link.view_count)} views · {link.state} ·{" "}
-                      {link.url}
-                    </small>
-                  </span>
-                  {link.state === "revoked" ? (
-                    <span className="pill">Revoked</span>
-                  ) : (
-                    <button
-                      type="button"
-                      className="button small ghost danger"
-                      onClick={() => revokeShare.mutate(link.id)}
-                    >
-                      Revoke
-                    </button>
-                  )}
-                </li>
+              {detail.shares.slice(0, 12).map((link) => (
+                <LinkRow
+                  key={link.id}
+                  link={link}
+                  revoking={revokeShare.isPending}
+                  onRevoke={() => revokeShare.mutate(link.id)}
+                />
               ))}
             </ul>
           ) : (
-            <div className="empty small-empty">No share links.</div>
+            <div className="empty small-empty">No links yet.</div>
           )}
-          <form
-            className="share-create"
-            onSubmit={(e) => {
-              e.preventDefault();
-              shareMutation.mutate();
-            }}
-          >
-            <input
-              type="email"
-              placeholder="email"
-              value={share.email}
-              onChange={(e) => setShare({ ...share, email: e.target.value })}
-            />
-            <input
-              placeholder="label"
-              value={share.label}
-              onChange={(e) => setShare({ ...share, label: e.target.value })}
-            />
-            <input
-              placeholder="days"
-              inputMode="numeric"
-              value={share.days}
-              onChange={(e) => setShare({ ...share, days: e.target.value })}
-            />
-            <button type="submit" disabled={shareMutation.isPending}>
-              {shareMutation.isPending ? "Creating…" : "Create link"}
-            </button>
-          </form>
+          <LinkCreateForm artifact={artifact} onCreated={invalidate} />
           <h3>Comments</h3>
           {isPending ? (
             <Skeleton style={{ height: 46 }} />

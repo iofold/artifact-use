@@ -50,6 +50,11 @@ export type RecentView = {
   url_key: string | null;
   slug: string | null;
   email: string;
+  // verified: proven by a one-time code or a WorkOS login. Otherwise the
+  // plain email gate took the viewer's word (self-reported) or a share link
+  // vouched for them (via_link).
+  verified: boolean;
+  via_link: boolean;
   ts: number;
 };
 
@@ -62,14 +67,28 @@ export type Overview = {
   recent: RecentView[];
 };
 
+export type ShareLinkKind = "recipient" | "password" | "open";
+
 export type ShareLink = {
   id: string;
+  kind: ShareLinkKind;
+  label: string | null;
   recipient_email: string | null;
   recipient_label: string | null;
-  view_count: number;
-  state: "active" | "expired" | "revoked";
   url: string;
+  state: "active" | "expired" | "revoked" | "exhausted";
+  expires_at: number | null;
+  revoked_at: number | null;
+  max_opens: number | null;
+  open_count: number;
+  last_opened_at: number | null;
+  view_count: number;
+  created_at: number;
 };
+
+// The creation response: the link plus, for password links, the passcode —
+// shown exactly once.
+export type CreatedShareLink = ShareLink & { passcode?: string; note: string };
 
 export type Comment = {
   id: number;
@@ -408,4 +427,14 @@ export const api = {
       code,
       workspace,
     }),
+  createShareLink: (input: {
+    artifact_key: string;
+    kind: ShareLinkKind;
+    label: string;
+    recipient_email: string;
+    recipient_label: string;
+    passcode: string;
+    expires_days: string;
+    max_opens: string;
+  }) => postJson<CreatedShareLink>("/admin/api/artifact/share-link", input),
 };
