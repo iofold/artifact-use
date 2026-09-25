@@ -485,6 +485,8 @@ async function callTool(
       throw new Error(
         "artifact_manage delete permanently removes the artifact with every version, file, share link, comment, and view record; pass confirm: true to proceed",
       );
+    if (action === "revoke_link" && !String(args.link_id || "").trim())
+      throw new Error("artifact_manage revoke_link requires link_id");
     const ref = encodeURIComponent(artifact);
     const routes: Record<string, { path: string; init: RequestInit }> = {
       list: { path: "/api/v1/artifacts", init: { method: "GET", headers } },
@@ -525,7 +527,23 @@ async function callTool(
       },
       share_link: {
         path: `/api/v1/artifacts/${ref}/share-links`,
-        init: postJson(args),
+        init: postJson({
+          kind: args.kind,
+          recipient_email: args.recipient_email,
+          recipient_label: args.recipient_label,
+          label: args.label,
+          passcode: args.passcode,
+          expires_days: args.expires_days,
+          max_opens: args.max_opens,
+        }),
+      },
+      share_links: {
+        path: `/api/v1/artifacts/${ref}/share-links`,
+        init: { method: "GET", headers },
+      },
+      revoke_link: {
+        path: `/api/v1/artifacts/${ref}/share-links/${encodeURIComponent(String(args.link_id || ""))}`,
+        init: { method: "DELETE", headers },
       },
       delete: {
         path: `/api/v1/artifacts/${ref}`,

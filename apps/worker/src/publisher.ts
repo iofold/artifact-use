@@ -47,13 +47,15 @@ import {
   type WorkspaceRow,
 } from "./workspaces";
 import {
-  createShareLink,
   deleteArtifact,
+  listShareLinks,
   migratePublisherDataToOrg,
   moveArtifactToOrg,
   updateArtifactAccess,
   updateArtifactPreview,
 } from "./db";
+import { createShareLinkFromInput } from "./admin";
+import { type ShareLink, UNLISTED_NOTE, shareLinkJson } from "./links";
 import { moderateArtifact, moderateOrganization } from "./moderation";
 import {
   artifactPreviewImageUrl,
@@ -123,19 +125,9 @@ type AdminRecentView = {
   title: string;
   email: string;
   verified: number;
+  share_link_id: string | null;
   ts: number;
   referrer: string | null;
-};
-
-type AdminShareLink = {
-  id: string;
-  artifact_id: string;
-  recipient_email: string | null;
-  recipient_label: string | null;
-  expires_at: number | null;
-  revoked_at: number | null;
-  created_at: number;
-  view_count: number;
 };
 
 type AdminComment = {
@@ -509,6 +501,7 @@ export async function renderHome(
           <p class="eyebrow rise">Review-ready artifact links</p>
           <h1 class="rise d1">Turn agent output into links people can open and review.</h1>
           <p class="lead rise d2">Your coding agent publishes HTML tools, dashboards, PDFs, and whole static folders to one stable URL — gates, versions, and comments built in. Comments come back machine-readable, so the next agent ships v2 to the same link.</p>
+          <p class="lead rise d2 unlisted">${escapeHtml(UNLISTED_NOTE)}</p>
           <div class="actions rise d3">
             <a class="button" href="/signup">Start publishing</a>
             <a class="button ghost" href="/llms.txt">Connect your agent</a>
@@ -1079,20 +1072,10 @@ export async function handleAdminUiApi(
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
     const detail = await artifactDetailData(env, session.orgId, id);
-    const baseUrl = publicArtifactUrl(env, artifact.url_key);
     return json({
-      shares: detail.shares.map((link) => ({
-        id: link.id,
-        recipient_email: link.recipient_email || null,
-        recipient_label: link.recipient_label || null,
-        view_count: Number(link.view_count || 0),
-        state: link.revoked_at
-          ? "revoked"
-          : link.expires_at && link.expires_at < nowSec()
-            ? "expired"
-            : "active",
-        url: `${baseUrl}?v=${link.id}`,
-      })),
+      shares: detail.shares.map((link) =>
+        shareLinkJson(env, artifact.url_key, link),
+      ),
       comments: detail.comments
         .filter((comment) => !comment.parent_comment_id)
         .slice(0, 50)
@@ -1104,6 +1087,35 @@ export async function handleAdminUiApi(
           resolved_at: comment.resolved_at || null,
         })),
     });
+  }
+  // JSON create for the SPA's Links panel: a password link's passcode is
+  // returned exactly once, here, so the form redirect cannot carry it.
+  if (path === "/admin/api/artifact/share-link" && request.method === "POST") {
+    const body = (await request.json().catch(() => ({}))) as {
+      artifact_key?: unknown;
+      kind?: unknown;
+      recipient_email?: unknown;
+      recipient_label?: unknown;
+      label?: unknown;
+      passcode?: unknown;
+      expires_days?: unknown;
+      max_opens?: unknown;
+    };
+    const artifact = await publisherArtifactByKey(
+      env,
+      session,
+      String(body.artifact_key || ""),
+    );
+    if (!artifact)
+      return error(404, "artifact_not_found", "artifact not found");
+    const created = await createShareLinkFromInput(
+      env,
+      artifact,
+      creatorFromSession(session),
+      body,
+    );
+    if (created instanceof Response) return created;
+    return json(created);
   }
   if (path === "/admin/api/connect" && request.method === "GET") {
     const code = new URL(request.url).searchParams.get("code") || "";
@@ -1408,6 +1420,11 @@ async function adminOverviewJson(
       url_key: view.url_key || null,
       slug: view.slug || null,
       email: view.email,
+      // verified: proven by a one-time code or a WorkOS login; otherwise the
+      // plain gate took the viewer's word (self-reported), or a share link
+      // vouched for them.
+      verified: Number(view.verified || 0) === 1,
+      via_link: Boolean(view.share_link_id),
       ts: Number(view.ts || 0),
     }));
   return json({
@@ -2262,7 +2279,7 @@ async function adminMaps(env: Env, orgId: string): Promise<AdminMaps> {
   const since30 = nowSec() - 30 * 86400;
   const [recentRows, dailyRows] = await Promise.all([
     env.DB.prepare(
-      `SELECT v.artifact_id, a.slug, a.url_key, a.title, v.email, v.verified, v.ts, v.referrer
+      `SELECT v.artifact_id, a.slug, a.url_key, a.title, v.email, v.verified, v.share_link_id, v.ts, v.referrer
        FROM views v
        JOIN artifacts a ON a.id = v.artifact_id
        WHERE a.org_id = ?
@@ -2294,19 +2311,10 @@ async function artifactDetailData(
   env: Env,
   orgId: string,
   artifactId: string,
-): Promise<{ shares: AdminShareLink[]; comments: AdminComment[] }> {
-  const [shareRows, commentRows] = await Promise.all([
-    env.DB.prepare(
-      `SELECT sl.*, a.id AS artifact_id, COUNT(v.id) AS view_count
-       FROM share_links sl
-       JOIN artifacts a ON a.id = sl.artifact_id
-       LEFT JOIN views v ON v.share_link_id = sl.id
-       WHERE a.org_id = ? AND a.id = ?
-       GROUP BY sl.id
-       ORDER BY sl.created_at DESC`,
-    )
-      .bind(orgId, artifactId)
-      .all<AdminShareLink>(),
+): Promise<{ shares: ShareLink[]; comments: AdminComment[] }> {
+  // The caller has already checked the artifact belongs to orgId.
+  const [shares, commentRows] = await Promise.all([
+    listShareLinks(env, artifactId),
     env.DB.prepare(
       `SELECT c.*
        FROM comments c
@@ -2318,7 +2326,7 @@ async function artifactDetailData(
       .all<AdminComment>(),
   ]);
   return {
-    shares: shareRows.results || [],
+    shares,
     comments: commentRows.results || [],
   };
 }
@@ -2616,6 +2624,8 @@ async function updatePreview(
   return redirect(`/admin?open=${encodeURIComponent(artifact.id)}`);
 }
 
+// Form-POST create (kept for the older admin flows). A password link's
+// passcode cannot travel on the redirect; the SPA uses the JSON route above.
 async function createAdminShareLink(
   request: Request,
   env: Env,
@@ -2624,20 +2634,21 @@ async function createAdminShareLink(
   const form = await request.formData();
   const artifact = await publisherArtifact(env, session, form);
   if (!artifact) return error(404, "artifact_not_found", "artifact not found");
-  const rawEmail = String(form.get("recipient_email") || "").trim();
-  const days = Number(form.get("expires_days") || 0);
-  const expiresAt =
-    Number.isFinite(days) && days > 0
-      ? nowSec() + Math.max(1, Math.min(365, Math.floor(days))) * 86400
-      : null;
-  await createShareLink(
+  const created = await createShareLinkFromInput(
     env,
     artifact,
     creatorFromSession(session),
-    rawEmail ? normalizeEmail(rawEmail) : null,
-    String(form.get("recipient_label") || "").trim() || null,
-    expiresAt,
+    {
+      kind: form.get("kind"),
+      recipient_email: form.get("recipient_email"),
+      recipient_label: form.get("recipient_label"),
+      label: form.get("label"),
+      passcode: form.get("passcode"),
+      expires_days: form.get("expires_days"),
+      max_opens: form.get("max_opens"),
+    },
   );
+  if (created instanceof Response) return created;
   return redirect(`/admin?open=${encodeURIComponent(artifact.id)}`);
 }
 
@@ -2847,15 +2858,25 @@ async function publisherArtifact(
   session: PublisherSession,
   form: FormData,
 ): Promise<Artifact | null> {
-  const artifactKey = String(form.get("artifact_key") || "").trim();
-  if (artifactKey) {
-    return env.DB.prepare(
-      "SELECT * FROM artifacts WHERE url_key = ? AND org_id = ?",
-    )
-      .bind(artifactKey, session.orgId)
-      .first<Artifact>();
-  }
-  return null;
+  return publisherArtifactByKey(
+    env,
+    session,
+    String(form.get("artifact_key") || ""),
+  );
+}
+
+async function publisherArtifactByKey(
+  env: Env,
+  session: PublisherSession,
+  artifactKey: string,
+): Promise<Artifact | null> {
+  const key = artifactKey.trim();
+  if (!key) return null;
+  return env.DB.prepare(
+    "SELECT * FROM artifacts WHERE url_key = ? AND org_id = ?",
+  )
+    .bind(key, session.orgId)
+    .first<Artifact>();
 }
 
 function creatorFromSession(session: PublisherSession): Creator {
@@ -3051,6 +3072,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-of
 .hero .term{margin-top:34px}
 .hero h1{font-size:clamp(34px,4.4vw,54px);line-height:1.06;margin:12px 0 0}
 .lead{font-size:17.5px;line-height:1.65;color:var(--muted);max-width:54ch;margin:18px 0 0}
+.lead.unlisted{font-size:14.5px;margin-top:12px}
 .actions{display:flex;gap:12px;margin-top:36px;flex-wrap:wrap}
 .rise{animation:rise .6s cubic-bezier(.2,.7,.2,1) both}
 .d1{animation-delay:.06s}.d2{animation-delay:.14s}.d3{animation-delay:.22s}.d4{animation-delay:.32s}

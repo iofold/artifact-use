@@ -139,6 +139,9 @@ export interface ViewerSession {
   verified: boolean;
   view_id: number;
   exp: number;
+  // Set only when a validated share link passed the gate: the link is the
+  // publisher's explicit grant, so it satisfies every gate level unverified.
+  link_id?: string | null;
 }
 
 export interface UploadSession {

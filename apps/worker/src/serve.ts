@@ -1,6 +1,7 @@
 import type {
   Artifact,
   ArtifactVersion,
+  Creator,
   Env,
   PublishManifest,
   ViewerSession,
@@ -20,14 +21,20 @@ import {
   getArtifactByLegacyPath,
   getArtifactByUrlKey,
   getFile,
+  getShareLink,
   getVersion,
 } from "./db";
 import {
+  deadLinkResponse,
   getViewerSession,
   issueViewerSession,
+  mintViewerSession,
   renderGate,
+  renderPasscodeGate,
+  resolveLinkAccess,
   signedInViewer,
 } from "./gate";
+import { type ShareLink, shareLinkIdentity, shareLinkKind } from "./links";
 import { getPublisherSessionAuth } from "./publisher";
 import { unavailableArtifactResponse } from "./moderation";
 import {
@@ -35,7 +42,7 @@ import {
   isLinkPreviewRequest,
   renderArtifactPreviewDocument,
 } from "./preview";
-import { commentWriteRateLimit } from "./rl";
+import { commentWriteRateLimit, rateLimitedResponse } from "./rl";
 import { UPSTREAM_SEGMENT, proxyUpstream } from "./upstream";
 import { FEEDBACK_WIDGET_JS } from "./widget/feedback.generated";
 import {
@@ -98,12 +105,25 @@ export async function servePublic(
   // backend. Never HTML, never a file lookup; the gate below still applies.
   const isUpstream = rest[0] === UPSTREAM_SEGMENT;
   let session: ViewerSession | null = null;
+  // Set when this very request minted a session (a share link passed
+  // inline); the cookie rides on whatever response the serving tail builds.
+  let sessionCookie: string | null = null;
   if (artifact.gate_level !== "public") {
-    session = await getViewerSession(request, env, artifact);
-    if (
-      !session ||
-      (requiresVerified(artifact.gate_level) && !session.verified)
-    ) {
+    session = await linkSessionStillValid(
+      env,
+      artifact,
+      await getViewerSession(request, env, artifact),
+    );
+    // Agents of the publishing workspace read what they published with the
+    // token they already hold: no viewer session, no view row. Reads only,
+    // and never the upstream proxy, which needs a viewer identity.
+    const creatorRead =
+      !session &&
+      !isUpstream &&
+      (request.method === "GET" || request.method === "HEAD") &&
+      (await creatorForArtifact(request, env, artifact, "artifacts:read")) !==
+        null;
+    if (!sessionPassesGate(artifact, session) && !creatorRead) {
       if (linkPreview) {
         return headOnly(
           request,
@@ -114,64 +134,106 @@ export async function servePublic(
           ),
         );
       }
-      // Machine-readable gate: a non-browser fetch gets a 401 + JSON describing
-      // how to get in, instead of a 200 HTML email form.
-      if (isUpstream || !wantsHtml(request)) return gateJson(env, artifact);
       const url = new URL(request.url);
-      // Signed-in members of the artifact's workspace skip the gate: their
-      // WorkOS login already proves the email the gate would collect, at a
-      // strictly higher bar than the OTP. `au_sso=1` marks the cookie-setting
-      // bounce — if it comes back sessionless (cookies blocked), the manual
-      // gate renders instead of redirect-looping. Non-members fall through to
-      // the gate page, where their signed-in email becomes a one-click
-      // consent rather than a silent pass.
-      const signedIn =
-        request.method === "GET"
-          ? await signedInViewer(request, env, artifact)
-          : null;
-      if (signedIn?.member && url.searchParams.get("au_sso") !== "1") {
-        const bounce = new URL(url);
-        bounce.searchParams.set("au_sso", "1");
-        return issueViewerSession(
-          request,
-          env,
-          artifact,
-          signedIn.email,
-          true,
-          null,
-          `${bounce.pathname}${bounce.search}${bounce.hash}`,
-        );
-      }
-      const share = await sharePrefill(
+      // Share links are the publisher's explicit grant: `?v=<id>` (or a
+      // Basic username) selects one, and its kind decides what happens next.
+      const access = await resolveLinkAccess(
+        request,
         env,
         artifact,
         url.searchParams.get("v"),
       );
-      // Send the viewer back to the exact URL they asked for once the gate
-      // passes: artifacts keep state in the query string, and losing it here
-      // silently reset that state. The share prefill and SSO bounce markers
-      // are consumed by the gate itself and stay out of the redirect.
-      const keep = new URLSearchParams(url.search);
-      keep.delete("v");
-      keep.delete("au_sso");
-      const gate = renderGate(
-        artifact,
-        keep.size ? `${path}?${keep}` : path,
-        share.email || "",
-        share.id || "",
-        signedIn?.email || "",
-      );
-      const gateHtml = injectArtifactMetadata(
-        await gate.text(),
-        env,
-        artifact,
-        await entrypointContentType(env, artifact),
-      );
-      return new Response(request.method === "HEAD" ? null : gateHtml, {
-        status: gate.status,
-        statusText: gate.statusText,
-        headers: gate.headers,
-      });
+      if (access.kind === "dead")
+        return deadLinkResponse(request, artifact, access.state);
+      if (access.kind === "limited")
+        return rateLimitedResponse(access.limit, request, artifact.title);
+      if (access.kind === "pass") {
+        const identity = shareLinkIdentity(access.link);
+        if (wantsHtml(request) && request.method === "GET") {
+          // Browsers bounce to the same URL minus the link id so the
+          // credential never lingers in the address bar or copied links.
+          const back = new URL(url);
+          back.searchParams.delete("v");
+          back.searchParams.delete("au_sso");
+          return issueViewerSession(
+            request,
+            env,
+            artifact,
+            identity,
+            false,
+            access.link.id,
+            `${back.pathname}${back.search}${back.hash}`,
+            true,
+          );
+        }
+        const minted = await mintViewerSession(
+          request,
+          env,
+          artifact,
+          identity,
+          false,
+          access.link.id,
+          true,
+        );
+        session = minted.session;
+        sessionCookie = minted.cookie;
+      } else if (access.kind === "passcode") {
+        if (isUpstream || !wantsHtml(request))
+          return gateJson(env, artifact, access.link);
+        const keep = new URLSearchParams(url.search);
+        keep.delete("v");
+        keep.delete("au_sso");
+        const gate = renderPasscodeGate(
+          artifact,
+          keep.size ? `${path}?${keep}` : path,
+          access.link.id,
+          access.wrong ? "That passcode is not right." : "",
+        );
+        return gatePage(request, env, artifact, gate);
+      } else {
+        // Machine-readable gate: a non-browser fetch gets a 401 + JSON
+        // describing how to get in, instead of a 200 HTML email form.
+        if (isUpstream || !wantsHtml(request)) return gateJson(env, artifact);
+        // Signed-in members of the artifact's workspace skip the gate: their
+        // WorkOS login already proves the email the gate would collect, at a
+        // strictly higher bar than the OTP. `au_sso=1` marks the
+        // cookie-setting bounce — if it comes back sessionless (cookies
+        // blocked), the manual gate renders instead of redirect-looping.
+        // Non-members fall through to the gate page, where their signed-in
+        // email becomes a one-click consent rather than a silent pass.
+        const signedIn =
+          request.method === "GET"
+            ? await signedInViewer(request, env, artifact)
+            : null;
+        if (signedIn?.member && url.searchParams.get("au_sso") !== "1") {
+          const bounce = new URL(url);
+          bounce.searchParams.set("au_sso", "1");
+          return issueViewerSession(
+            request,
+            env,
+            artifact,
+            signedIn.email,
+            true,
+            null,
+            `${bounce.pathname}${bounce.search}${bounce.hash}`,
+          );
+        }
+        // Send the viewer back to the exact URL they asked for once the gate
+        // passes: artifacts keep state in the query string, and losing it
+        // here silently reset that state. The SSO bounce marker and any
+        // stale link id are consumed here and stay out of the redirect.
+        const keep = new URLSearchParams(url.search);
+        keep.delete("v");
+        keep.delete("au_sso");
+        const gate = renderGate(
+          artifact,
+          keep.size ? `${path}?${keep}` : path,
+          "",
+          "",
+          signedIn?.email || "",
+        );
+        return gatePage(request, env, artifact, gate);
+      }
     }
   }
   // The gate passed; drop the SSO bounce marker so it never lingers in the
@@ -181,8 +243,82 @@ export async function servePublic(
     requestUrl.searchParams.delete("au_sso");
     return Response.redirect(requestUrl.toString(), 302);
   }
-  if (isUpstream)
-    return proxyUpstream(request, env, artifact, session, rest.slice(1));
+  const response = isUpstream
+    ? await proxyUpstream(request, env, artifact, session, rest.slice(1))
+    : await serveVersion(request, env, artifact, publicPath, rest);
+  return sessionCookie ? withCookie(response, sessionCookie) : response;
+}
+
+// The gate page, with the artifact's public metadata injected so a shared
+// link still unfurls while the content stays behind the gate.
+async function gatePage(
+  request: Request,
+  env: Env,
+  artifact: Artifact,
+  gate: Response,
+): Promise<Response> {
+  const gateHtml = injectArtifactMetadata(
+    await gate.text(),
+    env,
+    artifact,
+    await entrypointContentType(env, artifact),
+  );
+  return new Response(request.method === "HEAD" ? null : gateHtml, {
+    status: gate.status,
+    statusText: gate.statusText,
+    headers: gate.headers,
+  });
+}
+
+// A verified gate wants a verified session, unless a validated share link
+// minted it: the link is the publisher's grant and outranks the OTP.
+function sessionPassesGate(
+  artifact: Artifact,
+  session: ViewerSession | null,
+): session is ViewerSession {
+  if (!session) return false;
+  if (!requiresVerified(artifact.gate_level)) return true;
+  return session.verified || Boolean(session.link_id);
+}
+
+// A session minted through a share link stops working when the link is
+// revoked or expires, not 30 days later. Reaching the open limit does not
+// cut off sessions already issued: the last permitted opener would otherwise
+// lose access on their very next request.
+async function linkSessionStillValid(
+  env: Env,
+  artifact: Artifact,
+  session: ViewerSession | null,
+): Promise<ViewerSession | null> {
+  if (!session?.link_id) return session;
+  const link = await getShareLink(env, artifact.id, session.link_id);
+  if (!link || link.revoked_at) return null;
+  if (link.expires_at && link.expires_at < nowSec()) return null;
+  return session;
+}
+
+function withCookie(response: Response, cookie: string): Response {
+  const headers = new Headers(response.headers);
+  headers.append("Set-Cookie", cookie);
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
+
+// Everything after the gate: the file lookup, range and conditional handling,
+// widget injection.
+async function serveVersion(
+  request: Request,
+  env: Env,
+  artifact: Artifact,
+  publicPath: string,
+  rest: string[],
+): Promise<Response> {
+  if (!artifact.current_version_id)
+    return error(404, "version_not_found", "artifact version not found");
+  const linkPreview = isLinkPreviewRequest(request);
   const version = await getVersion(env, artifact.current_version_id);
   if (!version || version.status !== "complete")
     return error(404, "version_not_found", "artifact version not found");
@@ -543,6 +679,32 @@ function refererOutsideArtifact(
   }
 }
 
+// The workspace credential on the request, if it may act on this artifact:
+// a creator token or OAuth JWT whose org owns the artifact (a user-scoped
+// token qualifies through membership of the artifact's org) and that holds
+// the permission. Anything else — including a viewer-session bearer — is
+// null, never an error.
+async function creatorForArtifact(
+  request: Request,
+  env: Env,
+  artifact: Artifact,
+  permission: string,
+): Promise<Creator | null> {
+  if (!bearerToken(request)) return null;
+  try {
+    // Lax: the artifact names the workspace here.
+    const creator = await getCreator(request, env, { laxWorkspace: true });
+    if (!creator) return null;
+    if (creator.tokenScope === "user" && !creator.workspaceSelected) {
+      await resolveWorkspaceOrg(env, creator.sub, artifact.org_id);
+    } else if (creator.orgId !== artifact.org_id) return null;
+    requirePermission(creator, env, permission);
+    return creator;
+  } catch {
+    return null;
+  }
+}
+
 async function commentIdentity(
   request: Request,
   env: Env,
@@ -551,25 +713,14 @@ async function commentIdentity(
 ): Promise<CommentAuthor | null> {
   const session = await getViewerSession(request, env, artifact);
   if (session) return { email: session.email, viewId: session.view_id };
-  if (bearerToken(request)) {
-    try {
-      // Lax: the artifact names the workspace here — a user-scoped credential
-      // qualifies through membership of the artifact's own org.
-      const creator = await getCreator(request, env, { laxWorkspace: true });
-      if (!creator) return null;
-      if (creator.tokenScope === "user" && !creator.workspaceSelected) {
-        await resolveWorkspaceOrg(env, creator.sub, artifact.org_id);
-      } else if (creator.orgId !== artifact.org_id) return null;
-      requirePermission(
-        creator,
-        env,
-        mode === "read" ? "artifacts:read" : "artifacts:publish",
-      );
-      return { email: creator.email || creator.sub, viewId: null };
-    } catch {
-      return null;
-    }
-  }
+  const creator = await creatorForArtifact(
+    request,
+    env,
+    artifact,
+    mode === "read" ? "artifacts:read" : "artifacts:publish",
+  );
+  if (creator) return { email: creator.email || creator.sub, viewId: null };
+  if (bearerToken(request)) return null;
   // Signed-in members of the artifact's workspace comment as themselves —
   // the same trust the admin UI extends — so their own widget never asks for
   // an email. Members only: for anyone else this cookie identity would let a
@@ -631,33 +782,37 @@ function landing(env: Env): Response {
   });
 }
 
-async function sharePrefill(
-  env: Env,
-  artifact: Artifact,
-  token: string | null,
-): Promise<{ id: string | null; email: string | null }> {
-  if (!token) return { id: null, email: null };
-  const row = await env.DB.prepare(
-    "SELECT id, recipient_email, expires_at, revoked_at FROM share_links WHERE id = ? AND artifact_id = ?",
-  )
-    .bind(token, artifact.id)
-    .first<{
-      id: string;
-      recipient_email: string | null;
-      expires_at: number | null;
-      revoked_at: number | null;
-    }>();
-  if (!row || row.revoked_at || (row.expires_at && row.expires_at < nowSec()))
-    return { id: null, email: null };
-  return { id: row.id, email: row.recipient_email };
-}
-
-// M2 — machine-readable gate for non-browser fetches.
-function gateJson(env: Env, artifact: Artifact): Response {
+// M2 — machine-readable gate for non-browser fetches. With a password share
+// link selected, the passcode routes are spelled out instead.
+function gateJson(env: Env, artifact: Artifact, link?: ShareLink): Response {
   const base = publicArtifactUrl(env, artifact.url_key);
   const site = siteBaseUrl(env);
   const isEmail = artifact.gate_level === "email";
   const needsOtp = requiresVerified(artifact.gate_level);
+  if (link && shareLinkKind(link) === "password")
+    return json(
+      {
+        error: {
+          code: "gate_required",
+          message: "this share link requires a passcode",
+        },
+        gate_level: artifact.gate_level,
+        link_kind: "password",
+        link_id: link.id,
+        access: {
+          descriptor: `${base}_au/index.json`,
+          passcode_self_serve: `POST form {artifact_key:"${artifact.url_key}", link:"${link.id}", passcode} to ${site}/_au/gate/link with header 'Accept: application/json' to receive a bearer token, then send Authorization: Bearer <token> on every read`,
+          basic: `or send Authorization: Basic base64("${link.id}:<passcode>") on each request (a view is recorded per request without the bearer)`,
+          workspace:
+            "agents of the publishing workspace: your Artifact Use bearer token (au_creator_... or MCP OAuth) reads this artifact directly",
+          mcp: `${site}/mcp`,
+        },
+      },
+      {
+        status: 401,
+        headers: { "WWW-Authenticate": 'Basic realm="artifact-use"' },
+      },
+    );
   return json(
     {
       error: {
@@ -669,6 +824,8 @@ function gateJson(env: Env, artifact: Artifact): Response {
         descriptor: `${base}_au/index.json`,
         bearer:
           "send Authorization: Bearer <viewer-session token> once obtained",
+        workspace:
+          "agents of the publishing workspace: your Artifact Use bearer token (au_creator_... or MCP OAuth) reads this artifact directly, no viewer session needed",
         email_self_serve: isEmail
           ? `POST form {artifact_key:"${artifact.url_key}", email} to ${site}/_au/gate/email with header 'Accept: application/json' to receive a token`
           : null,
@@ -790,7 +947,7 @@ export async function handleAgentToken(
   }
   const session = await getViewerSession(request, env, artifact);
   if (!session) return error(401, "unauthorized", "viewer session required");
-  if (requiresVerified(artifact.gate_level) && !session.verified)
+  if (!sessionPassesGate(artifact, session))
     return error(403, "verification_required", "verified session required");
   const exp = nowSec() + 24 * 60 * 60; // 24h
   const token = await signViewerSession(
@@ -801,6 +958,7 @@ export async function handleAgentToken(
       verified: session.verified,
       view_id: session.view_id,
       exp,
+      ...(session.link_id ? { link_id: session.link_id } : {}),
     },
     env,
   );
