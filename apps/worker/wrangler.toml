@@ -58,6 +58,11 @@ zone_name = "example.com"
 pattern = "artifacts.example.com/.well-known/oauth-*"
 zone_name = "example.com"
 
+# OpenAI app directory domain verification (see docs/DEPLOY.md).
+[[routes]]
+pattern = "artifacts.example.com/.well-known/openai-apps-challenge"
+zone_name = "example.com"
+
 [[routes]]
 pattern = "artifacts.example.com/llms.txt"
 zone_name = "example.com"
@@ -165,6 +170,9 @@ ARTIFACT_USE_DOCS_URL = ""
 # corresponding local routes return 404 until these are configured.
 ARTIFACT_USE_PRIVACY_URL = ""
 ARTIFACT_USE_TERMS_URL = ""
+# Optional: the token OpenAI's app directory issues to verify this domain.
+# Served verbatim at /.well-known/openai-apps-challenge; empty keeps it a 404.
+OPENAI_APPS_CHALLENGE_TOKEN = ""
 
 # Secrets:
 #   SESSION_SECRET

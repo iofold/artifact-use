@@ -176,6 +176,32 @@ keep a copy outside the checkout). `npm run deploy` and `deploy:prod` run
 `scripts/check-legal-assets.mjs` first and refuse to deploy when a configured
 page is missing, because a deploy from a fresh checkout otherwise ships a 404.
 
+## OpenAI app directory domain verification
+
+Submitting the MCP server to OpenAI's app directory requires proving control
+of its domain: the directory issues a token and fetches
+`https://<host>/.well-known/openai-apps-challenge`, expecting exactly that
+token string as the response body. Put the issued token in the Worker var and
+redeploy:
+
+```toml
+[vars]
+OPENAI_APPS_CHALLENGE_TOKEN = "<token from the OpenAI directory>"
+```
+
+The route answers `GET` with the bare token as `text/plain` and is a `404`
+while the var is empty. Explicit-route deployments need the
+`/.well-known/openai-apps-challenge` route from the example config, and the
+path must stay reachable without a browser (see the Browser Integrity Check
+skip rule below). Verify before submitting:
+
+```bash
+curl -fsS https://artifacts.example.com/.well-known/openai-apps-challenge
+```
+
+The token can stay configured after verification; it grants nothing by
+itself.
+
 ## Selective Browser Integrity Check bypass
 
 Browser Integrity Check can reject legitimate command-line and agent clients with
@@ -187,6 +213,7 @@ machine-readable:
 (http.request.uri.path wildcard "/api/v1/*") or
 (http.request.uri.path eq "/mcp") or
 (http.request.uri.path wildcard "/.well-known/oauth-*") or
+(http.request.uri.path eq "/.well-known/openai-apps-challenge") or
 (http.request.uri.path eq "/llms.txt") or
 (http.request.uri.path eq "/llms-full.txt") or
 (http.request.uri.path wildcard "/go/*") or
