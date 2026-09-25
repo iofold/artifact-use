@@ -134,6 +134,8 @@ const tj = (label, path, selector) =>
     rect: { x: 40, y: 200, w: 160, h: 40 },
   });
 let nextId = 100;
+// When the pretend agent last listed comments (presence line): 2 min ago.
+let agentSeen = Math.floor(Date.now() / 1000) - 120;
 const comments = [
   {
     id: 1,
@@ -370,6 +372,54 @@ const comments = [
     resolved_at: null,
     resolved_by: null,
   },
+  // Phase 5: a v3 target on a bare div (image grid), sent to the agent and
+  // picked up (agent reply), plus one still waiting.
+  {
+    id: 25,
+    parent_comment_id: null,
+    email: "dana.reviewer@example.com",
+    body: "Use the second loop here — the first one stutters on the cut.",
+    target_json: JSON.stringify({
+      v: 3,
+      selector: "body>main:nth-of-type(1)>div:nth-of-type(2)",
+      label: "div",
+      path: `${BASE}/`,
+      tag: "div",
+      src: "hero-loop-v2.mp4",
+      heading: "Option B",
+      index: 2,
+      page_title: "Claims demo",
+      viewport: { w: 1440, h: 900, dpr: 2 },
+      rect: { x: 40, y: 420, w: 320, h: 180 },
+    }),
+    created_at: t0 + 190,
+    resolved_at: null,
+    resolved_by: null,
+    sent_to_agent_at: t0 + 195,
+  },
+  {
+    id: 26,
+    parent_comment_id: 25,
+    email: "user_01AGENT",
+    body: "Done — v3 uses hero-loop-v2.mp4 for Option B.",
+    target_json: null,
+    created_at: t0 + 260,
+    resolved_at: null,
+    resolved_by: null,
+    author_kind: "agent",
+    agent_label: "Claude Code",
+  },
+  {
+    id: 27,
+    parent_comment_id: null,
+    email: "dana.reviewer@example.com",
+    body: "The metric tiles wrap awkwardly at tablet width.",
+    target_json: tj("div", `${BASE}/`, ".metric"),
+    created_at: t0 + 200,
+    resolved_at: null,
+    resolved_by: null,
+    sent_to_agent_at: t0 + 205,
+  },
 ];
 
 const send = (res, status, type, body) => {
@@ -400,23 +450,44 @@ const server = http.createServer(async (req, res) => {
       await new Promise((r) =>
         setTimeout(r, Number(process.env.AU_DELAY || 0)),
       ); // optional latency to exercise the loading state
-      const out = comments.map((c) => ({
+      // since/wait: the widget long-polls while open. Hold up to `wait`
+      // seconds for a comment newer than `since`, like the worker does.
+      const since = Number(url.searchParams.get("since")) || null;
+      const wait = Math.min(25, Number(url.searchParams.get("wait")) || 0);
+      const newer = () =>
+        since === null
+          ? comments
+          : comments.filter((c) => c.created_at > since);
+      const deadline = Date.now() + wait * 1000;
+      while (wait && !newer().length && Date.now() < deadline)
+        await new Promise((r) => setTimeout(r, 1000));
+      const now = Math.floor(Date.now() / 1000);
+      const out = newer().map((c) => ({
         ...c,
         page_path: c.page_path ?? tjPath(c) ?? null,
         version_id: c.version_id ?? tjVer(c) ?? null,
+        sent_to_agent_at: c.sent_to_agent_at ?? null,
+        author_kind: c.author_kind ?? "human",
+        agent_label: c.agent_label ?? null,
       }));
+      const newest = out.reduce((m, c) => Math.max(m, c.created_at), 0);
       return send(
         res,
         200,
         "application/json",
-        JSON.stringify({ comments: out }),
+        JSON.stringify({
+          comments: out,
+          count: out.length,
+          has_more: false,
+          next_since: Math.min(out.length ? newest : now - 1, now - 1),
+        }),
       );
     }
     let raw = "";
     for await (const c of req) raw += c;
     const b = raw ? JSON.parse(raw) : {};
     if (req.method === "POST") {
-      comments.push({
+      const created = {
         id: ++nextId,
         parent_comment_id: b.parent_id || null,
         email: "you@example.com",
@@ -424,11 +495,20 @@ const server = http.createServer(async (req, res) => {
         target_json: b.target ? JSON.stringify(b.target) : null,
         page_path: b.page_path ?? (b.target && b.target.path) ?? null,
         version_id: b.version_id ?? null,
-        created_at: t0 + 500 + nextId,
+        created_at: Math.floor(Date.now() / 1000),
         resolved_at: null,
         resolved_by: null,
-      });
-      return send(res, 200, "application/json", JSON.stringify({ ok: true }));
+        sent_to_agent_at: null,
+        author_kind: "human",
+        agent_label: null,
+      };
+      comments.push(created);
+      return send(
+        res,
+        200,
+        "application/json",
+        JSON.stringify({ ok: true, comment: created }),
+      );
     }
     if (req.method === "PATCH") {
       const c = comments.find((x) => x.id === Number(b.id));
@@ -446,12 +526,68 @@ const server = http.createServer(async (req, res) => {
           }),
         );
       }
+      if (c && b.sent_to_agent !== undefined) {
+        // "Send to agent" flags the thread root.
+        const root = c.parent_comment_id
+          ? comments.find((x) => x.id === c.parent_comment_id) || c
+          : c;
+        root.sent_to_agent_at =
+          b.sent_to_agent !== false ? Math.floor(Date.now() / 1000) : null;
+        // Pretend the agent picks it up ~6 s later so "picked up" can be seen.
+        if (root.sent_to_agent_at && process.env.AU_AGENT !== "0")
+          setTimeout(() => {
+            comments.push({
+              id: ++nextId,
+              parent_comment_id: root.id,
+              email: "user_01AGENT",
+              body: "On it — republishing with the change in a minute.",
+              target_json: null,
+              page_path: root.page_path,
+              version_id: null,
+              created_at: Math.floor(Date.now() / 1000),
+              resolved_at: null,
+              resolved_by: null,
+              sent_to_agent_at: null,
+              author_kind: "agent",
+              agent_label: "Claude Code",
+            });
+            agentSeen = Math.floor(Date.now() / 1000);
+          }, 6000);
+        return send(
+          res,
+          200,
+          "application/json",
+          JSON.stringify({
+            ok: true,
+            comment: { id: root.id, sent_to_agent_at: root.sent_to_agent_at },
+          }),
+        );
+      }
       if (c) {
         c.resolved_at = b.resolved !== false ? t0 + 900 : null;
         c.resolved_by = c.resolved_at ? "you@example.com" : null;
       }
       return send(res, 200, "application/json", JSON.stringify({ ok: true }));
     }
+  }
+
+  // Role probe + agent presence (AU_AGENT=0 -> no agent has ever looked).
+  if (p === "/_au/artifact-context") {
+    const now = Math.floor(Date.now() / 1000);
+    const agent =
+      process.env.AU_AGENT === "0"
+        ? { watching: false, last_seen_at: null, label: null }
+        : {
+            watching: now - agentSeen <= 600,
+            last_seen_at: agentSeen,
+            label: "Claude Code",
+          };
+    return send(
+      res,
+      200,
+      "application/json",
+      JSON.stringify({ role: "viewer", agent }),
+    );
   }
 
   // artifact pages

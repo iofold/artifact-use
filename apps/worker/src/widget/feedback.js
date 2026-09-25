@@ -29,6 +29,15 @@
  * Phase 4 (landed): mobile bottom-sheet layout (dvh, drag handle); a11y
  * (role=dialog/list, Esc-to-close, focus on open / return on close, Tab trap,
  * prefers-reduced-motion); persistent numbered pins for all on-page comments.
+ *
+ * Phase 5 (landed): the comment -> agent loop. Target v3 captures element
+ * context (tag, caption/alt, media src, nearest heading, sibling index,
+ * viewport, page title) so a bare "div" on an image grid reads as
+ * "image: hero-loop-v2.mp4 under 'Option B'"; "Send to agent" flags a thread
+ * (status=sent, comment.sent_to_agent webhook) and shows "picked up" once the
+ * agent replies or resolves; agent-written comments carry "via agent"; a
+ * presence line says when an agent last checked the page; while open, the
+ * panel long-polls /_au/comments so replies land without a reload.
  */
 (function () {
   if (window.__artifactUseWidget) return;
@@ -51,8 +60,12 @@
   var pinEls = [];
   var allComments = [];
 
+  // One key per page, matching the server's page_path rule: no trailing
+  // index.html, no trailing slash (`/go/x/`, `/go/x/index.html`, `/go/x`).
   function strip(p) {
-    return String(p || "").replace(/\/+$/, "");
+    return String(p || "")
+      .replace(/\/index\.html?$/i, "/")
+      .replace(/\/+$/, "");
   }
   function samePath(a, b) {
     return strip(a) === strip(b);
@@ -60,11 +73,21 @@
   function currentPath() {
     return location.pathname;
   }
+  // A canonical path is navigable again once a directory gets its slash back.
+  function navPath(p) {
+    var s = strip(p);
+    var last = s.split("/").pop() || "";
+    return last.indexOf(".") < 0 ? s + "/" : s;
+  }
   // Is a stored page path actually within THIS artifact? Guards against stray
   // paths (e.g. an agent-posted comment with page_path "/") that would otherwise
   // navigate off the artifact (to the site homepage) when clicked.
   function withinArtifact(p) {
-    return String(p || "").indexOf("/" + artifactKey + "/") >= 0;
+    var s = strip(p);
+    return (
+      s.indexOf("/" + artifactKey + "/") >= 0 ||
+      s.slice(-("/" + artifactKey).length) === "/" + artifactKey
+    );
   }
   function pageLabel(path) {
     if (!path) return "";
@@ -124,6 +147,7 @@
     '<div class="au-checks"><label class="au-check"><input type="checkbox" data-hide-resolved checked> Hide resolved</label>' +
     '<label class="au-check"><input type="checkbox" data-pins> Pins</label></div>' +
     "</div>" +
+    '<div class="au-presence" data-presence hidden></div>' +
     '<div class="au-loadbar" data-loadbar></div>' +
     '<div class="au-list" data-list></div>' +
     '<button class="au-new" data-new>+ New comment</button>' +
@@ -260,7 +284,8 @@
   }
   function targetFrom(e) {
     var r = e.getBoundingClientRect();
-    return {
+    var ctx = contextFor(e, document, window);
+    var t = {
       selector: selectorFor(e),
       label: labelFor(e),
       text: immediateText(e),
@@ -274,7 +299,183 @@
         h: Math.round(r.height),
       },
     };
+    for (var k in ctx) if (ctx[k] !== undefined && ctx[k] !== "") t[k] = ctx[k];
+    return t;
   }
+
+  // ---- target context (v3) ----
+  // [au-target-context:start]
+  // Element context captured with every anchor, so a bare "div" on an image
+  // grid or a "line" in an SVG chart reads as "image: hero-loop-v2.mp4 under
+  // 'Option B'" instead of its tag name. Self-contained (only the element and
+  // the doc/win it is handed) so it can be unit-tested outside a browser.
+  function ctxClean(s, max) {
+    return String(s || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, max || 160);
+  }
+  function ctxAttr(e, name) {
+    return e && e.getAttribute ? e.getAttribute(name) || "" : "";
+  }
+  function ctxClosest(e, sel) {
+    try {
+      return e && e.closest ? e.closest(sel) : null;
+    } catch (x) {
+      return null;
+    }
+  }
+  function ctxQuery(e, sel) {
+    try {
+      return e && e.querySelector ? e.querySelector(sel) : null;
+    } catch (x) {
+      return null;
+    }
+  }
+  function ctxBasename(url) {
+    var s = String(url || "");
+    if (!s || s.indexOf("data:") === 0 || s.indexOf("blob:") === 0) return "";
+    s = s.split("#")[0].split("?")[0];
+    var last = s.split("/").filter(Boolean).pop() || "";
+    try {
+      last = decodeURIComponent(last);
+    } catch (x) {}
+    return ctxClean(last, 120);
+  }
+  // The element itself when it is media, else the first media it wraps (a
+  // grid cell around an <img>, a card around a <video>).
+  function ctxMediaOf(e) {
+    var tag = String(e.localName || "").toLowerCase();
+    if (tag === "img" || tag === "video" || tag === "audio" || tag === "iframe")
+      return e;
+    return ctxQuery(e, "img,video,audio,iframe");
+  }
+  function ctxSrc(e) {
+    var m = ctxMediaOf(e);
+    if (!m) return "";
+    var raw = m.currentSrc || ctxAttr(m, "src") || "";
+    if (!raw) {
+      var source = ctxQuery(m, "source");
+      raw = source ? ctxAttr(source, "src") : "";
+    }
+    if (!raw) raw = ctxAttr(m, "poster");
+    return ctxBasename(raw);
+  }
+  // Nearest human caption: alt, aria-label, title, the <figcaption> of the
+  // enclosing <figure>, an SVG <title>, or a labelled ancestor.
+  function ctxCaption(e) {
+    var m = ctxMediaOf(e);
+    var alt = ctxAttr(e, "alt") || (m ? ctxAttr(m, "alt") : "");
+    if (alt) return ctxClean(alt, 200);
+    var aria = ctxAttr(e, "aria-label");
+    if (aria) return ctxClean(aria, 200);
+    var title = ctxAttr(e, "title") || (m ? ctxAttr(m, "title") : "");
+    if (title) return ctxClean(title, 200);
+    var fig = ctxClosest(e, "figure");
+    var cap = fig ? ctxQuery(fig, "figcaption") : null;
+    if (cap && cap.textContent) return ctxClean(cap.textContent, 200);
+    var svg = ctxClosest(e, "svg");
+    var svgTitle = svg ? ctxQuery(svg, "title") : null;
+    if (svgTitle && svgTitle.textContent)
+      return ctxClean(svgTitle.textContent, 200);
+    var labelled = ctxClosest(e, "[aria-label]");
+    if (labelled && labelled !== e)
+      return ctxClean(ctxAttr(labelled, "aria-label"), 200);
+    return "";
+  }
+  // The heading the element sits under: its own h1-h3 if it is one, else the
+  // last h1-h3 that precedes it in document order.
+  function ctxHeading(e, doc) {
+    var own = ctxClosest(e, "h1,h2,h3");
+    if (own && own.textContent) return ctxClean(own.textContent, 120);
+    var heads =
+      doc && doc.querySelectorAll ? doc.querySelectorAll("h1,h2,h3") : [];
+    var best = null;
+    for (var i = 0; i < heads.length && i < 2000; i++) {
+      // 4 = DOCUMENT_POSITION_FOLLOWING: the element comes after this heading.
+      if (heads[i].compareDocumentPosition(e) & 4) best = heads[i];
+      else break;
+    }
+    return best && best.textContent ? ctxClean(best.textContent, 120) : "";
+  }
+  function ctxIndex(e) {
+    var n = 1,
+      tag = e.localName;
+    for (var p = e.previousElementSibling; p; p = p.previousElementSibling)
+      if (p.localName === tag) n++;
+    return n;
+  }
+  function contextFor(e, doc, win) {
+    var out = { tag: String(e.localName || "").toLowerCase() };
+    var caption = ctxCaption(e);
+    if (caption) out.caption = caption;
+    var src = ctxSrc(e);
+    if (src) out.src = src;
+    var heading = ctxHeading(e, doc);
+    if (heading) out.heading = heading;
+    out.index = ctxIndex(e);
+    var title = doc && doc.title ? ctxClean(doc.title, 160) : "";
+    if (title) out.page_title = title;
+    if (win)
+      out.viewport = {
+        w: win.innerWidth || 0,
+        h: win.innerHeight || 0,
+        dpr: win.devicePixelRatio || 1,
+      };
+    return out;
+  }
+  var CTX_KIND = {
+    img: "image",
+    picture: "image",
+    video: "video",
+    audio: "audio",
+    svg: "chart",
+    canvas: "chart",
+    path: "chart",
+    g: "chart",
+    rect: "chart",
+    circle: "chart",
+    line: "chart",
+    polyline: "chart",
+    polygon: "chart",
+    text: "chart",
+    ellipse: "chart",
+    use: "chart",
+    iframe: "embed",
+    table: "table",
+    figure: "figure",
+  };
+  // Labels that only name a tag carry no information of their own.
+  var CTX_BARE =
+    /^(div|span|section|article|main|aside|nav|header|footer|li|ul|ol|p|a|element|figure|img|picture|svg|canvas|video|audio|path|g|rect|circle|line|polyline|polygon|text|ellipse|use|iframe|table|tr|td|th|tbody|thead)$/;
+  function ctxKind(t) {
+    var tag = String(t.tag || "").toLowerCase();
+    if (CTX_KIND[tag]) return CTX_KIND[tag];
+    var src = String(t.src || "").toLowerCase();
+    if (/\.(mp4|webm|mov|m4v)$/.test(src)) return "video";
+    if (/\.(png|jpe?g|gif|webp|avif|svg|bmp)$/.test(src)) return "image";
+    return "";
+  }
+  // Human line for a stored target (v2 or v3): what it is, what it shows,
+  // and the heading it sits under when that adds anything.
+  function describeTarget(t) {
+    if (!t) return "";
+    var label = ctxClean(t.label, 120);
+    var tag = String(t.tag || "").toLowerCase();
+    var kind = ctxKind(t);
+    var name = ctxClean(t.caption, 120) || ctxClean(t.src, 120);
+    var bare = !label || label === tag || CTX_BARE.test(label.toLowerCase());
+    var main;
+    if (kind && name) main = kind + ": " + name;
+    else if (name) main = name;
+    else if (kind && bare) main = kind + (t.index > 1 ? " #" + t.index : "");
+    else main = label || tag || "element";
+    var heading = ctxClean(t.heading, 80);
+    if (heading && (bare || kind || name) && heading !== main)
+      main += " under ‘" + heading + "’";
+    return main;
+  }
+  // [au-target-context:end]
   function findByText(txt) {
     if (!txt) return null;
     var want = clean(txt);
@@ -351,7 +552,9 @@
       box.removeAttribute("role");
       box.removeAttribute("tabindex");
       var pill = el("span", "au-tpill");
-      pill.appendChild(el("span", "au-tpill-label", "⌖ " + target.label));
+      pill.appendChild(
+        el("span", "au-tpill-label", "⌖ " + describeTarget(target)),
+      );
       var x = el("button", "au-tpill-x", "✕");
       x.type = "button";
       x.title = "Remove target";
@@ -539,6 +742,7 @@
       }
       var j = await r.json();
       allComments = j.comments || [];
+      if (typeof j.next_since === "number") lastSince = j.next_since;
       refreshBadge();
       renderList(allComments);
       renderPins();
@@ -548,6 +752,80 @@
       setBusy(false);
     }
   }
+  // ---- live updates while open ----
+  // A held request (wait=25) instead of polling: the panel learns about the
+  // agent's reply or a resolve the moment it lands. One loop per open panel,
+  // paused while the tab is hidden, stopped on close or on a 401.
+  var lastSince = null;
+  var watchRun = 0;
+  function watchOpen() {
+    return panel.classList.contains("is-open") && !document.hidden;
+  }
+  async function watchLoop() {
+    var run = ++watchRun;
+    while (run === watchRun && watchOpen()) {
+      if (lastSince === null) {
+        await new Promise(function (r) {
+          setTimeout(r, 1000);
+        });
+        continue;
+      }
+      var r;
+      var started = Date.now();
+      try {
+        r = await fetch(
+          "/_au/comments?artifact_key=" +
+            encodeURIComponent(artifactKey) +
+            "&since=" +
+            encodeURIComponent(lastSince) +
+            "&wait=25",
+        );
+      } catch (e) {
+        r = null;
+      }
+      if (run !== watchRun) return;
+      if (!r || r.status === 401 || r.status === 404 || r.status === 403)
+        return;
+      if (!r.ok) {
+        await new Promise(function (x) {
+          setTimeout(x, 15000);
+        });
+        continue;
+      }
+      var j = null;
+      try {
+        j = await r.json();
+      } catch (e) {}
+      // A server that does not speak the cursor (no next_since) cannot be
+      // long-polled; stop rather than hammer it.
+      if (!j || typeof j.next_since !== "number") return;
+      lastSince = j.next_since;
+      if (j.comments && j.comments.length) {
+        await load();
+        loadPresence();
+      }
+      // Floor between rounds: an early answer is normal once per new comment,
+      // never a tight loop.
+      var elapsed = Date.now() - started;
+      if (elapsed < 2000)
+        await new Promise(function (x) {
+          setTimeout(x, 2000 - elapsed);
+        });
+    }
+  }
+  function startWatch() {
+    if (watchOpen()) watchLoop();
+  }
+  function stopWatch() {
+    watchRun++;
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) stopWatch();
+    else if (panel.classList.contains("is-open")) {
+      startWatch();
+      loadPresence();
+    }
+  });
   function renderList(items) {
     var list = $("[data-list]");
     list.innerHTML = "";
@@ -593,7 +871,7 @@
       var item = el("div", "au-item" + (c.resolved_at ? " is-resolved" : ""));
       item.dataset.auId = c.id;
       item.setAttribute("role", "listitem");
-      item.appendChild(commentNode(c, false));
+      item.appendChild(commentNode(c, false, replies[String(c.id)] || []));
       item.appendChild(replyBox(c));
       var rs = replies[String(c.id)] || [];
       var pr = pendingReplies[String(c.id)] || [];
@@ -612,7 +890,19 @@
       list.appendChild(item);
     });
   }
-  function commentNode(c, isReply) {
+  // A sent thread is "picked up" once the agent replied after the flag or
+  // resolved it.
+  function pickedUp(c, threadReplies) {
+    if (!c.sent_to_agent_at) return false;
+    if (c.resolved_at) return true;
+    return (threadReplies || []).some(function (r) {
+      return (
+        r.author_kind === "agent" &&
+        Number(r.created_at || 0) >= Number(c.sent_to_agent_at)
+      );
+    });
+  }
+  function commentNode(c, isReply, threadReplies) {
     var wrap = el("div", isReply ? "au-reply" : "au-comment"),
       main = el("button", "au-comment-main"),
       meta = el("div", "au-meta"),
@@ -637,9 +927,29 @@
       } else if (!isShown(anchorEl))
         meta.appendChild(el("span", "au-chip au-anchor-hidden", "hidden"));
     }
-    if (t && t.label) meta.appendChild(el("span", "au-target-label", t.label));
+    var described = t && !isReply ? describeTarget(t) : "";
+    if (described) meta.appendChild(el("span", "au-target-label", described));
     if (meta.childNodes.length) meta.appendChild(el("span", "au-dot", "·"));
     meta.appendChild(el("span", "au-email", c.email || "Unknown viewer"));
+    // Honest authorship: comments written with a creator token or a
+    // delegated agent token say so.
+    if (c.author_kind === "agent")
+      meta.appendChild(
+        el(
+          "span",
+          "au-chip au-chip-agent",
+          "via agent" + (c.agent_label ? " · " + c.agent_label : ""),
+        ),
+      );
+    var picked = !isReply && pickedUp(c, threadReplies);
+    if (!isReply && c.sent_to_agent_at)
+      meta.appendChild(
+        el(
+          "span",
+          "au-chip au-chip-sent" + (picked ? " is-picked" : ""),
+          picked ? "Sent to agent · picked up" : "Sent to agent",
+        ),
+      );
     if (c.resolved_at && !isReply)
       meta.appendChild(el("span", "au-state", "Resolved"));
     main.appendChild(meta);
@@ -681,6 +991,27 @@
       };
       actions.appendChild(reply);
       actions.appendChild(resolve);
+      if (!c.resolved_at && !c.sent_to_agent_at) {
+        var send = el("button", "au-link au-sendagent", "Send to agent");
+        send.type = "button";
+        send.title =
+          "Flag this thread for the publishing agent (it is notified and sees it first)";
+        send.onclick = function () {
+          withBusy(send, "Sending…", function () {
+            return sendToAgent(c, true);
+          });
+        };
+        actions.appendChild(send);
+      } else if (c.sent_to_agent_at && !picked && !c.resolved_at) {
+        var unsend = el("button", "au-link", "Undo send");
+        unsend.type = "button";
+        unsend.onclick = function () {
+          withBusy(unsend, "…", function () {
+            return sendToAgent(c, false);
+          });
+        };
+        actions.appendChild(unsend);
+      }
       wrap.appendChild(actions);
     }
     return wrap;
@@ -772,7 +1103,7 @@
       withinArtifact(pagePath) &&
       !samePath(pagePath, currentPath())
     ) {
-      location.href = pagePath + "#au=" + c.id;
+      location.href = navPath(pagePath) + "#au=" + c.id;
       return;
     }
     if (!t) return; // untargeted comment on this page: nothing to locate
@@ -1003,8 +1334,10 @@
     }
     var inner = el("div", "au-comment");
     var meta = el("div", "au-meta");
-    if (item.target && item.target.label)
-      meta.appendChild(el("span", "au-target-label", item.target.label));
+    if (item.target && !isReply && describeTarget(item.target))
+      meta.appendChild(
+        el("span", "au-target-label", describeTarget(item.target)),
+      );
     var chip;
     if (item.state === "failed")
       chip = el("span", "au-chip au-chip-failed", "Couldn't post");
@@ -1137,6 +1470,27 @@
       showToast("Could not update comment.");
       return;
     }
+    load();
+  }
+  // "Send to agent": flag the thread for the publishing agent. The server
+  // notifies any webhook and lists it first under status=sent.
+  async function sendToAgent(c, on) {
+    var r = await api("PATCH", { id: c.id, sent_to_agent: !!on });
+    if (r.status === 401) {
+      // No viewer session yet on a public artifact: collect an email once.
+      var ok = await collectEmail();
+      if (!ok) return;
+      r = await api("PATCH", { id: c.id, sent_to_agent: !!on });
+    }
+    if (!r.ok) {
+      showToast("Could not send this thread to the agent.");
+      return;
+    }
+    showToast(
+      on
+        ? "Sent to the agent — you’ll see “picked up” once it replies."
+        : "No longer flagged for the agent.",
+    );
     load();
   }
   function toggleReply(id) {
@@ -1439,7 +1793,49 @@
   }
 
   // ---- publisher context (role probe; adds an Admin deep link for owners) --
+  // The same probe carries agent presence, re-read on every open and every
+  // minute while open so "2 min ago" stays honest.
   var contextLoaded = false;
+  var presenceTimer = null;
+  function agoLabel(ts) {
+    var s = Math.max(0, Math.floor(Date.now() / 1000) - Number(ts || 0));
+    if (s < 45) return "just now";
+    if (s < 3600) return Math.max(1, Math.round(s / 60)) + " min ago";
+    if (s < 86400) return Math.round(s / 3600) + " h ago";
+    return Math.round(s / 86400) + " d ago";
+  }
+  function renderPresence(agent) {
+    var box = $("[data-presence]");
+    if (!box) return;
+    if (!agent) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    box.classList.toggle("is-watching", !!agent.watching);
+    var who = agent.label ? "An agent (" + agent.label + ")" : "An agent";
+    if (agent.watching)
+      box.textContent =
+        who + " checked this page " + agoLabel(agent.last_seen_at) + ".";
+    else if (agent.last_seen_at)
+      box.textContent =
+        "No agent is watching right now · last checked " +
+        agoLabel(agent.last_seen_at) +
+        ".";
+    else box.textContent = "No agent is watching right now.";
+  }
+  function loadPresence() {
+    fetch(
+      "/_au/artifact-context?artifact_key=" + encodeURIComponent(artifactKey),
+    )
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .then(function (j) {
+        renderPresence(j && j.agent ? j.agent : null);
+      })
+      .catch(function () {});
+  }
   function loadContext() {
     if (contextLoaded) return;
     contextLoaded = true;
@@ -1450,6 +1846,7 @@
         return r.ok ? r.json() : null;
       })
       .then(function (j) {
+        renderPresence(j && j.agent ? j.agent : null);
         if (!j || j.role !== "publisher" || !j.admin_url) return;
         var tools = panel.querySelector(".au-tools");
         var a = document.createElement("a");
@@ -1476,8 +1873,11 @@
     showTop(panel);
     restorePanelPos();
     if (!allComments.length) showSkeleton();
+    if (contextLoaded) loadPresence();
     loadContext();
-    load();
+    clearInterval(presenceTimer);
+    presenceTimer = setInterval(loadPresence, 60000);
+    load().then(startWatch);
     update();
     setTimeout(function () {
       try {
@@ -1489,6 +1889,9 @@
     panel.classList.remove("is-open");
     btn.setAttribute("aria-expanded", "false");
     hideTop(panel);
+    stopWatch();
+    clearInterval(presenceTimer);
+    presenceTimer = null;
     endSelect();
     mark.style.display = "none";
     hideGhost();
@@ -1933,6 +2336,14 @@
       ".au-chip{font-weight:800;border-radius:4px;padding:1px 6px}",
       ".au-anchor-missing{background:#fdeaea;color:#a3271f}",
       ".au-anchor-hidden{background:#eef1f0;color:#5a6c66}",
+      ".au-chip-agent{background:#e9e6fb;color:#4b3aa6}",
+      ".au-chip-sent{background:#fff3d6;color:#8a5b00}",
+      ".au-chip-sent.is-picked{background:#dff0e8;color:#0f6b3f}",
+      ".au-sendagent{color:#8a5b00}",
+      ".au-presence{flex:0 0 auto;display:flex;align-items:center;gap:7px;padding:6px 12px;font-size:11px;font-weight:600;color:#5c6b66;background:#fafcfb;border-bottom:1px solid #eef2f1}",
+      ".au-presence::before{content:'';width:8px;height:8px;border-radius:50%;background:#b8c4bf;flex:0 0 8px}",
+      ".au-presence.is-watching{color:#0f6b3f}",
+      ".au-presence.is-watching::before{background:#22a35f;box-shadow:0 0 0 3px rgba(34,163,95,.18)}",
       ".au-item.is-pending{background:#fbfdfc}",
       "@keyframes au-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}",
       "@keyframes au-flash{0%{background:#dff0e8}100%{background:#fbfdfc}}",
