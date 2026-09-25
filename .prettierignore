@@ -6,6 +6,8 @@ coverage/
 package-lock.json
 # Build artifact: regenerated from src/widget/feedback.js by the wrangler [build] hook.
 apps/worker/src/widget/feedback.generated.ts
+# Build artifact: rendered from docs/agent-guide.md by the wrangler [build] hook.
+apps/worker/src/llms.generated.ts
 # Internal ops docs (gitignored)
 docs/internal/
 docs/progress_log.ndjson
