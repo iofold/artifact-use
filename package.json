@@ -25,7 +25,7 @@
     "worker:deploy": "npm --workspace apps/worker run deploy",
     "cli": "npm --workspace packages/cli run dev --",
     "mcp": "npm --workspace packages/mcp-server run dev",
-    "test:packages": "node --import tsx --test packages/client-core/test/*.test.ts"
+    "test:packages": "node --import tsx --test packages/client-core/test/*.test.ts packages/cli/test/*.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.15.30",
