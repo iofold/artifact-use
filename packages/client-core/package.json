@@ -1,9 +1,23 @@
 {
   "name": "@artifact-use/client-core",
-  "version": "0.1.0",
-  "description": "Shared publish client and MCP tool schemas for Artifact Use.",
+  "version": "0.2.0",
+  "description": "Shared publish client, folder walker, and MCP tool schemas used by the Artifact Use CLI and stdio MCP server.",
   "license": "MIT",
-  "private": true,
+  "homepage": "https://artifacts.iofold.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iofold/artifact-use.git",
+    "directory": "packages/client-core"
+  },
+  "bugs": {
+    "url": "https://github.com/iofold/artifact-use/issues"
+  },
+  "keywords": [
+    "artifact-use",
+    "artifacts",
+    "publishing",
+    "mcp"
+  ],
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -17,8 +31,18 @@
       "default": "./dist/schemas.js"
     }
   },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
   "scripts": {
     "build": "tsc",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepack": "tsc"
   }
 }
