@@ -160,6 +160,8 @@ async function dispatch(
     if (path === "/.well-known/oauth-authorization-server") {
       return json(await authorizationServerMetadata(env));
     }
+    if (path === "/.well-known/openai-apps-challenge")
+      return openaiAppsChallenge(request, env);
     if (path === "/") return renderHome(request, env);
     if (path === "/privacy") return renderPrivacyPolicy(env);
     if (path === "/terms") return renderTermsOfService(env);
@@ -216,6 +218,22 @@ async function dispatch(
       return error(405, "method_not_allowed", "method not allowed");
     return servePublic(request, env, path);
   }
+}
+
+// OpenAI's app directory verifies that we control this domain by fetching
+// this path and comparing the body to the token it issued, so the response
+// is the bare token and nothing else. Unset (the default) keeps it a 404.
+function openaiAppsChallenge(request: Request, env: Env): Response {
+  if (request.method !== "GET" && request.method !== "HEAD")
+    return error(405, "method_not_allowed", "method not allowed");
+  const token = (env.OPENAI_APPS_CHALLENGE_TOKEN || "").trim();
+  if (!token) return error(404, "not_found", "not found");
+  return new Response(token, {
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "no-store",
+    },
+  });
 }
 
 // Artifact pages stay crawlable so their `noindex` header is seen and honored;

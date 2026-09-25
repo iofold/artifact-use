@@ -18,6 +18,7 @@ export interface Env {
   ARTIFACT_USE_DOCS_URL?: string;
   ARTIFACT_USE_PRIVACY_URL?: string;
   ARTIFACT_USE_TERMS_URL?: string;
+  OPENAI_APPS_CHALLENGE_TOKEN?: string;
   ARTIFACT_USE_AUTH_SCOPES?: string;
   ARTIFACT_USE_READ_SCOPES?: string;
   ARTIFACT_USE_WRITE_SCOPES?: string;
