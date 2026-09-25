@@ -130,6 +130,44 @@ export type Comment = {
 
 export type ArtifactDetail = { shares: ShareLink[]; comments: Comment[] };
 
+// One completed publish. `url` opens that version at its own `_v/` address;
+// `current` marks the one the stable URL serves.
+export type ArtifactVersion = {
+  id: string;
+  created_at: number;
+  completed_at: number | null;
+  file_count: number;
+  total_size: number;
+  entrypoint: string;
+  created_by: string | null;
+  current: boolean;
+  url: string;
+};
+
+export type ArtifactVersions = {
+  versions: ArtifactVersion[];
+  current_version_id: string | null;
+};
+
+export type PromotedVersion = {
+  ok: true;
+  version_id: string;
+  current_version_id: string | null;
+  changed: boolean;
+};
+
+// The JSON diff between two versions, served on a session-only GET so a
+// plain link can open it in a new tab. `from`/`to` take a version id,
+// "current" or "previous".
+export function versionDiffUrl(
+  artifactKey: string,
+  from: string,
+  to = "current",
+): string {
+  const q = new URLSearchParams({ artifact_key: artifactKey, from, to });
+  return `/admin/artifact/diff?${q}`;
+}
+
 // Expired tokens stay listed for 30 days after expiry so "why is my agent
 // getting 401s" has an answer; "expiring" means within the next 7 days.
 export type AgentTokenStatus = "active" | "expiring" | "expired";
@@ -467,4 +505,14 @@ export const api = {
     expires_days: string;
     max_opens: string;
   }) => postJson<CreatedShareLink>("/admin/api/artifact/share-link", input),
+  artifactVersions: (artifactKey: string) =>
+    getJson<ArtifactVersions>(
+      `/admin/api/artifact/versions?artifact_key=${encodeURIComponent(artifactKey)}`,
+    ),
+  // Rolling back is promoting an older version.
+  promoteVersion: (artifactKey: string, versionId: string) =>
+    postJson<PromotedVersion>("/admin/api/artifact/promote", {
+      artifact_key: artifactKey,
+      version_id: versionId,
+    }),
 };

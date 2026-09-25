@@ -4,7 +4,9 @@ import { Link, useSearchParams } from "react-router";
 import {
   api,
   postForm,
+  versionDiffUrl,
   type ArtifactRow,
+  type ArtifactVersion,
   type CreatedShareLink,
   type DailyRow,
   type Overview,
@@ -768,6 +770,126 @@ function LinkCreateForm({
   );
 }
 
+// One published version: when, how big, whether the stable URL serves it,
+// and the three things a publisher does with an old one — open it at its
+// own URL, compare it with the current version, or make it current again.
+function VersionRow({
+  artifact,
+  version,
+  promoting,
+  onPromote,
+}: {
+  artifact: ArtifactRow;
+  version: ArtifactVersion;
+  promoting: boolean;
+  onPromote: () => void;
+}) {
+  const when = version.completed_at || version.created_at;
+  const detail = [
+    `${formatNumber(version.file_count)} ${version.file_count === 1 ? "file" : "files"}`,
+    formatBytes(version.total_size),
+    version.entrypoint !== "index.html" ? version.entrypoint : null,
+    version.id,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+  return (
+    <li>
+      <span>
+        <strong>
+          {dateLabel(when)} · {ago(when)}
+          {version.current ? <span className="pill ok">current</span> : null}
+        </strong>
+        <small>{detail}</small>
+      </span>
+      <span className="link-actions">
+        <a
+          className="button small ghost"
+          href={version.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Open ↗
+        </a>
+        {version.current ? null : (
+          <>
+            <a
+              className="button small ghost"
+              href={versionDiffUrl(artifact.url_key, version.id)}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Compare with current
+            </a>
+            <button
+              type="button"
+              className="button small ghost"
+              disabled={promoting}
+              onClick={onPromote}
+            >
+              Make current
+            </button>
+          </>
+        )}
+      </span>
+    </li>
+  );
+}
+
+function VersionsPanel({
+  artifact,
+  onChanged,
+}: {
+  artifact: ArtifactRow;
+  onChanged: () => void;
+}) {
+  const queryClient = useQueryClient();
+  const { data, isPending } = useQuery({
+    queryKey: ["artifact-versions", artifact.id],
+    queryFn: () => api.artifactVersions(artifact.url_key),
+  });
+  const promote = useMutation({
+    mutationFn: (versionId: string) =>
+      api.promoteVersion(artifact.url_key, versionId),
+    onSettled: () => {
+      void queryClient.invalidateQueries({
+        queryKey: ["artifact-versions", artifact.id],
+      });
+      onChanged();
+    },
+  });
+  return (
+    <>
+      <h3>Versions</h3>
+      <p className="mini">
+        Every publish is kept. The stable URL serves the current version; making
+        an older one current rolls back without deleting anything, and every
+        version stays viewable at its own URL.
+      </p>
+      {isPending ? (
+        <Skeleton style={{ height: 46 }} />
+      ) : data?.versions.length ? (
+        <ul className="detail-list versions-list">
+          {data.versions.slice(0, 20).map((version) => (
+            <VersionRow
+              key={version.id}
+              artifact={artifact}
+              version={version}
+              promoting={promote.isPending}
+              onPromote={() => promote.mutate(version.id)}
+            />
+          ))}
+        </ul>
+      ) : (
+        <div className="empty small-empty">No published versions yet.</div>
+      )}
+      {promote.isError ? (
+        <p className="mini error">{promote.error.message}</p>
+      ) : null}
+    </>
+  );
+}
+
 function ArtifactSheet({
   artifact,
   onClose,
@@ -1079,6 +1201,7 @@ function ArtifactSheet({
             <div className="empty small-empty">No links yet.</div>
           )}
           <LinkCreateForm artifact={artifact} onCreated={invalidate} />
+          <VersionsPanel artifact={artifact} onChanged={invalidate} />
           <h3>Comments</h3>
           {isPending ? (
             <Skeleton style={{ height: 46 }} />
