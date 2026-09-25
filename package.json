@@ -21,6 +21,7 @@
     "test:security-smoke": "node --import tsx apps/worker/test/security-smoke.mjs",
     "format": "prettier --write .",
     "check": "prettier --check . && diff -r skills/artifact-use plugins/codex/artifact-use/skills/artifact-use && npm run typecheck",
+    "check:schema": "node --import tsx apps/worker/scripts/check-tool-schema-size.mjs",
     "worker:dev": "npm --workspace apps/worker run dev",
     "worker:deploy": "npm --workspace apps/worker run deploy",
     "cli": "npm --workspace packages/cli run dev --",

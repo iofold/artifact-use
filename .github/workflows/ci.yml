@@ -34,6 +34,9 @@ jobs:
       - name: Check formatting and generated mirrors
         run: npm run check
 
+      - name: Check MCP tool schema budget
+        run: npm run check:schema
+
       - name: Run tests
         run: npm test
 
