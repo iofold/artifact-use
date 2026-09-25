@@ -26,3 +26,6 @@ docs/progress_log.ndjson
 # Built admin SPA assets (from apps/admin-ui)
 apps/worker/public/
 
+
+# Agent worktrees created by Claude Code sessions
+.claude/worktrees/
