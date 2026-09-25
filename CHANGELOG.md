@@ -4,6 +4,38 @@ Notable changes to Artifact Use are documented here.
 
 ## Unreleased
 
+- Share links are the sharing primitive: `recipient`, `password` and `open`
+  kinds with expiry, max opens, open counts and revoke; passcode links pass
+  the gate via a form, JSON or HTTP Basic; dead links answer 410. Migration 0014.
+- Gates: a creator or OAuth token of the owning workspace reads pages and
+  assets without a viewer session or a view row; the plain email gate checks
+  syntax and MX records; `access_preset` aliases the gate levels; admin views
+  are labelled verified, via link or self-reported; the landing page and every
+  publish response say that URLs are unlisted.
+- Comment loop: signed webhooks with retries for `comment.created`,
+  `replied`, `resolved`, `reopened` and `sent_to_agent`; long-poll with
+  `wait=<1..25>` and `next_since` on both comment endpoints; a Send-to-agent
+  action and `status=sent`; v3 element context (caption, heading, src,
+  viewport) so image-grid comments stop reading as "div"; agent presence in
+  `artifact-context` and the widget; `author_kind` and `agent_label`;
+  `page_path` normalised with a backfill. Migration 0015.
+- Versions: `GET .../versions`, prior versions served at `_v/<id>/` with a
+  banner and `X-Artifact-Version`, promote (rollback), per-file diff with a
+  bounded line diff, `base_version_id` on every publish path returning
+  `409 version_conflict`, and `links {artifact, version, review}` on publish
+  results and artifact reads; MCP actions `versions`, `promote`, `diff`.
+- Honest analytics: views carry `kind` (human, agent, automation) and
+  `source`; public artifacts count one human view per day; the dashboard and
+  stats API report people separately from agents. Migration 0017.
+- Secret scan on publish: credential-like strings refuse the publish with
+  `422 secrets_detected` unless `allow_secrets: true`, in which case they are
+  returned as `warnings`.
+- MCP tools carry `title` and `readOnlyHint`/`destructiveHint`/`openWorldHint`
+  annotations; a CI budget caps the tool schemas at 12 KB.
+- CLI: `help`, `--help`, `-h`, `help <command>` and `--version`.
+- `GET /.well-known/openai-apps-challenge` serves the OpenAI plugin-directory
+  domain-verification token from `OPENAI_APPS_CHALLENGE_TOKEN`.
+
 - Reserved or malformed segments under an artifact URL (`_au/…`, `_iof/…`,
   `cdn-cgi/…`) answer 404 instead of surfacing as `500 internal_error`.
 - The stdio MCP server, CLI and client-core no longer send a default
