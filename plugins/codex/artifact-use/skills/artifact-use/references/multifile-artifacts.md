@@ -32,7 +32,7 @@ Rules:
 - Keep `index.html` as the entrypoint unless the user has a clear reason for another path.
 - Use relative paths such as `./assets/example.jpg` and `./data/app-data.js`.
 - Do not use leading slash paths; they will point at the Artifact Use host root, not the artifact folder.
-- Do not use reserved paths or segments: `_au`, `_iof`, leading `_`, `cdn-cgi`, `.`, `..`, empty segments, or control characters.
+- Do not use reserved paths or segments: `_au`, `_api`, `_iof`, leading `_`, `cdn-cgi`, `.`, `..`, empty segments, or control characters.
 - Keep filenames URL-safe and stable. Prefer lower-case hyphen-case for authored assets.
 - Add alt text for meaningful images. Mark decorative images with empty alt text.
 
