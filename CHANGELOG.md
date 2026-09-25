@@ -34,6 +34,24 @@ Notable changes to Artifact Use are documented here.
 - Preserve the query string across the artifact gate so URL-addressed state
   survives the email form.
 
+- Agent documentation has one source: `docs/agent-guide.md` is rendered into
+  `/llms.txt` and `/llms-full.txt` by `apps/worker/scripts/build-llms.mjs`
+  (wrangler `[build]`, `npm run build`, `npm run typecheck`); `docs/MCP.md`,
+  `docs/API.md`, the README and the skill link to it instead of repeating it.
+  The guide adds the "publish only when asked" promise, an `AGENTS.md`
+  snippet, and documents upstream backends, workspaces, `url_key` republish,
+  the 90-day token expiry with `token_expired`/`renew_url`, `isError` tool
+  results, and the early `413`.
+- The agent-initiated device-code connect flow (`/api/v1/connect/*`) is
+  deprecated and removed from agent-facing docs; quick connect
+  (`/admin/connect`) and OAuth are the two documented paths.
+- The repository root is an Agent Plugins 1.0 package (`plugin.json`,
+  `mcp.json`) with a Claude Code plugin/marketplace (`.claude-plugin/`) and a
+  Codex marketplace (`.agents/plugins/marketplace.json`).
+- `@artifact-use/cli`, `@artifact-use/mcp-server` and
+  `@artifact-use/client-core` are publishable at 0.2.0 (`files` limited to
+  `dist`, READMEs, `prepack` builds); not yet published.
+
 ## 0.1.0
 
 - Publish single-file and multi-file static artifacts through HTTP, CLI, or MCP.
