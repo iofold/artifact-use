@@ -23,7 +23,11 @@ import {
   handleComments,
   servePublic,
 } from "./serve";
-import { notifyExpiringTokens, sweepAbandonedUploads } from "./maintenance";
+import {
+  expireStaleConnectRequests,
+  notifyExpiringTokens,
+  sweepAbandonedUploads,
+} from "./maintenance";
 import { UPSTREAM_PATH } from "./upstream";
 import { error, json, secureSystemResponse, wantsHtml } from "./util";
 
@@ -45,6 +49,7 @@ export default {
   ): Promise<void> {
     ctx.waitUntil(sweepAbandonedUploads(env));
     ctx.waitUntil(notifyExpiringTokens(env));
+    ctx.waitUntil(expireStaleConnectRequests(env));
   },
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);

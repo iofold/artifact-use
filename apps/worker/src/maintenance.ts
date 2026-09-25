@@ -20,6 +20,20 @@ export interface SweepReport {
 
 export const TOKEN_EXPIRY_WARNING_SEC = 7 * 24 * 60 * 60;
 
+// Device-code connect requests nobody approved: mark them expired so they
+// stop counting as pending in the admin page and in any report.
+export async function expireStaleConnectRequests(
+  env: Env,
+  now = nowSec(),
+): Promise<number> {
+  const result = await env.DB.prepare(
+    "UPDATE connect_requests SET status = 'expired' WHERE status = 'pending' AND expires_at < ?",
+  )
+    .bind(now)
+    .run();
+  return Number(result.meta?.changes || 0);
+}
+
 // Warn each token's owner once, a week before expiry. Expiry used to be
 // silent: the agent just started getting 401s one morning.
 export async function notifyExpiringTokens(
