@@ -1,0 +1,20 @@
+{
+  "name": "artifact-use",
+  "interface": {
+    "displayName": "Artifact Use"
+  },
+  "plugins": [
+    {
+      "name": "artifact-use",
+      "source": {
+        "source": "local",
+        "path": "./plugins/codex/artifact-use"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

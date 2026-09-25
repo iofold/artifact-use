@@ -1,0 +1,17 @@
+{
+  "name": "artifact-use",
+  "description": "Artifact Use: publish agent output as stable, gated, reviewable links.",
+  "owner": {
+    "name": "Artifact Use contributors",
+    "url": "https://github.com/iofold/artifact-use"
+  },
+  "plugins": [
+    {
+      "name": "artifact-use",
+      "source": "./",
+      "description": "Publish agent output as stable, gated, reviewable links through the Artifact Use MCP server; publishes only when asked and brings reviewer comments back to the agent.",
+      "category": "productivity",
+      "tags": ["artifacts", "publishing", "mcp", "review"]
+    }
+  ]
+}
