@@ -24,6 +24,7 @@ import {
   servePublic,
 } from "./serve";
 import {
+  backfillFileHashes,
   expireStaleConnectRequests,
   notifyExpiringTokens,
   retryWebhookDeliveries,
@@ -52,6 +53,7 @@ export default {
     ctx.waitUntil(sweepAbandonedUploads(env));
     ctx.waitUntil(notifyExpiringTokens(env));
     ctx.waitUntil(expireStaleConnectRequests(env));
+    ctx.waitUntil(backfillFileHashes(env));
     ctx.waitUntil(retryWebhookDeliveries(env));
   },
   async fetch(request: Request, env: Env): Promise<Response> {

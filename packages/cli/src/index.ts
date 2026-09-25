@@ -18,6 +18,7 @@ const SCHEMAS = {
       },
       entrypoint: { type: "string", default: "index.html" },
       allow_secrets: { type: "boolean" },
+      base_version_id: { type: "string" },
     },
   },
   "publish-html": {
@@ -37,6 +38,7 @@ const SCHEMAS = {
         description:
           "Publish even when the HTML contains what look like credentials (the server otherwise refuses with secrets_detected).",
       },
+      base_version_id: { type: "string" },
     },
   },
   preview: {

@@ -128,3 +128,58 @@ test("stale pending connect requests are marked expired by the sweep", async () 
   );
   assert.equal(seen[0]?.params[0], NOW);
 });
+
+test("file hashes are backfilled from R2 for rows that lack one", async () => {
+  const { backfillFileHashes } = await import("../src/maintenance.ts");
+  const updates: unknown[][] = [];
+  const env = {
+    DB: {
+      prepare(sql: string) {
+        const make = (params: unknown[]) => ({
+          bind: (...next: unknown[]) => make(next),
+          async all() {
+            if (sql.includes("sha256 IS NULL ORDER BY"))
+              return {
+                results: [
+                  {
+                    version_id: "ver_a",
+                    path: "index.html",
+                    storage_key: "k/a",
+                  },
+                  {
+                    version_id: "ver_b",
+                    path: "gone.html",
+                    storage_key: "k/gone",
+                  },
+                ],
+              };
+            return { results: [] };
+          },
+          async run() {
+            if (sql.includes("UPDATE artifact_files SET sha256"))
+              updates.push(params);
+            return { meta: { changes: 1 } };
+          },
+        });
+        return make([]);
+      },
+    },
+    BUCKET: {
+      async get(key: string) {
+        if (key !== "k/a") return null;
+        return {
+          arrayBuffer: async () => new TextEncoder().encode("hello").buffer,
+        };
+      },
+    },
+  } as unknown as Env;
+  const report = await backfillFileHashes(env, 10);
+  assert.deepEqual(report, { hashed: 1, missing: 1 });
+  assert.equal(updates.length, 1);
+  // sha256("hello")
+  assert.equal(
+    updates[0]?.[0],
+    "2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824",
+  );
+  assert.equal(updates[0]?.[1], "ver_a");
+});

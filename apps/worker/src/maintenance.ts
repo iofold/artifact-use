@@ -5,7 +5,7 @@
 import type { Artifact, ArtifactVersion, Env } from "./types";
 import { deleteArtifact, purgeVersion } from "./db";
 import { sendTokenExpiryEmail } from "./mailer";
-import { nowSec, siteBaseUrl } from "./util";
+import { nowSec, sha256Hex, siteBaseUrl } from "./util";
 import {
   attemptDelivery,
   type DeliveryOptions,
@@ -24,6 +24,39 @@ export interface SweepReport {
 }
 
 export const TOKEN_EXPIRY_WARNING_SEC = 7 * 24 * 60 * 60;
+
+// Files published through the HTML path before September 2026 were stored
+// without a sha256, so version diffs cannot tell "changed" from "unchanged"
+// for them (62 rows in production). Hash a bounded batch per sweep by
+// reading the object back from R2.
+export async function backfillFileHashes(
+  env: Env,
+  limit = 50,
+): Promise<{ hashed: number; missing: number }> {
+  const rows = await env.DB.prepare(
+    `SELECT version_id, path, storage_key FROM artifact_files
+     WHERE sha256 IS NULL ORDER BY uploaded_at LIMIT ?`,
+  )
+    .bind(limit)
+    .all<{ version_id: string; path: string; storage_key: string }>();
+  let hashed = 0;
+  let missing = 0;
+  for (const row of rows.results || []) {
+    const object = await env.BUCKET.get(row.storage_key);
+    if (!object || !("arrayBuffer" in object)) {
+      missing += 1;
+      continue;
+    }
+    const sha = await sha256Hex(new Uint8Array(await object.arrayBuffer()));
+    await env.DB.prepare(
+      "UPDATE artifact_files SET sha256 = ? WHERE version_id = ? AND path = ? AND sha256 IS NULL",
+    )
+      .bind(sha, row.version_id, row.path)
+      .run();
+    hashed += 1;
+  }
+  return { hashed, missing };
+}
 
 // Device-code connect requests nobody approved: mark them expired so they
 // stop counting as pending in the admin page and in any report.
