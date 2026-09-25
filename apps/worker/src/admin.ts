@@ -380,20 +380,48 @@ export async function handleAdminApi(
 
     if (request.method === "GET" && parsed.action === "stats") {
       requirePermission(creator, env, "artifacts:view_stats");
+      // total / unique_viewers / last_ts count every row (kept for
+      // compatibility). The rest split by kind: people are rows a person's
+      // browser wrote; agents are coding agents plus automation. The people
+      // facets overlap (a verified pass through a link is both) except
+      // self_reported, which is the plain email gate's own word.
       const views = await env.DB.prepare(
-        "SELECT COUNT(*) AS total, COUNT(DISTINCT email) AS unique_viewers, MAX(ts) AS last_ts FROM views WHERE artifact_id = ?",
+        `SELECT COUNT(*) AS total,
+           COUNT(DISTINCT email) AS unique_viewers,
+           MAX(ts) AS last_ts,
+           SUM(CASE WHEN kind = 'human' THEN 1 ELSE 0 END) AS people,
+           SUM(CASE WHEN kind = 'human' THEN 0 ELSE 1 END) AS agents,
+           COUNT(DISTINCT CASE WHEN kind = 'human' THEN email END) AS unique_people,
+           SUM(CASE WHEN kind = 'human' AND verified = 0 AND share_link_id IS NULL
+                     AND COALESCE(source, 'gate') <> 'public' THEN 1 ELSE 0 END) AS self_reported,
+           SUM(CASE WHEN kind = 'human' AND verified = 1 THEN 1 ELSE 0 END) AS verified,
+           SUM(CASE WHEN kind = 'human' AND share_link_id IS NOT NULL THEN 1 ELSE 0 END) AS via_link,
+           SUM(CASE WHEN kind = 'human' AND source = 'public' THEN 1 ELSE 0 END) AS public
+         FROM views WHERE artifact_id = ?`,
       )
         .bind(artifact.id)
-        .first();
+        .first<Record<string, number | null>>();
       const recent = await env.DB.prepare(
-        "SELECT email, verified, ts, referrer FROM views WHERE artifact_id = ? ORDER BY ts DESC LIMIT 50",
+        "SELECT email, verified, kind, source, ts, referrer FROM views WHERE artifact_id = ? ORDER BY ts DESC LIMIT 50",
       )
         .bind(artifact.id)
         .all();
       const links = await listShareLinks(env, artifact.id);
+      const count = (key: string) => Number(views?.[key] || 0);
       return json({
         artifact,
-        views,
+        views: {
+          total: count("total"),
+          unique_viewers: count("unique_viewers"),
+          last_ts: views?.last_ts ?? null,
+          people: count("people"),
+          agents: count("agents"),
+          unique_people: count("unique_people"),
+          self_reported: count("self_reported"),
+          verified: count("verified"),
+          via_link: count("via_link"),
+          public: count("public"),
+        },
         recent: recent.results || [],
         links: links.map((link) => shareLinkJson(env, artifact.url_key, link)),
       });
