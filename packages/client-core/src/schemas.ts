@@ -189,33 +189,69 @@ export const artifactManageTool: ToolSchema = {
   },
 };
 
+export const WEBHOOK_EVENTS = [
+  "comment.created",
+  "comment.replied",
+  "comment.resolved",
+  "comment.reopened",
+  "comment.sent_to_agent",
+] as const;
+
 export const artifactCommentsTool: ToolSchema = {
   name: "artifact_comments",
   description:
-    'Read, post, and resolve feedback comments on an artifact. Viewers comment through the on-page widget; this tool is the publisher side of the loop: list with status "open" to see outstanding feedback, fix and republish the same artifact slug, then reply to each thread and resolve it. Comments are threaded (parent_id / parent_comment_id) and may carry a `target` anchor describing the on-page element they point at.',
+    'Read, post, and resolve feedback comments on an artifact, or subscribe a webhook to them. Viewers comment through the on-page widget; this tool is the publisher side of the loop: act on status "sent" first (viewers pressed "Send to agent"), then "open"; fix and republish the same artifact slug, reply to each thread, resolve it. Comments are threaded (parent_id / parent_comment_id), carry author_kind (human|agent) and may carry a `target` describing the on-page element (selector, label, caption, src, heading, text). To wait for new feedback, list with wait: 25 and pass the returned next_since back as since; or subscribe a webhook.',
   inputSchema: {
     type: "object",
-    required: ["action", "artifact"],
+    required: ["action"],
     properties: {
       action: {
         type: "string",
-        enum: ["list", "post", "resolve", "reopen"],
+        enum: [
+          "list",
+          "post",
+          "resolve",
+          "reopen",
+          "subscribe",
+          "unsubscribe",
+          "webhooks",
+        ],
       },
       artifact: {
         type: "string",
-        description: "Artifact url_key from artifact_manage list, or slug.",
+        description:
+          "Artifact url_key from artifact_manage list, or slug. Required except for subscribe (optional: scope to one artifact), unsubscribe and webhooks.",
       },
       workspace: workspaceProperty,
       status: {
         type: "string",
-        enum: ["open", "resolved", "all"],
+        enum: ["open", "sent", "resolved", "all"],
         description:
-          "list: filter threads by resolution state (replies follow their root). Default all.",
+          'list: open, sent (flagged "Send to agent" and unresolved), resolved, or all (default). Replies follow their root.',
       },
       since: {
         type: "number",
         description:
-          "list: only comments created after this unix timestamp (seconds) — new feedback since the last check.",
+          "list: only comments created after this unix timestamp (seconds). Pass the previous result's next_since.",
+      },
+      wait: {
+        type: "number",
+        description:
+          "list: hold up to this many seconds (max 25) until a comment newer than since exists; returns [] with next_since on timeout. Loop on wait: 25.",
+      },
+      url: {
+        type: "string",
+        description:
+          "subscribe: https URL that receives each event as a JSON POST signed with X-Artifact-Use-Signature (sha256 HMAC of the body with the returned secret).",
+      },
+      events: {
+        type: "array",
+        items: { type: "string", enum: [...WEBHOOK_EVENTS] },
+        description: "subscribe: events to deliver. Default all.",
+      },
+      webhook_id: {
+        type: "string",
+        description: "unsubscribe: id from subscribe or webhooks.",
       },
       page_path: {
         type: "string",

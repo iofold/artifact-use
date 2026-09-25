@@ -17,6 +17,7 @@ import {
 } from "./events";
 import { handlePublish } from "./publish";
 import { error, json, mimeFor, sha256Hex } from "./util";
+import { handleWebhooksApi } from "./webhooks";
 import { WORKSPACE_HEADER } from "./workspaces";
 
 // The hosted /mcp endpoint serves the base (HTTP) tool surface; the stdio
@@ -568,12 +569,57 @@ async function callTool(
   }
   if (name === "artifact_comments") {
     const action = String(args.action || "");
+    // Webhook subscriptions are workspace-level: `artifact` is optional.
+    if (action === "subscribe") {
+      const r = await callApi(
+        request,
+        env,
+        handleWebhooksApi,
+        "/api/v1/webhooks",
+        postJson({
+          url: args.url,
+          events: args.events,
+          artifact: args.artifact || undefined,
+          secret: args.secret,
+        }),
+      );
+      return toolResponse(r);
+    }
+    if (action === "unsubscribe") {
+      const id = String(args.webhook_id || "").trim();
+      if (!id)
+        throw new Error("artifact_comments unsubscribe requires webhook_id");
+      const r = await callApi(
+        request,
+        env,
+        handleWebhooksApi,
+        `/api/v1/webhooks/${encodeURIComponent(id)}`,
+        { method: "DELETE", headers },
+      );
+      return toolResponse(r);
+    }
+    if (action === "webhooks") {
+      const r = await callApi(
+        request,
+        env,
+        handleWebhooksApi,
+        "/api/v1/webhooks",
+        { method: "GET", headers },
+      );
+      return toolResponse(r);
+    }
     const artifact = String(args.artifact || "");
     if (!artifact) throw new Error("artifact_comments requires artifact");
     const path = `/api/v1/artifacts/${encodeURIComponent(artifact)}/comments`;
     if (action === "list") {
       const q = new URLSearchParams();
-      for (const key of ["status", "since", "page_path", "limit"] as const) {
+      for (const key of [
+        "status",
+        "since",
+        "page_path",
+        "limit",
+        "wait",
+      ] as const) {
         if (args[key] !== undefined && args[key] !== null && args[key] !== "")
           q.set(key, String(args[key]));
       }
