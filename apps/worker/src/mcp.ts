@@ -4,7 +4,7 @@ import {
   artifactManageTool,
   artifactPublishTool,
   artifactUploadSessionTool,
-} from "@iofold/artifact-use-core/schemas";
+} from "artifact-use-core/schemas";
 import { handleAdminApi } from "./admin";
 import { safeCreator } from "./auth";
 import {

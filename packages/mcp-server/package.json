@@ -1,5 +1,5 @@
 {
-  "name": "@iofold/artifact-use-mcp",
+  "name": "artifact-use-mcp",
   "version": "0.2.0",
   "description": "Local stdio MCP server for Artifact Use: publish local folders and HTML as stable, gated, reviewable links with a creator token, and manage comments, access, and share links.",
   "license": "MIT",
@@ -39,7 +39,7 @@
     "prepack": "tsc"
   },
   "dependencies": {
-    "@iofold/artifact-use-core": "^0.2.0",
+    "artifact-use-core": "^0.2.0",
     "@modelcontextprotocol/sdk": "^1.12.1"
   },
   "devDependencies": {
