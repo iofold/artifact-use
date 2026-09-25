@@ -1,19 +1,45 @@
 {
   "name": "@artifact-use/cli",
-  "version": "0.1.0",
-  "description": "JSON-first CLI for Artifact Use.",
+  "version": "0.2.0",
+  "description": "JSON-first CLI for Artifact Use: publish HTML and static folders as stable, gated, reviewable links and manage comments, access, and share links.",
   "license": "MIT",
+  "homepage": "https://artifacts.iofold.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/iofold/artifact-use.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/iofold/artifact-use/issues"
+  },
+  "keywords": [
+    "artifact-use",
+    "artifacts",
+    "publishing",
+    "cli",
+    "agents"
+  ],
   "type": "module",
   "bin": {
     "artifact-use": "dist/index.js"
   },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": ">=20.11"
+  },
   "scripts": {
     "build": "tsc",
     "dev": "tsx src/index.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "prepack": "tsc"
   },
   "dependencies": {
-    "@artifact-use/client-core": "*"
+    "@artifact-use/client-core": "^0.2.0"
   },
   "devDependencies": {
     "tsx": "^4.19.4"
