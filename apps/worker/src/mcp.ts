@@ -10,6 +10,7 @@ import { safeCreator } from "./auth";
 import {
   authKindFor,
   clientFromUserAgent,
+  normalizeClientName,
   recordMcpEvent,
   type McpEventInput,
 } from "./events";
@@ -261,7 +262,7 @@ export async function handleMcp(request: Request, env: Env): Promise<Response> {
     authKind: authKindFor(creator),
     client:
       clientInfo && typeof clientInfo.name === "string"
-        ? clientInfo.name.toLowerCase().slice(0, 60)
+        ? normalizeClientName(clientInfo.name)
         : fromUa.client,
     clientVersion:
       clientInfo && typeof clientInfo.version === "string"

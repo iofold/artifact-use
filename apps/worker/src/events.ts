@@ -62,6 +62,24 @@ export function clientFromUserAgent(ua: string): {
   return { client: head || "unknown", version: null };
 }
 
+// clientInfo names are free text ("codex-mcp-client", "Claude Code", ...).
+// Map them onto the same vocabulary the User-Agent rules produce so one
+// harness is one row in the activity feed regardless of which request
+// carried the name.
+export function normalizeClientName(name: string): string {
+  const lowered = name.trim().toLowerCase();
+  if (!lowered) return "unknown";
+  if (lowered.includes("codex")) return "codex";
+  if (lowered.includes("claude code") || lowered.includes("claude-code"))
+    return "claude-code";
+  if (lowered.startsWith("claude")) return "claude-ai";
+  if (lowered.includes("opencode")) return "opencode";
+  if (lowered.includes("hermes")) return "hermes";
+  if (lowered.includes("cursor")) return "cursor";
+  if (lowered.includes("kiro")) return "kiro";
+  return lowered.replace(/[^a-z0-9._-]+/g, "-").slice(0, 60);
+}
+
 export async function recordMcpEvent(
   env: Env,
   event: McpEventInput,

@@ -229,7 +229,7 @@ test("a modern tools/list carries resultType, ttlMs, cacheScope and serverInfo",
   assert.equal(body.result.cacheScope, "private");
   assert.ok(body.result.ttlMs > 0);
   const event = recorded.find((r) => r.sql.includes("INSERT INTO mcp_events"));
-  // clientInfo from _meta wins over the User-Agent
+  // clientInfo from _meta wins over the User-Agent (normalized)
   assert.equal(event?.params[6], "testclient");
   assert.equal(event?.params[7], "9.9");
   assert.equal(event?.params[9], "2026-07-28");
@@ -331,4 +331,15 @@ test("an unknown tool is a JSON-RPC invalid params error, not a tool result", as
   );
   const body = (await response.json()) as { error: { code: number } };
   assert.equal(body.error.code, -32602);
+});
+
+test("clientInfo names are normalized onto the User-Agent vocabulary", async () => {
+  const { normalizeClientName } = await import("../src/events.ts");
+  assert.equal(normalizeClientName("codex-mcp-client"), "codex");
+  assert.equal(normalizeClientName("Claude Code"), "claude-code");
+  assert.equal(normalizeClientName("claude-ai"), "claude-ai");
+  assert.equal(
+    normalizeClientName("Some Custom Client 2"),
+    "some-custom-client-2",
+  );
 });
