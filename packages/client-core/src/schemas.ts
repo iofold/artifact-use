@@ -29,6 +29,14 @@ const workspaceProperty = {
     'Target workspace (organization id or slug). Required on every call when the credential is user-scoped (publishes to multiple workspaces); discover yours with artifact_manage {"action":"workspaces"}.',
 };
 
+// Optimistic concurrency on republish: pass the version_id of the last
+// publish; a 409 version_conflict means someone published in between.
+const baseVersionProperty = {
+  type: "string",
+  description:
+    "Republish only if this is still the current version_id (from your last publish); otherwise 409 version_conflict with the newer version.",
+};
+
 export const artifactPublishTool: ToolSchema = {
   name: "artifact_publish",
   description:
@@ -53,6 +61,7 @@ export const artifactPublishTool: ToolSchema = {
       },
       gate_level: { type: "string", enum: [...GATE_LEVELS] },
       entrypoint: { type: "string", default: "index.html" },
+      base_version_id: baseVersionProperty,
       html: { type: "string" },
       files: {
         type: "array",
@@ -92,6 +101,7 @@ export const artifactUploadSessionTool: ToolSchema = {
       },
       gate_level: { type: "string", enum: [...GATE_LEVELS] },
       entrypoint: { type: "string", default: "index.html" },
+      base_version_id: baseVersionProperty,
       ttl_seconds: {
         type: "number",
         description: "Token lifetime in seconds. Maximum is 21600 (6 hours).",
@@ -104,7 +114,7 @@ export const artifactUploadSessionTool: ToolSchema = {
 export const artifactManageTool: ToolSchema = {
   name: "artifact_manage",
   description:
-    "List artifacts, fetch stats, update access or public link-preview details, point an artifact at an upstream backend that gated viewers reach via its `_api/` path, create/list/revoke share links (recipient, password, or open; every link passes the gate until it expires, is revoked, or hits max_opens), permanently delete an artifact, or list the workspaces this credential can publish to.",
+    "List artifacts, fetch stats, update access or public link-preview details, point an artifact at an upstream backend that gated viewers reach via its `_api/` path, create/list/revoke share links (recipient, password, or open; every link passes the gate until it expires, is revoked, or hits max_opens), list versions, promote one (rollback = promote an older version), diff two versions, permanently delete an artifact, or list the workspaces this credential can publish to.",
   inputSchema: {
     type: "object",
     required: ["action"],
@@ -120,6 +130,9 @@ export const artifactManageTool: ToolSchema = {
           "share_link",
           "share_links",
           "revoke_link",
+          "versions",
+          "promote",
+          "diff",
           "delete",
           "move",
           "workspaces",
@@ -174,6 +187,19 @@ export const artifactManageTool: ToolSchema = {
       link_id: {
         type: "string",
         description: "revoke_link: id from share_links.",
+      },
+      version_id: {
+        type: "string",
+        description: "promote: version to serve at the stable URL.",
+      },
+      from_version: {
+        type: "string",
+        description:
+          'diff: version id, "current" or "previous" (default previous).',
+      },
+      to_version: {
+        type: "string",
+        description: 'diff: version id or "current" (default).',
       },
       to_workspace: {
         type: "string",

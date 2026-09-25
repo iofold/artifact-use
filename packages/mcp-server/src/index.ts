@@ -124,6 +124,31 @@ async function manageArtifact(
       `/api/v1/artifacts/${artifactRef}/share-links/${encodeURIComponent(linkId)}`,
     );
   }
+  if (action === "versions")
+    return api(conf, "GET", `/api/v1/artifacts/${artifactRef}/versions`);
+  if (action === "promote") {
+    const versionId = String(args.version_id || "").trim();
+    if (!versionId)
+      throw new Error(
+        "artifact_manage promote requires version_id (from versions)",
+      );
+    return api(
+      conf,
+      "POST",
+      `/api/v1/artifacts/${artifactRef}/versions/${encodeURIComponent(versionId)}/promote`,
+      {},
+    );
+  }
+  if (action === "diff") {
+    // Default: what the last publish changed.
+    const from = String(args.from_version || "").trim() || "previous";
+    const to = String(args.to_version || "").trim() || "current";
+    return api(
+      conf,
+      "GET",
+      `/api/v1/artifacts/${artifactRef}/versions/${encodeURIComponent(from)}/diff/${encodeURIComponent(to)}`,
+    );
+  }
   throw new Error(`unknown artifact_manage action: ${action}`);
 }
 
@@ -207,6 +232,7 @@ async function publishFiles(
     title: args.title,
     description: args.description,
     ...(args.gate_level ? { gate_level: args.gate_level } : {}),
+    ...(args.base_version_id ? { base_version_id: args.base_version_id } : {}),
     entrypoint,
   })) as PublishStart;
   const total = normalized.reduce((sum, file) => sum + file.size, 0);

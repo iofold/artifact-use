@@ -241,6 +241,11 @@ export async function publishFolder(
     title: input.title,
     description: input.description,
     ...(input.gate_level ? { gate_level: input.gate_level } : {}),
+    // Optimistic concurrency: refused with 409 version_conflict before any
+    // upload when the artifact has moved past this version.
+    ...(input.base_version_id
+      ? { base_version_id: input.base_version_id }
+      : {}),
     entrypoint,
   })) as PublishStart;
   if (files.length > start.limits.file_count)

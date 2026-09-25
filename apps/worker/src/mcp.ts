@@ -489,7 +489,13 @@ async function callTool(
       );
     if (action === "revoke_link" && !String(args.link_id || "").trim())
       throw new Error("artifact_manage revoke_link requires link_id");
+    if (action === "promote" && !String(args.version_id || "").trim())
+      throw new Error(
+        "artifact_manage promote requires version_id (from versions)",
+      );
     const ref = encodeURIComponent(artifact);
+    const versionRef = (value: unknown, fallback: string) =>
+      encodeURIComponent(String(value || "").trim() || fallback);
     const routes: Record<string, { path: string; init: RequestInit }> = {
       list: { path: "/api/v1/artifacts", init: { method: "GET", headers } },
       workspaces: {
@@ -554,6 +560,19 @@ async function callTool(
       move: {
         path: `/api/v1/artifacts/${ref}/move`,
         init: postJson({ workspace: args.to_workspace }),
+      },
+      versions: {
+        path: `/api/v1/artifacts/${ref}/versions`,
+        init: { method: "GET", headers },
+      },
+      promote: {
+        path: `/api/v1/artifacts/${ref}/versions/${versionRef(args.version_id, "")}/promote`,
+        init: postJson({}),
+      },
+      // Default: what the last publish changed.
+      diff: {
+        path: `/api/v1/artifacts/${ref}/versions/${versionRef(args.from_version, "previous")}/diff/${versionRef(args.to_version, "current")}`,
+        init: { method: "GET", headers },
       },
     };
     const route = routes[action];
@@ -725,6 +744,9 @@ async function publishInlineFiles(
         description: args.description,
         gate_level: args.gate_level,
         entrypoint: args.entrypoint || "index.html",
+        ...(args.base_version_id
+          ? { base_version_id: args.base_version_id }
+          : {}),
       }),
     ),
   )) as { version: { id: string } };
