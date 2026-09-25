@@ -1,5 +1,10 @@
 import type { Artifact, Creator, Env, GateLevel } from "./types";
-import { mintCreatorToken, requirePermission, safeCreator } from "./auth";
+import {
+  DEFAULT_TOKEN_DAYS,
+  mintCreatorToken,
+  requirePermission,
+  safeCreator,
+} from "./auth";
 import {
   listWorkspaces,
   resolveWorkspaceOrg,
@@ -121,7 +126,7 @@ export async function handleAdminApi(
           email: creator.email,
           label: body.label ? String(body.label).slice(0, 80) : null,
           source: "api",
-          expiresDays: Number(body.expires_days) || 30,
+          expiresDays: Number(body.expires_days) || DEFAULT_TOKEN_DAYS,
           scope: body.scope === "user" ? "user" : "org",
         });
         return json({

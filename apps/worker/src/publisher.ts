@@ -12,6 +12,7 @@ import {
   extractStringArray,
   fromBase64Url,
   issueAdminCsrfToken,
+  DEFAULT_TOKEN_DAYS,
   mintCreatorToken,
   publisherFallbackOrgIds,
   readCookie,
@@ -1122,7 +1123,70 @@ export async function handleAdminUiApi(
     return adminMintPromptJson(request, env, session);
   if (path === "/admin/api/super" && request.method === "GET")
     return adminSuperJson(env, session);
+  if (path === "/admin/api/events" && request.method === "GET")
+    return adminEventsJson(env, session);
   return error(404, "not_found", "admin api route not found");
+}
+
+// Agent activity for the signed-in workspace over the last seven days: which
+// harnesses call in, how often they fail and why. Super admins also see the
+// unauthenticated bucket (org-less events), which is where OAuth loops and
+// expired tokens show up.
+async function adminEventsJson(
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  const since = nowSec() - 7 * 24 * 60 * 60;
+  const superAdmin = isSuperAdmin(session, env);
+  const scope = superAdmin ? "(org_id = ? OR org_id IS NULL)" : "org_id = ?";
+  const [clients, tools, errors, recent] = await Promise.all([
+    env.DB.prepare(
+      `SELECT COALESCE(client, 'unknown') AS client,
+              MAX(client_version) AS version,
+              COUNT(*) AS calls,
+              SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failures,
+              ROUND(AVG(duration_ms)) AS avg_ms,
+              MAX(ts) AS last_seen,
+              SUM(CASE WHEN org_id IS NULL THEN 1 ELSE 0 END) AS unauthenticated
+       FROM mcp_events WHERE ${scope} AND ts > ?
+       GROUP BY client ORDER BY calls DESC LIMIT 20`,
+    )
+      .bind(session.orgId, since)
+      .all(),
+    env.DB.prepare(
+      `SELECT COALESCE(tool, method) AS tool, action,
+              COUNT(*) AS calls,
+              SUM(CASE WHEN ok = 0 THEN 1 ELSE 0 END) AS failures,
+              ROUND(AVG(duration_ms)) AS avg_ms
+       FROM mcp_events WHERE ${scope} AND ts > ?
+       GROUP BY COALESCE(tool, method), action ORDER BY calls DESC LIMIT 30`,
+    )
+      .bind(session.orgId, since)
+      .all(),
+    env.DB.prepare(
+      `SELECT COALESCE(error_code, 'unknown') AS error_code, COUNT(*) AS n
+       FROM mcp_events WHERE ${scope} AND ts > ? AND ok = 0
+       GROUP BY error_code ORDER BY n DESC LIMIT 12`,
+    )
+      .bind(session.orgId, since)
+      .all(),
+    env.DB.prepare(
+      `SELECT ts, client, client_version, auth_kind, method, tool, action,
+              status, error_code, duration_ms
+       FROM mcp_events WHERE ${scope} AND ts > ? AND ok = 0
+       ORDER BY ts DESC LIMIT 50`,
+    )
+      .bind(session.orgId, since)
+      .all(),
+  ]);
+  return json({
+    since,
+    superAdmin,
+    clients: clients.results || [],
+    tools: tools.results || [],
+    errors: errors.results || [],
+    recentFailures: recent.results || [],
+  });
 }
 
 async function adminSuperJson(
@@ -1724,7 +1788,7 @@ async function adminMintPromptJson(
     email: session.email,
     label: label || null,
     source: "admin",
-    expiresDays: Number.isFinite(days) ? days : 30,
+    expiresDays: Number.isFinite(days) ? days : DEFAULT_TOKEN_DAYS,
     scope: target.scope,
   });
   return json({
@@ -2057,20 +2121,38 @@ type AgentTokenRow = {
   source: string;
   created_at: number;
   expires_at: number;
+  last_used_at: number | null;
+  status: "active" | "expiring" | "expired";
 };
 
+const TOKEN_EXPIRING_WINDOW_SEC = 7 * 24 * 60 * 60;
+const TOKEN_EXPIRED_VISIBLE_SEC = 30 * 24 * 60 * 60;
+
+// Expired tokens used to vanish from the list, so "why is my agent getting
+// 401s" had no answer in the UI. They stay visible for a month, marked.
 async function listAgentTokens(
   env: Env,
   orgId: string,
 ): Promise<AgentTokenRow[]> {
+  const now = nowSec();
   const rows = await env.DB.prepare(
-    `SELECT id, label, source, created_at, expires_at FROM creator_tokens
+    `SELECT id, label, source, created_at, expires_at, last_used_at
+     FROM creator_tokens
      WHERE org_id = ? AND revoked_at IS NULL AND expires_at > ?
-     ORDER BY created_at DESC LIMIT 25`,
+     ORDER BY created_at DESC LIMIT 40`,
   )
-    .bind(orgId, nowSec())
-    .all<AgentTokenRow>();
-  return rows.results || [];
+    .bind(orgId, now - TOKEN_EXPIRED_VISIBLE_SEC)
+    .all<Omit<AgentTokenRow, "status">>();
+  return (rows.results || []).map((row) => ({
+    ...row,
+    last_used_at: row.last_used_at ?? null,
+    status:
+      Number(row.expires_at) <= now
+        ? "expired"
+        : Number(row.expires_at) - now <= TOKEN_EXPIRING_WINDOW_SEC
+          ? "expiring"
+          : "active",
+  }));
 }
 
 type QuickPrompt = { prompt: string; expiresAt: number };
@@ -2103,7 +2185,7 @@ async function quickConnectPrompt(
     email: session.email,
     label: "Quick connect",
     source: "quick",
-    expiresDays: 30,
+    expiresDays: DEFAULT_TOKEN_DAYS,
   });
   await env.DB.prepare(
     "UPDATE creator_tokens SET parked_token = ? WHERE id = ?",

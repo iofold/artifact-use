@@ -1,5 +1,5 @@
 import type { Env, PublisherSession, TokenScope } from "./types";
-import { mintCreatorToken } from "./auth";
+import { DEFAULT_TOKEN_DAYS, mintCreatorToken } from "./auth";
 import { agentSetupPrompt } from "./llms";
 import { hashRateKey, rateLimit, rateLimitedResponse, requestIp } from "./rl";
 import { error, json, nowSec, randomId, siteBaseUrl } from "./util";
@@ -9,7 +9,7 @@ import { error, json, nowSec, randomId, siteBaseUrl } from "./util";
 // device_code for a creator bearer token. The token is delivered exactly once.
 
 const CONNECT_TTL_SEC = 15 * 60;
-const CONNECT_TOKEN_DAYS = 30;
+const CONNECT_TOKEN_DAYS = DEFAULT_TOKEN_DAYS;
 const POLL_INTERVAL_SEC = 3;
 // No 0/O/1/I/L — a human retypes this code.
 const USER_CODE_ALPHABET = "23456789ABCDEFGHJKMNPQRSTVWXYZ";

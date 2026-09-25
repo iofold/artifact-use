@@ -25,6 +25,7 @@ import { migratePublisherDataToOrg } from "./db";
 let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
 let jwksUrlCache = "";
 export const CREATOR_TOKEN_PREFIX = "au_creator_";
+export const DEFAULT_TOKEN_DAYS = 90;
 export const ADMIN_CSRF_COOKIE = "au_admin_csrf";
 
 type AdminCsrfPayload = {
@@ -88,10 +89,9 @@ export async function getCreator(
     );
   }
   if (token.startsWith(CREATOR_TOKEN_PREFIX)) {
-    const creator = await verifyCreatorToken(token, env);
-    if (!creator)
-      throw new Error("Artifact Use creator token is invalid or expired");
-    return applyWorkspace(request, env, creator, opts);
+    const inspected = await inspectCreatorToken(token, env);
+    if (!inspected.creator) throw new CreatorTokenError(inspected.reason);
+    return applyWorkspace(request, env, inspected.creator, opts);
   }
   const verified = await jwtVerify(token, getJwks(env), {
     issuer: env.WORKOS_ISSUER,
@@ -186,14 +186,19 @@ export function authRequired(
   env: Env,
   code: string,
   message: string,
+  extra: Record<string, unknown> = {},
 ): Response {
+  // RFC 6750 only knows invalid_token/insufficient_scope; the JSON body
+  // carries the precise code (token_expired, token_revoked, ...).
+  const bearerError =
+    code === "unauthorized" ? "unauthorized" : "invalid_token";
   return json(
-    { error: { code, message } },
+    { error: { code, message, ...extra } },
     {
       status: 401,
       headers: {
         "WWW-Authenticate": [
-          `Bearer error="${code}"`,
+          `Bearer error="${bearerError}"`,
           `error_description="${message.replaceAll('"', "'")}"`,
           `resource_metadata="${env.SITE_BASE_URL}/.well-known/oauth-protected-resource"`,
         ].join(", "),
@@ -454,7 +459,12 @@ export async function mintCreatorToken(
     scope?: TokenScope;
   },
 ): Promise<{ token: string; id: string; expiresAt: number }> {
-  const days = Math.max(1, Math.min(90, Math.floor(input.expiresDays || 30)));
+  // 30 days forced every active creator to re-mint monthly; revocation (not
+  // expiry) is the safety lever, so the default is 90 with a one-year cap.
+  const days = Math.max(
+    1,
+    Math.min(365, Math.floor(input.expiresDays || DEFAULT_TOKEN_DAYS)),
+  );
   const scope: TokenScope = input.scope === "user" ? "user" : "org";
   const now = nowSec();
   const expiresAt = now + days * 86400;
@@ -492,29 +502,85 @@ export async function mintCreatorToken(
   return { token, id, expiresAt };
 }
 
+export type CreatorTokenFailure = "expired" | "revoked" | "invalid";
+
+// An expired token used to be indistinguishable from a forged one: the agent
+// saw the same transport 401 either way and the operator's own runtime ran
+// three weeks on a dead token. The reason now travels to the caller.
+export class CreatorTokenError extends Error {
+  readonly reason: CreatorTokenFailure;
+  constructor(reason: CreatorTokenFailure) {
+    super(
+      reason === "expired"
+        ? "Artifact Use creator token has expired"
+        : reason === "revoked"
+          ? "Artifact Use creator token was revoked"
+          : "Artifact Use creator token is invalid",
+    );
+    this.name = "CreatorTokenError";
+    this.reason = reason;
+  }
+}
+
+// last_used_at is written at most once per five minutes per token so a busy
+// agent does not turn every request into a D1 write.
+const LAST_USED_WRITE_INTERVAL_SEC = 5 * 60;
+
 export async function verifyCreatorToken(
   raw: string,
   env: Env,
 ): Promise<Creator | null> {
-  if (!raw.startsWith(CREATOR_TOKEN_PREFIX)) return null;
+  return (await inspectCreatorToken(raw, env)).creator;
+}
+
+export async function inspectCreatorToken(
+  raw: string,
+  env: Env,
+): Promise<
+  | { creator: Creator; reason?: undefined }
+  | { creator: null; reason: CreatorTokenFailure }
+> {
+  const invalid = { creator: null, reason: "invalid" as const };
+  if (!raw.startsWith(CREATOR_TOKEN_PREFIX)) return invalid;
   const decoded = await verifyPayload<CreatorToken>(
     raw.slice(CREATOR_TOKEN_PREFIX.length),
     env,
   );
-  if (!decoded || decoded.typ !== "creator") return null;
-  if (!decoded.sub || !decoded.org_id) return null;
-  if (!decoded.exp || decoded.exp < nowSec()) return null;
+  if (!decoded || decoded.typ !== "creator") return invalid;
+  if (!decoded.sub || !decoded.org_id) return invalid;
+  const now = nowSec();
+  if (!decoded.exp || decoded.exp < now)
+    return { creator: null, reason: "expired" };
   // Tokens minted since the registry exists carry a jti and honor revocation.
   // A missing registry row is not a failure: the signature already proves
   // authenticity, and local/dev databases may not share the registry.
   if (decoded.jti) {
     const row = await env.DB.prepare(
-      "SELECT revoked_at FROM creator_tokens WHERE id = ?",
+      "SELECT revoked_at, last_used_at FROM creator_tokens WHERE id = ?",
     )
       .bind(decoded.jti)
-      .first<{ revoked_at: number | null }>();
-    if (row?.revoked_at) return null;
+      .first<{ revoked_at: number | null; last_used_at: number | null }>();
+    if (row?.revoked_at) return { creator: null, reason: "revoked" };
+    if (
+      row &&
+      (!row.last_used_at ||
+        now - Number(row.last_used_at) > LAST_USED_WRITE_INTERVAL_SEC)
+    ) {
+      try {
+        await env.DB.prepare(
+          "UPDATE creator_tokens SET last_used_at = ? WHERE id = ?",
+        )
+          .bind(now, decoded.jti)
+          .run();
+      } catch {
+        // Usage bookkeeping must never fail authentication.
+      }
+    }
   }
+  return { creator: creatorFromToken(decoded) };
+}
+
+function creatorFromToken(decoded: CreatorToken): Creator {
   return {
     sub: decoded.sub,
     orgId: decoded.org_id,
@@ -588,6 +654,19 @@ export async function safeCreator(
     return creator || unauthorized(env);
   } catch (e) {
     if (e instanceof WorkspaceError) return error(e.status, e.code, e.message);
+    if (e instanceof CreatorTokenError) {
+      const renewUrl = `${env.SITE_BASE_URL.replace(/\/$/, "")}/admin/connect`;
+      return authRequired(
+        env,
+        `token_${e.reason}`,
+        e.reason === "expired"
+          ? `creator token expired; ask the publisher to mint a new one at ${renewUrl}`
+          : e.reason === "revoked"
+            ? `creator token was revoked; ask the publisher to mint a new one at ${renewUrl}`
+            : e.message,
+        { renew_url: renewUrl },
+      );
+    }
     return authRequired(
       env,
       "invalid_token",

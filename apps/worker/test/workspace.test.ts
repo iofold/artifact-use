@@ -286,9 +286,11 @@ function fakeDb(state: FakeState): unknown {
     return {
       bind: (...next: unknown[]) => statement(sql, next),
       async first(): Promise<unknown> {
-        if (/SELECT revoked_at FROM creator_tokens/.test(sql)) {
+        if (/SELECT revoked_at, last_used_at FROM creator_tokens/.test(sql)) {
           const row = state.tokens.get(String(params[0]));
-          return row ? { revoked_at: row.revoked_at ?? null } : null;
+          return row
+            ? { revoked_at: row.revoked_at ?? null, last_used_at: null }
+            : null;
         }
         if (/SELECT refreshed_at FROM workspace_membership_sync/.test(sql)) {
           const at = state.sync.get(String(params[0]));
@@ -303,6 +305,12 @@ function fakeDb(state: FakeState): unknown {
         throw new Error(`unexpected all(): ${sql}`);
       },
       async run(): Promise<{ meta: { changes: number } }> {
+        if (/UPDATE creator_tokens SET last_used_at/.test(sql)) {
+          return { meta: { changes: 1 } };
+        }
+        if (/INSERT INTO mcp_events/.test(sql)) {
+          return { meta: { changes: 1 } };
+        }
         if (/INSERT INTO creator_tokens/.test(sql)) {
           state.tokens.set(String(params[0]), {
             id: params[0],
