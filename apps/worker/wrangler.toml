@@ -15,10 +15,12 @@ enabled = true
 head_sampling_rate = 1
 
 # Regenerate the injected feedback widget (src/widget/feedback.js ->
-# feedback.generated.ts) and build the React admin SPA (apps/admin-ui ->
-# public/admin-app) before bundling, on both `wrangler dev` and deploy.
+# feedback.generated.ts), render the agent guide (docs/agent-guide.md ->
+# src/llms.generated.ts, served as /llms.txt and /llms-full.txt) and build the
+# React admin SPA (apps/admin-ui -> public/admin-app) before bundling, on both
+# `wrangler dev` and deploy.
 [build]
-command = "node scripts/build-feedback-widget.mjs && cd ../admin-ui && npm run build"
+command = "node scripts/build-feedback-widget.mjs && node scripts/build-llms.mjs && cd ../admin-ui && npm run build"
 
 # The admin SPA is served from Workers Static Assets; the worker gates /admin*
 # behind the publisher session and serves the shell.

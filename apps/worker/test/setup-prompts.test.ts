@@ -69,3 +69,52 @@ test("llms.txt gives Claude Code URL-only MCP OAuth", async () => {
   assert.match(prompt, /\/mcp/);
   assert.match(prompt, /Authenticate/);
 });
+
+test("llms.txt retires the device-code connect flow for quick connect", async () => {
+  const prompt = await prompts.llmsTxt(env).text();
+  assert.doesNotMatch(prompt, /connect\/start|connect\/poll|device_code/);
+  assert.match(prompt, /https:\/\/artifacts\.example\.com\/admin\/connect/);
+  assert.match(prompt, /token_expired/);
+  assert.match(prompt, /never publishes unless/i);
+  assert.match(prompt, /https:\/\/artifacts\.example\.com\/llms-full\.txt/);
+  assert.doesNotMatch(
+    prompt,
+    /artifacts\.iofold\.com|\{\{BASE\}\}|\{\{PREFIX\}\}/,
+  );
+  assert.doesNotMatch(prompt, /<!-- \/?llms\.txt -->/);
+});
+
+test("llms-full.txt is rendered from docs/agent-guide.md for this deployment", async () => {
+  const prefixed = { ...env, ARTIFACT_PUBLIC_PATH_PREFIX: "/p" } as Env;
+  const prompt = await prompts.llmsFullTxt(prefixed).text();
+  assert.match(prompt, /^# Artifact Use Agent Guide\n/);
+  assert.match(
+    prompt,
+    /https:\/\/artifacts\.example\.com\/p\/\{artifact-slug\}-\{six-character-code\}\//,
+  );
+  assert.doesNotMatch(
+    prompt,
+    /artifacts\.iofold\.com|\{\{BASE\}\}|\{\{PREFIX\}\}|\/go\//,
+  );
+  assert.doesNotMatch(prompt, /connect\/start|connect\/poll|device_code/);
+  for (const needle of [
+    "set_upstream",
+    "X-Artifact-Viewer-Email",
+    "X-Artifact-Use-Workspace",
+    ".artifact-use.json",
+    "client_ref",
+    "token_expired",
+    "renew_url",
+    "isError",
+    "structuredContent.error",
+    "file_count",
+    "package_bytes",
+    "confirm: true",
+    "2 MiB",
+    "AGENTS.md",
+  ])
+    assert.ok(
+      prompt.includes(needle),
+      `llms-full.txt should mention ${needle}`,
+    );
+});
