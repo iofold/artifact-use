@@ -7,6 +7,7 @@ import type {
   Env,
   GateLevel,
 } from "./types";
+import type { ShareLink, ShareLinkKind } from "./links";
 import {
   artifactUrlCode,
   artifactUrlKey,
@@ -564,29 +565,129 @@ export async function clearArtifactUpstream(
     .run();
 }
 
+// Columns returned for every share-link read; the passcode hash and salt
+// only ever leave the table for verification (getShareLink), never for
+// listings that reach an API response.
+const SHARE_LINK_COLUMNS =
+  "id, artifact_id, kind, label, recipient_email, recipient_label, max_opens, open_count, last_opened_at, expires_at, revoked_at, created_by, created_at";
+
+export interface CreateShareLinkInput {
+  kind: ShareLinkKind;
+  label: string | null;
+  recipientEmail: string | null;
+  recipientLabel: string | null;
+  // Already hashed (see links.ts); null for every kind but password.
+  passwordHash: string | null;
+  passwordSalt: string | null;
+  expiresAt: number | null;
+  maxOpens: number | null;
+}
+
 export async function createShareLink(
   env: Env,
   artifact: Artifact,
   creator: Creator,
-  recipientEmail: string | null,
-  recipientLabel: string | null,
-  expiresAt: number | null,
-): Promise<string> {
+  input: CreateShareLinkInput,
+): Promise<ShareLink> {
   const id = randomId("sh").slice(3, 19);
+  const now = nowSec();
   await env.DB.prepare(
-    "INSERT INTO share_links (id, artifact_id, recipient_email, recipient_label, expires_at, created_by, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+    `INSERT INTO share_links
+      (id, artifact_id, kind, label, recipient_email, recipient_label, password_hash, password_salt, max_opens, expires_at, created_by, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       id,
       artifact.id,
-      recipientEmail,
-      recipientLabel,
-      expiresAt,
+      input.kind,
+      input.label,
+      input.recipientEmail,
+      input.recipientLabel,
+      input.passwordHash,
+      input.passwordSalt,
+      input.maxOpens,
+      input.expiresAt,
       creator.sub,
-      nowSec(),
+      now,
     )
     .run();
-  return id;
+  return {
+    id,
+    artifact_id: artifact.id,
+    kind: input.kind,
+    label: input.label,
+    recipient_email: input.recipientEmail,
+    recipient_label: input.recipientLabel,
+    max_opens: input.maxOpens,
+    open_count: 0,
+    last_opened_at: null,
+    expires_at: input.expiresAt,
+    revoked_at: null,
+    created_by: creator.sub,
+    created_at: now,
+  };
+}
+
+// The one read that carries the hash and salt: the gate needs them to verify
+// a passcode. Scoped to the artifact so a link id can never be replayed
+// against another artifact.
+export async function getShareLink(
+  env: Env,
+  artifactId: string,
+  id: string,
+): Promise<ShareLink | null> {
+  if (!id) return null;
+  return env.DB.prepare(
+    `SELECT ${SHARE_LINK_COLUMNS}, password_hash, password_salt
+     FROM share_links WHERE id = ? AND artifact_id = ?`,
+  )
+    .bind(id, artifactId)
+    .first<ShareLink>();
+}
+
+export async function listShareLinks(
+  env: Env,
+  artifactId: string,
+): Promise<ShareLink[]> {
+  const res = await env.DB.prepare(
+    `SELECT ${SHARE_LINK_COLUMNS.split(", ")
+      .map((c) => `sl.${c}`)
+      .join(", ")}, COUNT(v.id) AS view_count
+     FROM share_links sl
+     LEFT JOIN views v ON v.share_link_id = sl.id
+     WHERE sl.artifact_id = ?
+     GROUP BY sl.id
+     ORDER BY sl.created_at DESC`,
+  )
+    .bind(artifactId)
+    .all<ShareLink>();
+  return res.results || [];
+}
+
+export async function revokeShareLink(
+  env: Env,
+  artifactId: string,
+  id: string,
+): Promise<boolean> {
+  const result = await env.DB.prepare(
+    "UPDATE share_links SET revoked_at = ? WHERE id = ? AND artifact_id = ? AND revoked_at IS NULL",
+  )
+    .bind(nowSec(), id, artifactId)
+    .run();
+  return result.meta.changes > 0;
+}
+
+// One open per viewer session (the gate pass), never per asset request.
+export async function recordShareLinkOpen(
+  env: Env,
+  artifactId: string,
+  id: string,
+): Promise<void> {
+  await env.DB.prepare(
+    "UPDATE share_links SET open_count = open_count + 1, last_opened_at = ? WHERE id = ? AND artifact_id = ?",
+  )
+    .bind(nowSec(), id, artifactId)
+    .run();
 }
 
 export async function insertView(

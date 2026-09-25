@@ -99,7 +99,7 @@ export const artifactUploadSessionTool: ToolSchema = {
 export const artifactManageTool: ToolSchema = {
   name: "artifact_manage",
   description:
-    "List artifacts, fetch stats, update access or public link-preview details, point an artifact at an upstream backend that gated viewers reach via its `_api/` path, create a tracked share link, permanently delete an artifact, or list the workspaces this credential can publish to.",
+    "List artifacts, fetch stats, update access or public link-preview details, point an artifact at an upstream backend that gated viewers reach via its `_api/` path, create/list/revoke share links (recipient, password, or open; every link passes the gate until it expires, is revoked, or hits max_opens), permanently delete an artifact, or list the workspaces this credential can publish to.",
   inputSchema: {
     type: "object",
     required: ["action"],
@@ -113,6 +113,8 @@ export const artifactManageTool: ToolSchema = {
           "set_preview",
           "set_upstream",
           "share_link",
+          "share_links",
+          "revoke_link",
           "delete",
           "move",
           "workspaces",
@@ -145,9 +147,29 @@ export const artifactManageTool: ToolSchema = {
         description:
           "set_upstream: bearer token sent to the upstream as Authorization: Bearer <secret>. Write-only; never returned.",
       },
+      kind: {
+        type: "string",
+        enum: ["recipient", "password", "open"],
+        description:
+          "share_link: recipient (URL is the credential for one named person, default), password (viewer types a passcode; returned once), open (anyone with the URL).",
+      },
+      label: { type: "string", description: "share_link: shown in the admin." },
       recipient_email: { type: "string" },
       recipient_label: { type: "string" },
-      expires_days: { type: "number" },
+      passcode: {
+        type: "string",
+        description:
+          "share_link kind=password: custom passcode (6-72 chars); generated when omitted.",
+      },
+      expires_days: { type: "number", description: "share_link: 1-365." },
+      max_opens: {
+        type: "number",
+        description: "share_link: opens allowed before the link stops working.",
+      },
+      link_id: {
+        type: "string",
+        description: "revoke_link: id from share_links.",
+      },
       to_workspace: {
         type: "string",
         description:

@@ -27,11 +27,27 @@ import {
   getArtifactForOrg,
   getArtifactUpstream,
   listArtifactsForOrg,
+  listShareLinks,
   moveArtifactToOrg,
+  revokeShareLink,
   setArtifactUpstream,
   updateArtifactAccess,
   updateArtifactPreview,
 } from "./db";
+import { validEmail } from "./gate";
+import {
+  PASSCODE_MAX,
+  PASSCODE_MIN,
+  SHARE_LINK_KINDS,
+  type ShareLinkKind,
+  UNLISTED_NOTE,
+  gateLevelForPreset,
+  generatePasscode,
+  hashPasscode,
+  normalizePasscode,
+  randomSalt,
+  shareLinkJson,
+} from "./links";
 import { normalizeArtifactDescription } from "./preview";
 import { normalizeUpstreamUrl, upstreamSummary } from "./upstream";
 import {
@@ -163,10 +179,23 @@ export async function handleAdminApi(
         title?: string;
         description?: string | null;
         gate_level?: GateLevel;
+        access_preset?: unknown;
         allowlist?: unknown;
         upstream?: { base_url?: unknown; secret?: unknown } | null;
       };
-      const level = body.gate_level || null;
+      // `access_preset` is a friendlier spelling of the same four levels:
+      // open, email, client (= verified_email), restricted (= allowlist).
+      if (
+        body.access_preset !== undefined &&
+        !gateLevelForPreset(body.access_preset)
+      )
+        return error(
+          400,
+          "invalid_access_preset",
+          "access_preset must be one of open, email, client, restricted",
+        );
+      const level =
+        body.gate_level || gateLevelForPreset(body.access_preset) || null;
       if (level && !GATE_LEVELS.has(level))
         return error(400, "invalid_gate_level", "gate_level is not supported");
       const allowlistJson =
@@ -300,30 +329,48 @@ export async function handleAdminApi(
       return json({ ok: true, deleted: artifact.url_key });
     }
 
-    if (request.method === "POST" && parsed.action === "share-links") {
+    if (parsed.action === "share-links") {
+      // Links are credentials (an open link passes the gate outright), so
+      // listing them is a manage_access operation, like minting one.
       requirePermission(creator, env, "artifacts:manage_access");
-      const body = (await request.json()) as {
-        recipient_email?: string;
-        recipient_label?: string;
-        expires_days?: number;
-      };
-      const expiresAt = body.expires_days
-        ? nowSec() +
-          Math.max(1, Math.min(365, Number(body.expires_days))) * 86400
-        : null;
-      const id = await createShareLink(
-        env,
-        artifact,
-        creator,
-        body.recipient_email ? normalizeEmail(body.recipient_email) : null,
-        body.recipient_label || null,
-        expiresAt,
-      );
-      return json({
-        id,
-        url: `${publicArtifactUrl(env, artifact.url_key)}?v=${id}`,
-        expires_at: expiresAt,
-      });
+      if (request.method === "GET" && !parsed.sub) {
+        const links = await listShareLinks(env, artifact.id);
+        return json({
+          links: links.map((link) =>
+            shareLinkJson(env, artifact.url_key, link),
+          ),
+        });
+      }
+      if (request.method === "DELETE" && parsed.sub) {
+        const revoked = await revokeShareLink(env, artifact.id, parsed.sub);
+        if (!revoked)
+          return error(
+            404,
+            "link_not_found",
+            "share link not found or already revoked",
+          );
+        return json({ ok: true, id: parsed.sub, state: "revoked" });
+      }
+      if (request.method === "POST" && !parsed.sub) {
+        const body = (await request.json().catch(() => ({}))) as {
+          kind?: unknown;
+          recipient_email?: unknown;
+          recipient_label?: unknown;
+          label?: unknown;
+          passcode?: unknown;
+          expires_days?: unknown;
+          max_opens?: unknown;
+        };
+        const created = await createShareLinkFromInput(
+          env,
+          artifact,
+          creator,
+          body,
+        );
+        if (created instanceof Response) return created;
+        return json(created);
+      }
+      return error(405, "method_not_allowed", "method not allowed");
     }
 
     if (request.method === "GET" && parsed.action === "stats") {
@@ -338,21 +385,12 @@ export async function handleAdminApi(
       )
         .bind(artifact.id)
         .all();
-      const links = await env.DB.prepare(
-        `SELECT sl.*, COUNT(v.id) AS view_count
-         FROM share_links sl
-         LEFT JOIN views v ON v.share_link_id = sl.id
-         WHERE sl.artifact_id = ?
-         GROUP BY sl.id
-         ORDER BY sl.created_at DESC`,
-      )
-        .bind(artifact.id)
-        .all();
+      const links = await listShareLinks(env, artifact.id);
       return json({
         artifact,
         views,
         recent: recent.results || [],
-        links: links.results || [],
+        links: links.map((link) => shareLinkJson(env, artifact.url_key, link)),
       });
     }
 
@@ -450,6 +488,8 @@ interface ParsedArtifactPath {
   legacyPrefix?: string;
   legacyArtifact?: string;
   action: string;
+  // `/artifacts/{ref}/share-links/{id}`: the item under an action.
+  sub?: string;
 }
 
 function parseArtifactApiPath(path: string): ParsedArtifactPath | null {
@@ -477,6 +517,13 @@ function parseArtifactApiPath(path: string): ParsedArtifactPath | null {
       action: "",
     };
   }
+  if (segments[1] === "share-links") {
+    return {
+      ref: assertArtifactRef(segments[0] || ""),
+      action: "share-links",
+      sub: assertLinkId(segments[2] || ""),
+    };
+  }
   return {
     legacyPrefix: assertArtifactRef(segments[0] || ""),
     legacyArtifact: assertArtifactRef(segments[1] || ""),
@@ -502,6 +549,108 @@ async function apiArtifact(
     );
   }
   return null;
+}
+
+function assertLinkId(value: string): string {
+  if (!/^[a-z0-9]{8,64}$/i.test(value))
+    throw new Error("share link id must be 8-64 alphanumeric characters");
+  return value;
+}
+
+// Shared by the JSON API (and so the MCP tool) and the admin sheet: validate,
+// hash the passcode, insert, and answer with the link object plus the
+// passcode — the only time it is ever shown.
+export async function createShareLinkFromInput(
+  env: Env,
+  artifact: Artifact,
+  creator: Creator,
+  body: {
+    kind?: unknown;
+    recipient_email?: unknown;
+    recipient_label?: unknown;
+    label?: unknown;
+    passcode?: unknown;
+    expires_days?: unknown;
+    max_opens?: unknown;
+  },
+): Promise<Record<string, unknown> | Response> {
+  const kind =
+    (String(body.kind || "recipient") as ShareLinkKind) || "recipient";
+  if (!SHARE_LINK_KINDS.includes(kind))
+    return error(
+      400,
+      "invalid_link_kind",
+      "kind must be one of recipient, password, open",
+    );
+  const recipientEmail = body.recipient_email
+    ? normalizeEmail(String(body.recipient_email))
+    : null;
+  if (recipientEmail && !validEmail(recipientEmail))
+    return error(
+      400,
+      "invalid_email",
+      "recipient_email is not a valid address",
+    );
+  const recipientLabel = trimmed(body.recipient_label, 120);
+  const label = trimmed(body.label, 120);
+  const expiresDays = numberOrNull(body.expires_days);
+  if (expiresDays !== null && !(expiresDays >= 1 && expiresDays <= 365))
+    return error(400, "invalid_expiry", "expires_days must be 1-365");
+  const expiresAt = expiresDays
+    ? nowSec() + Math.floor(expiresDays) * 86400
+    : null;
+  const maxOpens = numberOrNull(body.max_opens);
+  if (maxOpens !== null && !(maxOpens >= 1 && maxOpens <= 100000))
+    return error(400, "invalid_max_opens", "max_opens must be 1-100000");
+  let passcode: string | null = null;
+  let passwordHash: string | null = null;
+  let passwordSalt: string | null = null;
+  const customPasscode = normalizePasscode(body.passcode);
+  if (kind === "password") {
+    passcode = customPasscode || generatePasscode();
+    if (passcode.length < PASSCODE_MIN || passcode.length > PASSCODE_MAX)
+      return error(
+        400,
+        "invalid_passcode",
+        `passcode must be ${PASSCODE_MIN}-${PASSCODE_MAX} characters`,
+      );
+    passwordSalt = randomSalt();
+    passwordHash = await hashPasscode(passcode, passwordSalt);
+  } else if (customPasscode) {
+    return error(
+      400,
+      "invalid_passcode",
+      "passcode only applies to kind=password",
+    );
+  }
+  const link = await createShareLink(env, artifact, creator, {
+    kind,
+    label,
+    recipientEmail,
+    recipientLabel,
+    passwordHash,
+    passwordSalt,
+    expiresAt,
+    maxOpens: maxOpens ? Math.floor(maxOpens) : null,
+  });
+  return {
+    ...shareLinkJson(env, artifact.url_key, link),
+    ...(passcode ? { passcode } : {}),
+    note: passcode
+      ? `Share the url and the passcode separately; the passcode is shown only now. ${UNLISTED_NOTE}`
+      : UNLISTED_NOTE,
+  };
+}
+
+function trimmed(value: unknown, max: number): string | null {
+  const text = String(value ?? "").trim();
+  return text ? text.slice(0, max) : null;
+}
+
+function numberOrNull(value: unknown): number | null {
+  if (value === undefined || value === null || value === "") return null;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : NaN;
 }
 
 function assertArtifactRef(value: string): string {
