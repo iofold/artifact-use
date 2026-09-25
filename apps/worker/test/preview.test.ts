@@ -4,7 +4,7 @@ import {
   artifactManageTool,
   artifactPublishTool,
   artifactUploadSessionTool,
-} from "@iofold/artifact-use-core/schemas";
+} from "artifact-use-core/schemas";
 import { handleMcp } from "../src/mcp.ts";
 import {
   ARTIFACT_FAVICON_SVG,

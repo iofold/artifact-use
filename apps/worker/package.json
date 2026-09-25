@@ -16,7 +16,7 @@
     "deploy:prod": "node scripts/check-legal-assets.mjs wrangler.prod.toml && wrangler deploy --config wrangler.prod.toml"
   },
   "dependencies": {
-    "@iofold/artifact-use-core": "*",
+    "artifact-use-core": "*",
     "jose": "^5.9.6"
   },
   "devDependencies": {

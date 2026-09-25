@@ -37,8 +37,8 @@ Use this order:
 
 1. Hosted HTTP MCP at `https://artifacts.iofold.com/mcp`, using the auth path
    for the current harness (section 2).
-2. Local stdio MCP (`npx -y @iofold/artifact-use-mcp`) or the CLI
-   (`npx -y @iofold/artifact-use`) when the agent has to walk a local folder or
+2. Local stdio MCP (`npx -y artifact-use-mcp`) or the CLI
+   (`npx -y artifact-use`) when the agent has to walk a local folder or
    the harness cannot speak hosted MCP.
 3. The HTTP API (`docs/API.md`) when neither MCP nor the CLI is available.
 
@@ -183,7 +183,7 @@ A stdio MCP entry for clients that launch local servers:
   "mcpServers": {
     "artifact-use": {
       "command": "npx",
-      "args": ["-y", "@iofold/artifact-use-mcp"],
+      "args": ["-y", "artifact-use-mcp"],
       "env": { "ARTIFACT_USE_TOKEN": "au_creator_..." }
     }
   }
@@ -442,7 +442,7 @@ Rules:
 
 ## 8. CLI examples
 
-Install or run the CLI with `npx -y @iofold/artifact-use` (the commands below use
+Install or run the CLI with `npx -y artifact-use` (the commands below use
 the `artifact-use` binary name). All commands print JSON; `--workspace <org id
 or slug>` targets a workspace for user-scoped tokens.
 

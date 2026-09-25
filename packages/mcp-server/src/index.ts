@@ -14,13 +14,13 @@ import {
   resolveConfig,
   uploadFiles,
   validatePath,
-} from "@iofold/artifact-use-core";
+} from "artifact-use-core";
 import {
   artifactCommentsTool,
   artifactManageTool,
   artifactPublishLocalTool,
   artifactUploadSessionTool,
-} from "@iofold/artifact-use-core/schemas";
+} from "artifact-use-core/schemas";
 
 const baseConf = resolveConfig();
 
