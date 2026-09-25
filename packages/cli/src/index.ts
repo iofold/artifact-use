@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { readFileSync } from "node:fs";
 import { parseArgs } from "node:util";
 import { api, publishFolder, resolveConfig } from "artifact-use-core";
 
@@ -125,6 +126,27 @@ const SCHEMAS = {
   },
 };
 
+// One-line summaries for the usage text, in display order. Commands with a
+// JSON input also appear in SCHEMAS; the rest take no --json.
+const SUMMARIES: Record<string, string> = {
+  "publish-html":
+    "Publish one HTML page as an artifact; pass the url_key as artifact to republish.",
+  "publish-folder":
+    "Publish a local folder; --dry-run prints the manifest without uploading.",
+  list: "List the workspace's artifacts.",
+  stats: "View counts and gate statistics for an artifact.",
+  gate: "Change who can open an artifact (gate level and allowlist).",
+  preview: "Set the public title and link-preview description.",
+  share: "Create a tracked share link for one recipient.",
+  comments: "List, post, resolve, or reopen reviewer comments.",
+  workspaces: "List the workspaces this token can publish to.",
+  schema: "Print a command's JSON input schema; --all prints every schema.",
+  help: "Print this usage; help <command> prints that command's JSON schema.",
+};
+
+const HELP_FLAGS = new Set(["help", "--help", "-h"]);
+const VERSION_FLAGS = new Set(["--version", "-v"]);
+
 main().catch((e) => {
   console.error(
     JSON.stringify({
@@ -135,7 +157,14 @@ main().catch((e) => {
 });
 
 async function main(): Promise<void> {
-  const command = process.argv[2] || "help";
+  const argv = process.argv.slice(2);
+  const command = argv[0] || "help";
+  // Help and version are the only human-first outputs; every real command
+  // stays JSON on stdout so shells and agents can pipe it.
+  if (VERSION_FLAGS.has(command)) return print(`${packageVersion()}\n`);
+  if (HELP_FLAGS.has(command)) return help(argv[1]);
+  if (argv.slice(1).some((arg) => HELP_FLAGS.has(arg) && arg !== "help"))
+    return help(command);
   const args = parseArgs({
     args: process.argv.slice(3),
     options: {
@@ -155,12 +184,6 @@ async function main(): Promise<void> {
   });
   const input = args.values.json ? JSON.parse(String(args.values.json)) : {};
 
-  if (command === "help")
-    return output({
-      commands: Object.keys(SCHEMAS).concat(["list", "workspaces", "schema"]),
-      workspace:
-        'multi-workspace tokens: pass --workspace <org id or slug>, set ARTIFACT_USE_WORKSPACE, or pin a project with .artifact-use.json {"workspace": "..."}; list yours with the workspaces command',
-    });
   if (command === "workspaces")
     return output(await api(conf, "GET", "/api/v1/workspaces"));
   if (command === "schema") {
@@ -253,5 +276,122 @@ async function comments(
 }
 
 function output(value: unknown): void {
-  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+  print(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function print(text: string): void {
+  process.stdout.write(text);
+}
+
+// `help` alone prints the usage; `help <command>` (or `<command> --help`)
+// prints that command's JSON input schema so an agent can fill it in.
+function help(name: string | undefined): void {
+  if (!name) return print(usage());
+  if (!(name in SUMMARIES)) throw new Error(`unknown command: ${name}`);
+  const schema = (SCHEMAS as Record<string, unknown>)[name];
+  return output(
+    schema || { type: "object", properties: {}, description: SUMMARIES[name] },
+  );
+}
+
+function usage(): string {
+  const width = Math.max(...Object.keys(SUMMARIES).map((n) => n.length)) + 4;
+  const lines = [
+    "Usage: artifact-use <command> [--json '<input object>'] [options]",
+    "",
+    "Publish HTML and static folders as stable, gated, reviewable links, then",
+    "manage access, share links, stats, and reviewer comments.",
+    "",
+    "Commands (input fields: required, then [optional]):",
+  ];
+  for (const [name, summary] of Object.entries(SUMMARIES)) {
+    lines.push(`  ${name.padEnd(width)}${fieldSummary(name)}`);
+    lines.push(`  ${"".padEnd(width)}${summary}`);
+  }
+  lines.push("", "Values:");
+  for (const [label, values] of enumValues())
+    lines.push(`  ${label.padEnd(width)}${values}`);
+  lines.push(
+    "",
+    "Options:",
+    "  --json '<object>'      input fields for the command, as one JSON object",
+    "  --workspace <id|slug>  target workspace for user-scoped tokens",
+    "  --api-base <url>       API base URL (default https://artifacts.iofold.com)",
+    "  --token <token>        creator token (mint one at <api base>/admin/connect)",
+    "  --dry-run              publish-folder: print the manifest without uploading",
+    "  --all                  schema: print every command's schema",
+    "  --version, -v          print the CLI version",
+    "  --help, -h             print this usage; <command> --help prints its schema",
+    "",
+    "Environment:",
+    "  ARTIFACT_USE_TOKEN       creator token (--token overrides)",
+    "  ARTIFACT_USE_API_BASE    API base URL (--api-base overrides)",
+    "  ARTIFACT_USE_WORKSPACE   workspace for user-scoped tokens (--workspace",
+    '                           overrides; .artifact-use.json {"workspace": "..."}',
+    "                           pins a project)",
+    "",
+    "Output: every command prints one JSON document on stdout. Failures print",
+    '{"error":{"message":...}} on stderr and exit 1.',
+    "",
+  );
+  return lines.join("\n");
+}
+
+function fieldSummary(name: string): string {
+  const schema = (SCHEMAS as Record<string, CommandSchema>)[name];
+  if (!schema) {
+    if (name === "schema") return "[command] [--all]";
+    return name === "help" ? "[command]" : "(no input)";
+  }
+  const required = schema.required || [];
+  const optional = Object.keys(schema.properties).filter(
+    (key) => !required.includes(key),
+  );
+  return [
+    required.join(", "),
+    optional.length ? `[${optional.join(", ")}]` : "",
+  ]
+    .filter(Boolean)
+    .join("  ");
+}
+
+// Every enum in SCHEMAS, keyed by the bare field name when several commands
+// share its values and by command.field otherwise.
+function enumValues(): Array<[string, string]> {
+  const byField = new Map<string, Map<string, string[]>>();
+  for (const [name, schema] of Object.entries(SCHEMAS) as Array<
+    [string, CommandSchema]
+  >) {
+    for (const [field, prop] of Object.entries(schema.properties)) {
+      if (!Array.isArray(prop.enum)) continue;
+      const values = prop.enum.map((value) =>
+        value === prop.default ? `${value} (default)` : String(value),
+      );
+      const commands = byField.get(field) || new Map<string, string[]>();
+      commands.set(name, values);
+      byField.set(field, commands);
+    }
+  }
+  const rows: Array<[string, string]> = [];
+  for (const [field, commands] of byField) {
+    const distinct = new Set([...commands.values()].map((v) => v.join("|")));
+    if (distinct.size === 1 && commands.size > 1)
+      rows.push([field, [...commands.values()][0]!.join(" | ")]);
+    else
+      for (const [name, values] of commands)
+        rows.push([`${name}.${field}`, values.join(" | ")]);
+  }
+  return rows;
+}
+
+interface CommandSchema {
+  required?: string[];
+  properties: Record<string, { enum?: unknown[]; default?: unknown }>;
+}
+
+function packageVersion(): string {
+  const pkg = JSON.parse(
+    readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+  ) as { version: string };
+  return pkg.version;
 }

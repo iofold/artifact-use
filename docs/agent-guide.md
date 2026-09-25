@@ -444,7 +444,10 @@ Rules:
 
 Install or run the CLI with `npx -y artifact-use-cli` (the commands below use
 the `artifact-use` binary name). All commands print JSON; `--workspace <org id
-or slug>` targets a workspace for user-scoped tokens.
+or slug>` targets a workspace for user-scoped tokens. `artifact-use --help`
+prints the usage (every command with its required and optional fields, the
+flags, and the environment variables); `artifact-use help <command>` prints
+that command's JSON input schema.
 
 Single HTML:
 

@@ -22,6 +22,9 @@ Commands: `publish-html`, `publish-folder` (`--dry-run` previews the
 manifest), `list`, `stats`, `gate`, `preview`, `share`, `comments`,
 `workspaces`, and `schema --all` for every command's JSON schema. Pass an
 existing artifact's `url_key` as `artifact` to republish it in place.
+`artifact-use --help` prints the usage with each command's fields and the
+environment variables; `artifact-use help <command>` prints that command's
+input schema; `--version` prints the CLI version.
 `--workspace <org id or slug>`, `ARTIFACT_USE_WORKSPACE`, or a project
 `.artifact-use.json` selects the workspace for user-scoped tokens.
 
