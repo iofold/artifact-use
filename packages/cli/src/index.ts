@@ -37,7 +37,6 @@ const SCHEMAS = {
         description:
           "Publish even when the HTML contains what look like credentials (the server otherwise refuses with secrets_detected).",
       },
-      allow_secrets: { type: "boolean" },
     },
   },
   preview: {
