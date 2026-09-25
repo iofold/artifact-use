@@ -8,6 +8,7 @@ import type {
   GateLevel,
 } from "./types";
 import type { ShareLink, ShareLinkKind } from "./links";
+import type { ViewKind, ViewSource } from "./views";
 import {
   artifactUrlCode,
   artifactUrlKey,
@@ -690,6 +691,16 @@ export async function recordShareLinkOpen(
     .run();
 }
 
+// The viewer's IP, hashed and truncated: enough to tell two visitors apart,
+// never enough to name one.
+export async function viewerIpHash(request: Request): Promise<string | null> {
+  const ip = request.headers.get("CF-Connecting-IP") || "";
+  return ip ? (await sha256Hex(ip)).slice(0, 32) : null;
+}
+
+// kind (human / agent / automation) and source (gate / link / public /
+// session) are decided by the caller at insert time: see views.ts. The
+// dashboard counts people by kind, so a row is never re-judged later.
 export async function insertView(
   env: Env,
   artifact: Artifact,
@@ -697,13 +708,13 @@ export async function insertView(
   email: string,
   verified: boolean,
   request: Request,
+  meta: { kind: ViewKind; source: ViewSource | null },
 ): Promise<number> {
   const ua = request.headers.get("User-Agent");
   const referrer = request.headers.get("Referer");
-  const ip = request.headers.get("CF-Connecting-IP") || "";
-  const ipHash = ip ? (await sha256Hex(ip)).slice(0, 32) : null;
+  const ipHash = await viewerIpHash(request);
   const result = await env.DB.prepare(
-    "INSERT INTO views (artifact_id, version_id, share_link_id, email, verified, ip_hash, ua, referrer, ts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO views (artifact_id, version_id, share_link_id, email, verified, ip_hash, ua, referrer, ts, kind, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   )
     .bind(
       artifact.id,
@@ -715,6 +726,8 @@ export async function insertView(
       ua,
       referrer,
       nowSec(),
+      meta.kind,
+      meta.source,
     )
     .run();
   return Number(result.meta.last_row_id);
