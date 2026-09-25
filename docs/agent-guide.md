@@ -721,3 +721,18 @@ receive an artifact link from a human:
 - A session minted through a share link carries the link's identity
   (`recipient_email`, or `link:{id}` for password and open links) and stops
   working the moment the link is revoked or expires.
+
+## 15. Views: what your own reads count as
+
+Reading an artifact with your creator token or MCP OAuth token records
+nothing: the dashboard's "people" numbers are for the publisher's audience,
+not for the agent checking its own work. Fetches that do pass a gate (a
+viewer-session bearer, a share link) are recorded but tagged `agent` from your
+User-Agent (`claude-code/*`, `codex-mcp-client/*`, `Claude-User`, and the
+other harnesses listed in the API docs), and headless browsers or `curl`
+runs are tagged `automation`; both are shown separately from people and never
+inflate the headline count. `artifact_manage stats` returns
+`views.people`, `views.agents`, `views.unique_people`, `views.self_reported`,
+`views.verified`, `views.via_link` and `views.public`, so when a human asks
+"did anyone look?", answer with `people`, and say "self-reported" for plain
+email-gate identities.

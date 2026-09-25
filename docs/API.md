@@ -296,7 +296,8 @@ The title, description, generated thumbnail, and favicon are intentionally avail
 
 Gate levels (`gate_level` on publish and on `PATCH`):
 
-- `public`: anyone with the link; no view is recorded.
+- `public`: anyone with the link. A person's first page load in 24 hours is
+  recorded as an anonymous view (see "What Counts As A View").
 - `email`: the viewer types an email and is let in. The address is
   syntax-checked and its domain must publish an MX or A record (checked over
   DNS-over-HTTPS, fail-open on resolver errors), but it is never verified;
@@ -453,3 +454,72 @@ POST {artifact url}_api/api/items       ->  POST {base_url}/api/items
   backend's cookies and CORS headers never reach the viewer.
 - Without a viewer session the path answers the machine-readable gate (`401`
   JSON) regardless of `Accept`; the page must be opened through the gate first.
+
+## What Counts As A View
+
+A view row means a person's browser was served the artifact, once per way of
+getting in. It is written when:
+
+- an `email`, `verified_email` or `allowlist` gate is passed (a 30-day viewer
+  session is minted; later page and asset loads inside that session are not
+  new views);
+- a share link passes the gate (`source: "link"`);
+- a signed-in member of the publishing workspace passes through the gate
+  (`source: "session"`);
+- a `public` artifact's HTML page is served to a browser that has not been
+  seen on that artifact in the last 24 hours (`source: "public"`). A
+  `au_seen_<artifact id>` cookie scoped to the artifact path is the window;
+  nothing is asked of the viewer, so the identity is `public:<ip hash>`.
+
+Every row is classified from the `User-Agent` at insert time:
+
+| `kind`       | who                                                       | examples                                                                                                                                                                                                             |
+| ------------ | --------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `human`      | a browser driven by a person (the default)                | Chrome, Safari, Firefox                                                                                                                                                                                              |
+| `agent`      | a coding agent or assistant fetching the page             | `claude-code/*`, `codex-mcp-client/*`, `Claude-User`, `ChatGPT-User`, `Hermes-Agent`, `opencode`, `cursor`, `kiro`, `Hypermodel-*`                                                                                   |
+| `automation` | headless browsers, HTTP clients, link unfurlers, empty UA | `HeadlessChrome`, `curl`, `python-requests`/`httpx`/`urllib`, `aiohttp`, `node`/`undici`, `Bun`, `Go-http-client`, `Wget`, Slackbot, facebookexternalhit, Twitterbot, WhatsApp, TelegramBot, Discordbot, LinkedInBot |
+
+Never a view: asset requests (CSS, JS, images, fonts), `HEAD` requests, reads
+with a creator token or MCP OAuth token (an agent fetching what it published),
+the publisher's own signed-in session on a public artifact, and anything
+classified `agent` or `automation` on the public path. Gate passes by agents
+and automation are still recorded, tagged with their kind, so they can be
+shown separately rather than silently mixed in.
+
+`GET /api/v1/artifacts/{artifact_key}/stats` returns:
+
+```json
+{
+  "views": {
+    "total": 12,
+    "unique_viewers": 7,
+    "last_ts": 1758700000,
+    "people": 9,
+    "agents": 3,
+    "unique_people": 5,
+    "self_reported": 4,
+    "verified": 3,
+    "via_link": 1,
+    "public": 2
+  },
+  "recent": [
+    {
+      "email": "…",
+      "verified": 1,
+      "kind": "human",
+      "source": "gate",
+      "ts": 1758700000,
+      "referrer": null
+    }
+  ]
+}
+```
+
+`total`, `unique_viewers` and `last_ts` count every row. `people` is rows
+with `kind: "human"`; `agents` is everything else. The remaining fields are
+facets of `people`: `verified` (one-time code or WorkOS login), `via_link`
+(a share link on the row; may also be verified), `public` (the public path),
+and `self_reported` (the plain `email` gate took the viewer's word: not
+verified, no link, not public). The admin dashboard's headline numbers and
+daily chart use people only; agents are a toggle. No email domain is ever
+excluded by name: `kind` is the only mechanism.
