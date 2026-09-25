@@ -169,7 +169,7 @@ idempotent across retries.
 
 ## Advanced CLI, HTTP, And Local Stdio Fallbacks
 
-Hosted MCP is the normal path. The JSON-first CLI (`npx -y @artifact-use/cli`), the HTTP API, and the local stdio MCP server (`npx -y @artifact-use/mcp-server`) are available for harnesses without hosted MCP support and specialized shell workflows. They use `ARTIFACT_USE_API_BASE` and `ARTIFACT_USE_TOKEN` as above. Keep the token out of config files, source, logs, and published artifacts.
+Hosted MCP is the normal path. The JSON-first CLI (`npx -y @iofold/artifact-use`), the HTTP API, and the local stdio MCP server (`npx -y @iofold/artifact-use-mcp`) are available for harnesses without hosted MCP support and specialized shell workflows. They use `ARTIFACT_USE_API_BASE` and `ARTIFACT_USE_TOKEN` as above. Keep the token out of config files, source, logs, and published artifacts.
 
 ### CLI Examples
 

@@ -13,7 +13,7 @@ is no SSE stream. It speaks MCP 2026-07-28 (stateless, `Mcp-Method` header,
 first request and advertises OAuth protected-resource metadata at
 `/.well-known/oauth-protected-resource`.
 
-The repository also ships a local stdio MCP server (`@artifact-use/mcp-server`)
+The repository also ships a local stdio MCP server (`@iofold/artifact-use-mcp`)
 for environments that need the tool itself to walk a folder on disk.
 
 Agent behaviour (what to publish and when, the comment loop, HTML quality,
@@ -122,9 +122,9 @@ npx plugins add iofold/artifact-use
 
 ## Advanced Fallbacks
 
-Hosted MCP is the default. The JSON-first CLI (`npx -y @artifact-use/cli`),
+Hosted MCP is the default. The JSON-first CLI (`npx -y @iofold/artifact-use`),
 the HTTP API ([docs/API.md](API.md)), and the local stdio MCP server
-(`npx -y @artifact-use/mcp-server`) are alternatives for clients without
+(`npx -y @iofold/artifact-use-mcp`) are alternatives for clients without
 hosted MCP support or for shell workflows that walk local folders. They use:
 
 ```bash

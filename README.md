@@ -200,7 +200,7 @@ harnesses without hosted MCP support and shell workflows that walk local
 folders. They use the same creator token. For example, publish a folder:
 
 ```bash
-npx -y @artifact-use/cli publish-folder --json '{
+npx -y @iofold/artifact-use publish-folder --json '{
   "artifact": "claims-demo",
   "title": "Claims Demo",
   "dir": "examples/simple-site",

@@ -1,5 +1,5 @@
 {
-  "name": "@artifact-use/cli",
+  "name": "@iofold/artifact-use",
   "version": "0.2.0",
   "description": "JSON-first CLI for Artifact Use: publish HTML and static folders as stable, gated, reviewable links and manage comments, access, and share links.",
   "license": "MIT",
@@ -39,7 +39,7 @@
     "prepack": "tsc"
   },
   "dependencies": {
-    "@artifact-use/client-core": "^0.2.0"
+    "@iofold/artifact-use-core": "^0.2.0"
   },
   "devDependencies": {
     "tsx": "^4.19.4"
