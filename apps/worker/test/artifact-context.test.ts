@@ -25,16 +25,24 @@ const artifact = {
   org_suspended: 0,
 } satisfies Artifact;
 
-function ctxEnv(row: Artifact | null): Env {
+type WatchRow = { last_seen_at: number; label: string | null } | null;
+
+function ctxEnv(row: Artifact | null, watch: WatchRow = null): Env {
   return {
     SESSION_SECRET: "artifact-context-secret",
     SITE_BASE_URL: "https://artifacts.example.com",
     ARTIFACT_PUBLIC_PATH_PREFIX: "/go",
     DB: {
-      prepare: () => ({ bind: () => ({ first: async () => row }) }),
+      prepare: (sql: string) => ({
+        bind: () => ({
+          first: async () => (sql.includes("artifact_watch") ? watch : row),
+        }),
+      }),
     },
   } as unknown as Env;
 }
+
+const noAgent = { watching: false, last_seen_at: null, label: null };
 
 async function publisherCookie(env: Env, orgId: string): Promise<string> {
   const session: PublisherSession = {
@@ -67,6 +75,7 @@ test("publishers of the artifact's org get the admin deep link", async () => {
   assert.deepEqual(body, {
     role: "publisher",
     admin_url: "/admin?open=art_ctx",
+    agent: noAgent,
   });
   assert.match(String(res.headers.get("Cache-Control")), /no-store/);
 });
@@ -80,7 +89,29 @@ test("everyone else gets the identical minimal viewer response", async () => {
   const anonymous = await handleArtifactContext(contextRequest(), env);
   const otherBody = await otherOrg.text();
   assert.equal(otherBody, await anonymous.text());
-  assert.deepEqual(JSON.parse(otherBody), { role: "viewer" });
+  assert.deepEqual(JSON.parse(otherBody), { role: "viewer", agent: noAgent });
+});
+
+test("viewers learn whether the publishing agent checked the page recently", async () => {
+  const now = nowSec();
+  const recent = await handleArtifactContext(
+    contextRequest(),
+    ctxEnv(artifact, { last_seen_at: now - 120, label: "Claude Code" }),
+  );
+  assert.deepEqual((await recent.json()).agent, {
+    watching: true,
+    last_seen_at: now - 120,
+    label: "Claude Code",
+  });
+  const stale = await handleArtifactContext(
+    contextRequest(),
+    ctxEnv(artifact, { last_seen_at: now - 20 * 60, label: null }),
+  );
+  assert.deepEqual((await stale.json()).agent, {
+    watching: false,
+    last_seen_at: now - 20 * 60,
+    label: null,
+  });
 });
 
 test("suspended artifacts answer viewer even for their owner", async () => {
@@ -107,7 +138,10 @@ test("a page can only ask about the artifact it is serving", async () => {
     ),
     env,
   );
-  assert.deepEqual(await foreignPage.json(), { role: "viewer" });
+  assert.deepEqual(await foreignPage.json(), {
+    role: "viewer",
+    agent: noAgent,
+  });
   const ownPage = await handleArtifactContext(
     contextRequest(
       cookie,

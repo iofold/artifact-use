@@ -6,6 +6,11 @@ import type { Artifact, ArtifactVersion, Env } from "./types";
 import { deleteArtifact, purgeVersion } from "./db";
 import { sendTokenExpiryEmail } from "./mailer";
 import { nowSec, siteBaseUrl } from "./util";
+import {
+  attemptDelivery,
+  type DeliveryOptions,
+  type DeliveryRow,
+} from "./webhooks";
 import { workosApiMaybe } from "./workos";
 
 // Comfortably above the six-hour ceiling of an upload session.
@@ -131,4 +136,56 @@ export async function sweepAbandonedUploads(
     files,
     artifacts: (shells.results || []).length,
   };
+}
+
+export interface WebhookRetryReport {
+  attempted: number;
+  delivered: number;
+  dropped: number;
+}
+
+// Webhook deliveries whose retry is due. The first attempt happens at write
+// time (webhooks.ts); this sweep drives the 1m/5m/30m/2h/12h backoff from the
+// six-hourly cron, so a receiver that was down catches up without polling.
+export async function retryWebhookDeliveries(
+  env: Env,
+  now = nowSec(),
+  opts: DeliveryOptions = {},
+): Promise<WebhookRetryReport> {
+  const due = await env.DB.prepare(
+    `SELECT d.id, d.webhook_id, d.event, d.payload_json, d.attempts,
+       d.next_attempt_at, d.delivered_at, d.last_status, d.last_error, d.created_at,
+       w.url, w.secret, w.revoked_at
+     FROM webhook_deliveries d
+     JOIN artifact_webhooks w ON w.id = d.webhook_id
+     WHERE d.delivered_at IS NULL AND d.next_attempt_at IS NOT NULL
+       AND d.next_attempt_at <= ?
+     ORDER BY d.next_attempt_at LIMIT ?`,
+  )
+    .bind(now, BATCH)
+    .all<
+      DeliveryRow & { url: string; secret: string; revoked_at: number | null }
+    >();
+  const report: WebhookRetryReport = { attempted: 0, delivered: 0, dropped: 0 };
+  for (const row of due.results || []) {
+    if (row.revoked_at) {
+      await env.DB.prepare(
+        "UPDATE webhook_deliveries SET next_attempt_at = NULL WHERE id = ?",
+      )
+        .bind(row.id)
+        .run();
+      report.dropped += 1;
+      continue;
+    }
+    report.attempted += 1;
+    const result = await attemptDelivery(
+      env,
+      row,
+      { id: row.webhook_id, url: row.url, secret: row.secret },
+      { ...opts, now: () => now },
+    );
+    if (result.ok) report.delivered += 1;
+    else if (result.next_attempt_at === null) report.dropped += 1;
+  }
+  return report;
 }

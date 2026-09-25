@@ -142,6 +142,9 @@ export interface ViewerSession {
   // Set only when a validated share link passed the gate: the link is the
   // publisher's explicit grant, so it satisfies every gate level unverified.
   link_id?: string | null;
+  // Set on sessions minted by "Hand to your agent": comments written with
+  // them are attributed to an agent under this label.
+  agent?: string | null;
 }
 
 export interface UploadSession {

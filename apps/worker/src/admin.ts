@@ -11,10 +11,15 @@ import {
   type WorkspaceRow,
 } from "./workspaces";
 import {
+  clampWait,
   createComment,
+  creatorAgentLabel,
+  creatorCommentAuthor,
   listComments,
   positiveInteger,
   resolveComment,
+  touchArtifactWatch,
+  waitForComments,
 } from "./comments";
 import { agentSetupPrompt } from "./llms";
 import { commentWriteRateLimit } from "./rl";
@@ -400,13 +405,24 @@ export async function handleAdminApi(
       if (request.method === "GET") {
         requirePermission(creator, env, "artifacts:read");
         const q = new URL(request.url).searchParams;
+        // A creator identity listing comments is the agent watching: the page
+        // shows viewers "an agent checked this page N min ago".
+        await touchArtifactWatch(
+          env,
+          artifact,
+          creatorAgentLabel(creator) || "agent",
+        );
+        const filters = {
+          status: q.get("status"),
+          since: Number(q.get("since")) || null,
+          pagePath: q.get("page_path"),
+          limit: Number(q.get("limit")) || null,
+        };
+        const wait = clampWait(q.get("wait"));
         return json(
-          await listComments(env, artifact, {
-            status: q.get("status"),
-            since: Number(q.get("since")) || null,
-            pagePath: q.get("page_path"),
-            limit: Number(q.get("limit")) || null,
-          }),
+          wait
+            ? await waitForComments(env, artifact, filters, wait)
+            : await listComments(env, artifact, filters),
         );
       }
       if (request.method === "POST") {
@@ -417,14 +433,17 @@ export async function handleAdminApi(
           target?: unknown;
           page_path?: unknown;
           version_id?: unknown;
+          client_ref?: unknown;
         };
         const identity = creator.email || creator.sub;
         const limited = await commentWriteRateLimit(request, env, identity);
         if (limited) return limited;
+        // Publisher-side writes are the agent's: attributed as such, with the
+        // token's label where it has one.
         const result = await createComment(
           env,
           artifact,
-          { email: identity, viewId: null },
+          creatorCommentAuthor(creator),
           body,
         );
         if (!result.ok)
