@@ -1774,7 +1774,7 @@ async function adminMintPromptJson(
   const label = String(body.label || "")
     .trim()
     .slice(0, 80);
-  const days = Number(body.expires_days || 30);
+  const days = Number(body.expires_days || DEFAULT_TOKEN_DAYS);
   let target: { orgId: string; scope: "org" | "user" };
   try {
     target = await resolveMintTarget(env, session, body.workspace, body.scope);
