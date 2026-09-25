@@ -2014,3 +2014,70 @@ code {
     grid-template-columns: 1fr;
   }
 }
+
+/* Honest analytics: who wrote a view row. People are the headline; agents
+   and automation get their own pill and their own chart series. */
+.pill.kind-agent {
+  background: rgba(31, 84, 140, 0.12);
+  color: #1f548c;
+}
+.pill.kind-automation {
+  background: var(--line-soft);
+  color: var(--muted);
+}
+.pill.public {
+  background: rgba(11, 93, 82, 0.08);
+  color: var(--accent);
+}
+.viz-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--panel);
+  margin-left: 10px;
+  vertical-align: middle;
+}
+.viz-toggle button {
+  margin: 0;
+  padding: 2px 10px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--muted);
+  font: 600 10.5px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  cursor: pointer;
+}
+.viz-toggle button[aria-pressed="true"] {
+  background: var(--accent);
+  color: #fff;
+}
+.viz-head .viz-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.metrics div.metric-agents strong {
+  color: var(--muted);
+}
+.sheet-stats small,
+.metrics small {
+  display: block;
+  margin-top: 3px;
+  font: 11px var(--mono);
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+.num small.split {
+  font: 10.5px var(--mono);
+  color: var(--muted);
+  white-space: nowrap;
+}
+.sheet-body h3 .viz-toggle {
+  margin-left: 8px;
+}

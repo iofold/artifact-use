@@ -29,8 +29,15 @@ export type ArtifactRow = {
   path: string;
   url: string;
   preview_image_url: string;
+  // total_views / unique_viewers count every recorded row. views_people and
+  // unique_people are rows a person's browser wrote; views_agents are coding
+  // agents plus automation (headless browsers, curl, link unfurlers). The
+  // headline numbers use people only.
   total_views: number;
   unique_viewers: number;
+  views_people: number;
+  views_agents: number;
+  unique_people: number;
   last_view_ts: number | null;
   share_links: number;
   comment_count: number;
@@ -42,7 +49,19 @@ export type ArtifactRow = {
   allowlist_lines: string;
 };
 
-export type DailyRow = { artifact_id: string; day: string; n: number };
+export type DailyRow = {
+  artifact_id: string;
+  day: string;
+  n: number;
+  people: number;
+  agents: number;
+};
+
+// Who wrote a view row, decided from the User-Agent when it was recorded.
+export type ViewKind = "human" | "agent" | "automation";
+// How the viewer got in: an email gate, a share link, a public artifact's
+// page, or the publisher's own signed-in session passing the gate.
+export type ViewSource = "gate" | "link" | "public" | "session";
 
 export type RecentView = {
   artifact_id: string;
@@ -55,13 +74,24 @@ export type RecentView = {
   // vouched for them (via_link).
   verified: boolean;
   via_link: boolean;
+  kind: ViewKind;
+  source: ViewSource | null;
   ts: number;
 };
 
 export type Overview = {
   me: Me;
   site: Site;
-  totals: { views: number; viewers: number; views7d: number; feedback: number };
+  totals: {
+    views: number;
+    viewers: number;
+    views7d: number;
+    views_people: number;
+    views_agents: number;
+    unique_people: number;
+    views7d_people: number;
+    feedback: number;
+  };
   artifacts: ArtifactRow[];
   daily: DailyRow[];
   recent: RecentView[];

@@ -57,16 +57,76 @@ const LINK_KINDS: Array<{ value: ShareLinkKind; label: string; hint: string }> =
     { value: "open", label: "Open", hint: "anyone holding the URL gets in" },
   ];
 
-// How a recorded view identified itself: proven, vouched for by a link, or
-// typed into the plain email gate.
+// How a recorded view identified itself: proven, vouched for by a link,
+// anonymous on a public artifact, or typed into the plain email gate. A
+// non-human kind (a coding agent, or headless / scripted automation) is
+// shown before the identity: it is not a person looking.
 function ViewerBadge({
   view,
 }: {
-  view: Pick<RecentView, "verified" | "via_link">;
+  view: Pick<RecentView, "verified" | "via_link" | "kind" | "source">;
 }) {
-  if (view.verified) return <span className="pill ok">verified</span>;
-  if (view.via_link) return <span className="pill">via link</span>;
-  return <span className="pill self-reported">self-reported</span>;
+  const kind =
+    view.kind === "agent" ? (
+      <span className="pill kind-agent">agent</span>
+    ) : view.kind === "automation" ? (
+      <span className="pill kind-automation">automation</span>
+    ) : null;
+  const identity = view.verified ? (
+    <span className="pill ok">verified</span>
+  ) : view.via_link ? (
+    <span className="pill">via link</span>
+  ) : view.source === "public" ? (
+    <span className="pill public">public</span>
+  ) : (
+    <span className="pill self-reported">self-reported</span>
+  );
+  return (
+    <>
+      {kind}
+      {kind ? " " : null}
+      {identity}
+    </>
+  );
+}
+
+// Public views asked nothing of the viewer; the row holds an IP hash, which
+// is not a name.
+function viewerName(view: Pick<RecentView, "email" | "source">): string {
+  if (view.source === "public" || view.email.startsWith("public:"))
+    return "Anonymous visitor";
+  return view.email;
+}
+
+type ViewSeries = "people" | "agents";
+
+// People are the headline; the agents series (coding agents plus
+// automation) is one click away so it is never mistaken for an audience.
+function SeriesToggle({
+  series,
+  onChange,
+}: {
+  series: ViewSeries;
+  onChange: (series: ViewSeries) => void;
+}) {
+  return (
+    <span className="viz-toggle" role="group" aria-label="Chart series">
+      {(["people", "agents"] as const).map((value) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={series === value}
+          onClick={() => onChange(value)}
+        >
+          {value}
+        </button>
+      ))}
+    </span>
+  );
+}
+
+function seriesRows(daily: DailyRow[], series: ViewSeries) {
+  return daily.map((row) => ({ day: row.day, n: row[series] }));
 }
 
 type SortKey = "title" | "views" | "views7" | "comments" | "published";
@@ -149,7 +209,7 @@ export default function Dashboard() {
               <li key={i}>
                 <span>
                   <strong>
-                    {view.email} <ViewerBadge view={view} />
+                    {viewerName(view)} <ViewerBadge view={view} />
                   </strong>
                   <small>{view.title || view.url_key || view.slug}</small>
                 </span>
@@ -174,16 +234,23 @@ function Metrics({ data }: { data: Overview }) {
         <span>Artifacts</span>
       </div>
       <div>
-        <strong>{formatNumber(data.totals.views)}</strong>
-        <span>Views</span>
+        <strong>{formatNumber(data.totals.views_people)}</strong>
+        <span>Views · people</span>
       </div>
       <div>
-        <strong>{formatNumber(data.totals.viewers)}</strong>
-        <span>Viewers</span>
+        <strong>{formatNumber(data.totals.unique_people)}</strong>
+        <span>People</span>
       </div>
       <div>
-        <strong>{formatNumber(data.totals.views7d)}</strong>
-        <span>Views · 7d</span>
+        <strong>{formatNumber(data.totals.views7d_people)}</strong>
+        <span>People · 7d</span>
+      </div>
+      <div
+        className="metric-agents"
+        title="Coding agents, headless browsers, scripts and link unfurlers. Never counted as people."
+      >
+        <strong>{formatNumber(data.totals.views_agents)}</strong>
+        <span>Agent reads</span>
       </div>
       <div>
         <strong>{formatNumber(data.totals.feedback)}</strong>
@@ -223,21 +290,28 @@ function ConnectStrip({ data }: { data: Overview }) {
 }
 
 function ActivityChart({ daily }: { daily: DailyRow[] }) {
-  const days = useMemo(() => fillDays(daily, 30), [daily]);
+  const [series, setSeries] = useState<ViewSeries>("people");
+  const days = useMemo(
+    () => fillDays(seriesRows(daily, series), 30),
+    [daily, series],
+  );
   const total = days.reduce((sum, d) => sum + d.n, 0);
+  const unit = series === "people" ? "views by people" : "agent reads";
   return (
     <section className="activity-viz" aria-label="Views over the last 30 days">
       <div className="viz-head">
         <p className="eyebrow">Activity</p>
-        <span className="muted">
-          {formatNumber(total)} views · last 30 days
+        <span className="muted viz-meta">
+          {formatNumber(total)} {unit} · last 30 days
+          <SeriesToggle series={series} onChange={setSeries} />
         </span>
       </div>
-      <BarChart days={days} height={96} />
+      <BarChart days={days} height={96} unit={unit} />
     </section>
   );
 }
 
+// Views by people in the last seven days, per artifact.
 function weekViewsByArtifact(daily: DailyRow[]): Map<string, number> {
   const cutoff = new Date(Date.now() - 7 * 86400_000)
     .toISOString()
@@ -245,7 +319,10 @@ function weekViewsByArtifact(daily: DailyRow[]): Map<string, number> {
   const views = new Map<string, number>();
   for (const row of daily)
     if (row.day >= cutoff)
-      views.set(row.artifact_id, (views.get(row.artifact_id) || 0) + row.n);
+      views.set(
+        row.artifact_id,
+        (views.get(row.artifact_id) || 0) + row.people,
+      );
   return views;
 }
 
@@ -306,7 +383,7 @@ function ArtifactTable({
       case "title":
         return a.title.localeCompare(b.title);
       case "views":
-        return a.total_views - b.total_views;
+        return a.views_people - b.views_people;
       case "views7":
         return (views7.get(a.id) || 0) - (views7.get(b.id) || 0);
       case "comments":
@@ -350,7 +427,7 @@ function ArtifactTable({
           <span className="art-gate">Gate</span>
           <SortHeader
             className="num"
-            label="Views"
+            label="People"
             k="views"
             sort={sort}
             onSort={toggleSort}
@@ -396,7 +473,22 @@ function ArtifactTable({
                   <span className="pill danger">Suspended</span>
                 ) : null}
               </span>
-              <span className="num">{formatNumber(artifact.total_views)}</span>
+              <span
+                className="num"
+                title={
+                  artifact.views_agents
+                    ? `${formatNumber(artifact.views_people)} views by people; ${formatNumber(artifact.views_agents)} by agents or automation`
+                    : undefined
+                }
+              >
+                {formatNumber(artifact.views_people)}
+                {artifact.views_agents ? (
+                  <small className="split">
+                    {" "}
+                    +{formatNumber(artifact.views_agents)} agent
+                  </small>
+                ) : null}
+              </span>
               <span className="num art-7d">
                 {weekly ? formatNumber(weekly) : "—"}
               </span>
@@ -769,6 +861,7 @@ function ArtifactSheet({
   const recentViews = (overview?.recent || [])
     .filter((view) => view.artifact_id === artifact.id)
     .slice(0, 8);
+  const [series, setSeries] = useState<ViewSeries>("people");
   const unavailable =
     artifact.status === "suspended"
       ? "This artifact is suspended"
@@ -907,12 +1000,15 @@ function ArtifactSheet({
           </section>
           <div className="sheet-stats">
             <div>
-              <strong>{formatNumber(artifact.total_views)}</strong>
-              <span>Views</span>
+              <strong>{formatNumber(artifact.views_people)}</strong>
+              <span>Views · people</span>
+              {artifact.views_agents ? (
+                <small>+{formatNumber(artifact.views_agents)} by agents</small>
+              ) : null}
             </div>
             <div>
-              <strong>{formatNumber(artifact.unique_viewers)}</strong>
-              <span>Viewers</span>
+              <strong>{formatNumber(artifact.unique_people)}</strong>
+              <span>People</span>
             </div>
             <div>
               <strong>{formatNumber(artifact.comment_count)}</strong>
@@ -923,11 +1019,21 @@ function ArtifactSheet({
               <span>{formatNumber(artifact.file_count)} files</span>
             </div>
           </div>
-          <h3>Views · last 30 days</h3>
-          {daily.length ? (
-            <BarChart days={fillDays(daily, 30)} height={64} />
+          <h3>
+            Views · last 30 days
+            <SeriesToggle series={series} onChange={setSeries} />
+          </h3>
+          {daily.some((row) => row[series]) ? (
+            <BarChart
+              days={fillDays(seriesRows(daily, series), 30)}
+              height={64}
+              unit={series === "people" ? "views by people" : "agent reads"}
+            />
           ) : (
-            <div className="empty small-empty">No views in this window.</div>
+            <div className="empty small-empty">
+              No {series === "people" ? "views by people" : "agent reads"} in
+              this window.
+            </div>
           )}
           <p className="mini">
             Last view {ago(artifact.last_view_ts)} · published{" "}
@@ -941,7 +1047,7 @@ function ArtifactSheet({
                   <li key={i}>
                     <span>
                       <strong>
-                        {view.email} <ViewerBadge view={view} />
+                        {viewerName(view)} <ViewerBadge view={view} />
                       </strong>
                     </span>
                     <time>{ago(view.ts)}</time>
