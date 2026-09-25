@@ -122,7 +122,7 @@ npx plugins add iofold/artifact-use
 
 ## Advanced Fallbacks
 
-Hosted MCP is the default. The JSON-first CLI (`npx -y artifact-use`),
+Hosted MCP is the default. The JSON-first CLI (`npx -y artifact-use-cli`),
 the HTTP API ([docs/API.md](API.md)), and the local stdio MCP server
 (`npx -y artifact-use-mcp`) are alternatives for clients without
 hosted MCP support or for shell workflows that walk local folders. They use:
