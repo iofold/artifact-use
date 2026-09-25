@@ -1951,3 +1951,66 @@ code {
     justify-content: space-between;
   }
 }
+
+/* Links panel in the artifact sheet: one row per share link with its state,
+   copy/revoke actions, and the create form; the passcode reveal shows once. */
+.pill.self-reported {
+  background: rgba(158, 106, 18, 0.12);
+  color: #8a5a0b;
+}
+.detail-list li strong .pill {
+  margin-left: 6px;
+  vertical-align: middle;
+  min-height: 18px;
+  font-size: 10px;
+}
+.link-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex: none;
+}
+.link-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 10px;
+  margin-top: 10px;
+}
+.link-form label {
+  display: grid;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.link-form label:first-child {
+  grid-column: 1 / -1;
+}
+.link-form button,
+.link-form .mini {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+.link-form .mini.error {
+  color: var(--danger);
+}
+.link-created {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 12px;
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  background: rgba(11, 93, 82, 0.06);
+  font-size: 13px;
+}
+.link-created small {
+  color: var(--muted);
+}
+.link-created .button {
+  justify-self: start;
+}
+@media (max-width: 940px) {
+  .link-form {
+    grid-template-columns: 1fr;
+  }
+}
