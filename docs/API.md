@@ -9,9 +9,10 @@ Authorization: Bearer <token>
 ```
 
 Creator tokens expire 90 days after minting by default. An expired token
-receives `401` with `error.code` `token_expired` and a `renew_url` pointing at
-`/admin/connect`; mint a new token there and retry. Every error body has the
-shape `{"error": {"code": "...", "message": "..."}}`.
+receives `401` with `error.code` `token_expired` and `error.renew_url` pointing
+at `/admin/connect` (a revoked token gets `token_revoked` with the same
+`renew_url`); mint a new token there and retry. Every error body has the shape
+`{"error": {"code": "...", "message": "..."}}`.
 
 How agents should behave on top of this API (when to publish, the comment
 loop, quality checks) is documented once in [docs/agent-guide.md](agent-guide.md),

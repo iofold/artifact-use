@@ -80,8 +80,8 @@ export ARTIFACT_USE_TOKEN='au_creator_...'
 Getting a token: the human opens `https://artifacts.iofold.com/admin/connect`,
 copies the setup prompt (it carries the token once), and pastes it to the
 agent. Tokens expire after 90 days and can be revoked from the same page. An
-expired token receives `401` with `error.code` `token_expired` and a
-`renew_url`; over MCP the result has `isError: true` and
+expired token receives `401` with `error.code` `token_expired` and
+`error.renew_url`; over MCP the result has `isError: true` and
 `structuredContent.error.code` `token_expired`. Ask the user for a new token
 from the `renew_url`; nothing else in the setup changes. There is no
 agent-initiated device-code flow.
