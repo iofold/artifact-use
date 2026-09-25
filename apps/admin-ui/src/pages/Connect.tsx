@@ -4,11 +4,66 @@ import { useSearchParams } from "react-router";
 import {
   api,
   postForm,
+  type AgentToken,
+  type AgentTokenStatus,
   type ApprovedConnect,
   type MintedPrompt,
   type WorkspaceEntry,
 } from "../api";
 import { CopyButton, Shell, Skeleton, ago, dateLabel } from "../ui";
+
+// Minted tokens live 90 days unless the form says otherwise; the worker caps
+// any request at a year.
+const DEFAULT_TOKEN_DAYS = "90";
+const MAX_TOKEN_DAYS = 365;
+
+// Working tokens first, then the ones about to stop working, then the ones
+// that already have (kept for a month so a 401 has an explanation).
+const STATUS_ORDER: Record<AgentTokenStatus, number> = {
+  active: 0,
+  expiring: 1,
+  expired: 2,
+};
+
+function sortTokens(tokens: AgentToken[]): AgentToken[] {
+  return [...tokens].sort(
+    (a, b) =>
+      STATUS_ORDER[a.status] - STATUS_ORDER[b.status] ||
+      b.created_at - a.created_at,
+  );
+}
+
+function daysUntil(ts: number): number {
+  return Math.max(0, Math.ceil((ts - Date.now() / 1000) / 86400));
+}
+
+function TokenStatus({ token }: { token: AgentToken }) {
+  if (token.status === "expired")
+    return (
+      <span
+        className="pill danger"
+        title={`Expired ${dateLabel(token.expires_at)}`}
+      >
+        Expired
+      </span>
+    );
+  if (token.status === "expiring") {
+    const days = daysUntil(token.expires_at);
+    return (
+      <span
+        className="pill warn"
+        title={`Expires ${dateLabel(token.expires_at)}`}
+      >
+        {days < 1 ? "Expires today" : `Expires in ${days}d`}
+      </span>
+    );
+  }
+  return (
+    <span className="pill ok" title={`Expires ${dateLabel(token.expires_at)}`}>
+      Active
+    </span>
+  );
+}
 
 // Which workspace a minted credential can publish to: the signed-in
 // workspace by default, any other membership, or all of them (the agent then
@@ -57,7 +112,7 @@ export default function Connect() {
   });
   const queryClient = useQueryClient();
   const [label, setLabel] = useState("");
-  const [days, setDays] = useState("");
+  const [days, setDays] = useState(DEFAULT_TOKEN_DAYS);
   // "" = the signed-in workspace; an org id pins the token to that
   // workspace; "all" mints a multi-workspace token.
   const [mintWorkspace, setMintWorkspace] = useState("");
@@ -220,7 +275,9 @@ export default function Connect() {
                     <input
                       id="ap-days"
                       inputMode="numeric"
-                      placeholder="30"
+                      pattern="[0-9]*"
+                      placeholder={DEFAULT_TOKEN_DAYS}
+                      title={`1 to ${MAX_TOKEN_DAYS} days; ${DEFAULT_TOKEN_DAYS} by default`}
                       value={days}
                       onChange={(e) => setDays(e.target.value)}
                     />
@@ -250,33 +307,47 @@ export default function Connect() {
                 ) : null}
                 {data.tokens.length ? (
                   <ul className="token-list">
-                    {data.tokens.map((token) => (
-                      <li key={token.id}>
+                    {sortTokens(data.tokens).map((token) => (
+                      <li key={token.id} className={`token-${token.status}`}>
                         <span>
                           <strong>{token.label || "Agent token"}</strong>
                           <small>
                             {token.source} · created{" "}
-                            {dateLabel(token.created_at)}· expires{" "}
-                            {dateLabel(token.expires_at)} (
-                            {ago(token.created_at)})
+                            {dateLabel(token.created_at)} ·{" "}
+                            {token.status === "expired" ? "expired" : "expires"}{" "}
+                            {dateLabel(token.expires_at)} ·{" "}
+                            {token.last_used_at
+                              ? `last used ${ago(token.last_used_at)}`
+                              : "never used"}
                           </small>
+                          {token.status === "expired" ? (
+                            <small className="token-hint">
+                              Agents using this token get 401 token_expired —
+                              mint a new one.
+                            </small>
+                          ) : null}
                         </span>
-                        <button
-                          type="button"
-                          className="button small danger"
-                          onClick={() => revoke.mutate(token.id)}
-                        >
-                          Revoke
-                        </button>
+                        <span className="token-side">
+                          <TokenStatus token={token} />
+                          <button
+                            type="button"
+                            className="button small danger"
+                            onClick={() => revoke.mutate(token.id)}
+                          >
+                            {token.status === "expired" ? "Remove" : "Revoke"}
+                          </button>
+                        </span>
                       </li>
                     ))}
                   </ul>
                 ) : (
-                  <p className="mini">No active agent tokens.</p>
+                  <p className="mini">No agent tokens.</p>
                 )}
                 <p className="mini">
                   Prompts contain scoped credentials. Keep them out of source,
-                  logs, and published artifacts.
+                  logs, and published artifacts. Tokens last{" "}
+                  {DEFAULT_TOKEN_DAYS} days by default; expired ones stay listed
+                  for a month.
                 </p>
               </div>
             </details>
