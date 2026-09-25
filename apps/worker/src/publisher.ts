@@ -109,6 +109,11 @@ const TEAM_ROLE_OPTIONS = ["member", "admin"];
 type ArtifactRow = Artifact & {
   total_views: number;
   unique_viewers: number;
+  // People (kind = human) against agents and automation; the headline
+  // numbers use people only.
+  views_people: number;
+  views_agents: number;
+  unique_people: number;
   share_links: number;
   comment_count: number;
   open_comments: number;
@@ -126,6 +131,8 @@ type AdminRecentView = {
   email: string;
   verified: number;
   share_link_id: string | null;
+  kind: string | null;
+  source: string | null;
   ts: number;
   referrer: string | null;
 };
@@ -143,7 +150,10 @@ type AdminComment = {
 type AdminDailyView = {
   artifact_id: string;
   day: string;
+  // n is every row; people and agents split it by kind.
   n: number;
+  people: number;
+  agents: number;
 };
 
 // Org-wide activity powers the chart, the 7d column, and the recent feed.
@@ -1394,14 +1404,21 @@ async function adminOverviewJson(
     adminMaps(env, session.orgId),
     viewsSince(env, session.orgId, nowSec() - 7 * 86400),
     env.DB.prepare(
-      `SELECT COUNT(DISTINCT v.email) AS n
+      `SELECT COUNT(DISTINCT v.email) AS n,
+         COUNT(DISTINCT CASE WHEN v.kind = 'human' THEN v.email END) AS people
        FROM views v JOIN artifacts a ON a.id = v.artifact_id
        WHERE a.org_id = ?`,
     )
       .bind(session.orgId)
-      .first<{ n: number }>(),
+      .first<{ n: number; people: number }>(),
   ]);
-  const daily: { artifact_id: string; day: string; n: number }[] = [];
+  const daily: {
+    artifact_id: string;
+    day: string;
+    n: number;
+    people: number;
+    agents: number;
+  }[] = [];
   for (const rows of maps.daily.values())
     for (const row of rows)
       if (row.day >= new Date(since30 * 1000).toISOString().slice(0, 10))
@@ -1409,6 +1426,8 @@ async function adminOverviewJson(
           artifact_id: row.artifact_id,
           day: row.day,
           n: Number(row.n || 0),
+          people: Number(row.people || 0),
+          agents: Number(row.agents || 0),
         });
   const recent = Array.from(maps.recent.values())
     .flat()
@@ -1425,6 +1444,10 @@ async function adminOverviewJson(
       // vouched for them.
       verified: Number(view.verified || 0) === 1,
       via_link: Boolean(view.share_link_id),
+      // kind: who looked (human / agent / automation), decided from the
+      // User-Agent when the row was written. source: how they got in.
+      kind: view.kind || "human",
+      source: view.source || null,
       ts: Number(view.ts || 0),
     }));
   return json({
@@ -1437,13 +1460,26 @@ async function adminOverviewJson(
       teamAdmin: isTeamAdmin(session),
     },
     site: siteJson(env),
+    // views / viewers / views7d count every row (kept for compatibility);
+    // the *_people and *_agents fields split them by kind, and the SPA's
+    // headline numbers use people only.
     totals: {
       views: artifacts.reduce(
         (sum, row) => sum + Number(row.total_views || 0),
         0,
       ),
       viewers: Number(uniqueRow?.n || 0),
-      views7d,
+      views7d: views7d.total,
+      views_people: artifacts.reduce(
+        (sum, row) => sum + Number(row.views_people || 0),
+        0,
+      ),
+      views_agents: artifacts.reduce(
+        (sum, row) => sum + Number(row.views_agents || 0),
+        0,
+      ),
+      unique_people: Number(uniqueRow?.people || 0),
+      views7d_people: views7d.people,
       feedback: artifacts.reduce(
         (sum, row) => sum + Number(row.comment_count || 0),
         0,
@@ -1463,6 +1499,9 @@ async function adminOverviewJson(
       preview_image_url: artifactPreviewImageUrl(env, artifact),
       total_views: Number(artifact.total_views || 0),
       unique_viewers: Number(artifact.unique_viewers || 0),
+      views_people: Number(artifact.views_people || 0),
+      views_agents: Number(artifact.views_agents || 0),
+      unique_people: Number(artifact.unique_people || 0),
       last_view_ts: artifact.last_view_ts || null,
       share_links: Number(artifact.share_links || 0),
       comment_count: Number(artifact.comment_count || 0),
@@ -2279,7 +2318,7 @@ async function adminMaps(env: Env, orgId: string): Promise<AdminMaps> {
   const since30 = nowSec() - 30 * 86400;
   const [recentRows, dailyRows] = await Promise.all([
     env.DB.prepare(
-      `SELECT v.artifact_id, a.slug, a.url_key, a.title, v.email, v.verified, v.share_link_id, v.ts, v.referrer
+      `SELECT v.artifact_id, a.slug, a.url_key, a.title, v.email, v.verified, v.share_link_id, v.kind, v.source, v.ts, v.referrer
        FROM views v
        JOIN artifacts a ON a.id = v.artifact_id
        WHERE a.org_id = ?
@@ -2289,7 +2328,9 @@ async function adminMaps(env: Env, orgId: string): Promise<AdminMaps> {
       .bind(orgId)
       .all<AdminRecentView>(),
     env.DB.prepare(
-      `SELECT v.artifact_id, date(v.ts, 'unixepoch') AS day, COUNT(*) AS n
+      `SELECT v.artifact_id, date(v.ts, 'unixepoch') AS day, COUNT(*) AS n,
+         SUM(CASE WHEN v.kind = 'human' THEN 1 ELSE 0 END) AS people,
+         SUM(CASE WHEN v.kind = 'human' THEN 0 ELSE 1 END) AS agents
        FROM views v
        JOIN artifacts a ON a.id = v.artifact_id
        WHERE a.org_id = ? AND v.ts >= ?
@@ -2347,6 +2388,9 @@ async function artifactStatsRows(
       av.completed_at AS completed_at,
       COUNT(DISTINCT v.id) AS total_views,
       COUNT(DISTINCT v.email) AS unique_viewers,
+      COUNT(DISTINCT CASE WHEN v.kind = 'human' THEN v.id END) AS views_people,
+      COUNT(DISTINCT CASE WHEN v.kind <> 'human' THEN v.id END) AS views_agents,
+      COUNT(DISTINCT CASE WHEN v.kind = 'human' THEN v.email END) AS unique_people,
       MAX(v.ts) AS last_view_ts,
       COUNT(DISTINCT sl.id) AS share_links,
       COUNT(DISTINCT c.id) AS comment_count,
@@ -2372,16 +2416,17 @@ async function viewsSince(
   env: Env,
   orgId: string,
   since: number,
-): Promise<number> {
+): Promise<{ total: number; people: number }> {
   const row = await env.DB.prepare(
-    `SELECT COUNT(*) AS n
+    `SELECT COUNT(*) AS n,
+       SUM(CASE WHEN v.kind = 'human' THEN 1 ELSE 0 END) AS people
      FROM views v
      JOIN artifacts a ON a.id = v.artifact_id
      WHERE a.org_id = ? AND v.ts >= ?`,
   )
     .bind(orgId, since)
-    .first<{ n: number }>();
-  return Number(row?.n || 0);
+    .first<{ n: number; people: number }>();
+  return { total: Number(row?.n || 0), people: Number(row?.people || 0) };
 }
 
 async function transferArtifactOwner(
