@@ -111,6 +111,18 @@ async function manageArtifact(
       `/api/v1/artifacts/${artifactRef}/share-links`,
       args,
     );
+  if (action === "share_links")
+    return api(conf, "GET", `/api/v1/artifacts/${artifactRef}/share-links`);
+  if (action === "revoke_link") {
+    const linkId = String(args.link_id || "").trim();
+    if (!linkId)
+      throw new Error("artifact_manage revoke_link requires link_id");
+    return api(
+      conf,
+      "DELETE",
+      `/api/v1/artifacts/${artifactRef}/share-links/${encodeURIComponent(linkId)}`,
+    );
+  }
   throw new Error(`unknown artifact_manage action: ${action}`);
 }
 
