@@ -162,6 +162,16 @@ export async function getArtifactForOrg(
     .first<Artifact>();
 }
 
+async function artifactByUrlKeyInOrg(
+  env: Env,
+  orgId: string,
+  candidate: string,
+): Promise<Artifact | null> {
+  if (!/-[a-z0-9]{6}$/.test(candidate)) return null;
+  const byKey = await getArtifactByUrlKey(env, candidate);
+  return byKey && byKey.org_id === orgId ? byKey : null;
+}
+
 export async function upsertArtifact(
   env: Env,
   creator: Creator,
@@ -170,7 +180,12 @@ export async function upsertArtifact(
   description: string | null,
   gateLevel: GateLevel | null,
 ): Promise<Artifact> {
-  const existing = await getArtifactForOrg(env, creator.orgId, artifactSlug);
+  // Agents routinely hand back the url_key they were given (slug plus the
+  // six-character code) as the "artifact" on republish. Treating it as a new
+  // slug silently created duplicates; resolve it to the existing artifact.
+  const existing =
+    (await getArtifactForOrg(env, creator.orgId, artifactSlug)) ||
+    (await artifactByUrlKeyInOrg(env, creator.orgId, artifactSlug));
   const now = Math.max(nowSec(), Number(existing?.updated_at || 0) + 1);
   if (existing) {
     await env.DB.prepare(
