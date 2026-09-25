@@ -4,14 +4,6 @@
     "artifact-use": {
       "type": "streamable-http",
       "url": "https://artifacts.iofold.com/mcp"
-    },
-    "artifact-use-local": {
-      "type": "stdio",
-      "command": "npx",
-      "args": ["-y", "@artifact-use/mcp-server"],
-      "env": {
-        "ARTIFACT_USE_API_BASE": "https://artifacts.iofold.com"
-      }
     }
   }
 }
