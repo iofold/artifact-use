@@ -11,6 +11,41 @@ export class EmailDeliveryError extends Error {
   }
 }
 
+export async function sendTokenExpiryEmail(
+  env: Env,
+  email: string,
+  token: { label: string | null; expiresAt: number },
+  renewUrl: string,
+): Promise<void> {
+  if (!env.EMAIL)
+    throw new EmailDeliveryError(new Error("email binding missing"));
+  const label = token.label || "Agent token";
+  const when = new Date(token.expiresAt * 1000).toISOString().slice(0, 10);
+  const subject = `Your Artifact Use agent token "${label}" expires on ${when}`;
+  const text = [
+    `The creator token "${label}" expires on ${when}.`,
+    `Agents using it will start receiving 401 token_expired errors after that.`,
+    `Mint a replacement (and revoke the old one) here: ${renewUrl}`,
+  ].join("\n\n");
+  const html = `<p>The creator token <strong>${escapeHtml(label)}</strong> expires on <strong>${when}</strong>.</p>
+<p>Agents using it will start receiving <code>401 token_expired</code> errors after that.</p>
+<p><a href="${escapeHtml(renewUrl)}">Mint a replacement and revoke the old one</a></p>`;
+  try {
+    await env.EMAIL.send({
+      from: {
+        email: env.MAIL_FROM || "artifacts@example.com",
+        name: env.MAIL_FROM_NAME || "Artifact Use",
+      },
+      to: email,
+      subject,
+      text,
+      html,
+    });
+  } catch (error) {
+    throw new EmailDeliveryError(error);
+  }
+}
+
 export async function sendVerificationEmail(
   env: Env,
   artifact: Artifact,

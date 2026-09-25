@@ -4,7 +4,9 @@
 // version was a dead draft, which listings showed but nobody could open.
 import type { Artifact, ArtifactVersion, Env } from "./types";
 import { deleteArtifact, purgeVersion } from "./db";
-import { nowSec } from "./util";
+import { sendTokenExpiryEmail } from "./mailer";
+import { nowSec, siteBaseUrl } from "./util";
+import { workosApiMaybe } from "./workos";
 
 // Comfortably above the six-hour ceiling of an upload session.
 export const ABANDONED_AFTER_SEC = 24 * 60 * 60;
@@ -14,6 +16,67 @@ export interface SweepReport {
   drafts: number;
   files: number;
   artifacts: number;
+}
+
+export const TOKEN_EXPIRY_WARNING_SEC = 7 * 24 * 60 * 60;
+
+// Warn each token's owner once, a week before expiry. Expiry used to be
+// silent: the agent just started getting 401s one morning.
+export async function notifyExpiringTokens(
+  env: Env,
+  now = nowSec(),
+): Promise<{ notified: number; skipped: number }> {
+  const rows = await env.DB.prepare(
+    `SELECT id, user_id, label, expires_at FROM creator_tokens
+     WHERE revoked_at IS NULL AND expiry_notified_at IS NULL
+       AND expires_at > ? AND expires_at <= ?
+     ORDER BY expires_at LIMIT ?`,
+  )
+    .bind(now, now + TOKEN_EXPIRY_WARNING_SEC, BATCH)
+    .all<{
+      id: string;
+      user_id: string;
+      label: string | null;
+      expires_at: number;
+    }>();
+  let notified = 0;
+  let skipped = 0;
+  const renewUrl = `${siteBaseUrl(env)}/admin/connect`;
+  for (const row of rows.results || []) {
+    let email: string | null = null;
+    try {
+      const user = await workosApiMaybe(
+        env,
+        `/user_management/users/${encodeURIComponent(row.user_id)}`,
+      );
+      email = typeof user?.email === "string" ? user.email : null;
+    } catch {
+      email = null;
+    }
+    if (email) {
+      try {
+        await sendTokenExpiryEmail(
+          env,
+          email,
+          { label: row.label, expiresAt: Number(row.expires_at) },
+          renewUrl,
+        );
+        notified += 1;
+      } catch {
+        skipped += 1;
+        continue;
+      }
+    } else {
+      skipped += 1;
+    }
+    // Mark even unreachable owners so the sweep does not retry forever.
+    await env.DB.prepare(
+      "UPDATE creator_tokens SET expiry_notified_at = ? WHERE id = ?",
+    )
+      .bind(now, row.id)
+      .run();
+  }
+  return { notified, skipped };
 }
 
 export async function sweepAbandonedUploads(
