@@ -73,3 +73,26 @@ test("publishFolder forwards an explicit gate_level", async () => {
     stub.restore();
   }
 });
+
+test("publishFolder forwards allow_secrets to the completion call only when set", async () => {
+  const stub = stubFetch();
+  try {
+    await publishFolder(
+      conf,
+      { artifact: "demo", dir: await folderWithIndex(), allow_secrets: true },
+      false,
+    );
+    const done = stub.calls.find((c) => c.path.endsWith("/complete"));
+    assert.equal(done?.body?.allow_secrets, true);
+    stub.calls.length = 0;
+    await publishFolder(
+      conf,
+      { artifact: "demo", dir: await folderWithIndex() },
+      false,
+    );
+    const plain = stub.calls.find((c) => c.path.endsWith("/complete"));
+    assert.equal(Object.hasOwn(plain!.body!, "allow_secrets"), false);
+  } finally {
+    stub.restore();
+  }
+});

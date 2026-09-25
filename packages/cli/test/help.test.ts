@@ -60,7 +60,7 @@ test("help, --help, -h and no arguments print the human-readable usage", async (
     // fields come from the schema table: required first, optional bracketed
     assert.match(
       result.stdout,
-      /^ {2}publish-folder\s+artifact, dir {2}\[title, description, gate_level, entrypoint\]$/m,
+      /^ {2}publish-folder\s+artifact, dir {2}\[title, description, gate_level, entrypoint, allow_secrets\]$/m,
     );
     assert.match(
       result.stdout,

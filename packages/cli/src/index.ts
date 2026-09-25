@@ -17,6 +17,7 @@ const SCHEMAS = {
         enum: ["public", "email", "verified_email", "allowlist"],
       },
       entrypoint: { type: "string", default: "index.html" },
+      allow_secrets: { type: "boolean" },
     },
   },
   "publish-html": {
@@ -36,6 +37,7 @@ const SCHEMAS = {
         description:
           "Publish even when the HTML contains what look like credentials (the server otherwise refuses with secrets_detected).",
       },
+      allow_secrets: { type: "boolean" },
     },
   },
   preview: {

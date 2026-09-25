@@ -266,5 +266,9 @@ export async function publishFolder(
   return api(conf, "POST", `/api/v1/publish/${start.version.id}/complete`, {
     entrypoint,
     files,
+    ...(input.allow_secrets ? { allow_secrets: true } : {}),
   });
 }
+
+export { TOOL_ANNOTATIONS, withAnnotations } from "./annotations.js";
+export type { AnnotatedTool, ToolAnnotations } from "./annotations.js";
