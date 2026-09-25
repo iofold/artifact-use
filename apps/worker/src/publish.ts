@@ -1,5 +1,6 @@
 import type {
   Artifact,
+  ArtifactFile,
   ArtifactVersion,
   Creator,
   Env,
@@ -34,6 +35,16 @@ import {
   normalizeArtifactDescription,
 } from "./preview";
 import {
+  allowsSecrets,
+  isTextLike,
+  MAX_FINDINGS,
+  MAX_SCAN_BYTES,
+  MAX_SCAN_FILES,
+  scanForSecrets,
+  secretsDetectedMessage,
+  type Finding,
+} from "./scan";
+import {
   assertSlug,
   bearerToken,
   error,
@@ -64,6 +75,11 @@ interface PublishActor {
   orgId: string;
   sub: string | null;
 }
+
+// Attached to every successful publish so the agent relays what "published"
+// means before pasting the link somewhere.
+export const UNLISTED_NOTE =
+  "This URL is unlisted: search engines are told not to index it. Anyone who has the link and passes the gate can open it.";
 
 export async function handlePublish(
   request: Request,
@@ -248,6 +264,13 @@ export async function handlePublish(
           else await revertVersionToDraft(env, actor.orgId, version.id);
           return validation;
         }
+        // The draft stays writable after a refusal so the client can re-PUT
+        // the offending files and complete again.
+        const findings = await scanUploadedFiles(env, validation.files);
+        if (findings.length && !allowsSecrets(manifest)) {
+          await revertVersionToDraft(env, actor.orgId, version.id);
+          return secretsDetectedResponse(findings);
+        }
         await completeVersion(
           env,
           version,
@@ -269,6 +292,8 @@ export async function handlePublish(
           artifact,
           version_id: version.id,
           url: artifact ? publicArtifactUrl(env, artifact.url_key) : null,
+          note: UNLISTED_NOTE,
+          ...(findings.length ? { warnings: findings } : {}),
         });
       } catch (e) {
         if (!completed)
@@ -290,6 +315,13 @@ export async function handlePublish(
       const bytes = new TextEncoder().encode(html);
       if (bytes.byteLength > readLimit(env, "file"))
         return error(413, "file_too_large", "html exceeds file limit");
+      // Scan before anything is written: a refusal here creates no artifact.
+      const findings =
+        bytes.byteLength <= MAX_SCAN_BYTES
+          ? scanForSecrets(html, "index.html")
+          : [];
+      if (findings.length && !allowsSecrets(body))
+        return secretsDetectedResponse(findings);
       // Pin the entrypoint after the spread so a caller-supplied one stays ignored.
       const draftBody = { ...body, entrypoint: "index.html" };
       if (body.description === undefined) {
@@ -335,6 +367,8 @@ export async function handlePublish(
         artifact,
         version_id: version.id,
         url: publicArtifactUrl(env, artifact.url_key),
+        note: UNLISTED_NOTE,
+        ...(findings.length ? { warnings: findings } : {}),
       });
     }
   } catch (e) {
@@ -412,6 +446,45 @@ function isHtml(contentType: string, path: string): boolean {
   return (
     contentType.split(";", 1)[0]?.trim().toLowerCase() === "text/html" ||
     /\.html?$/i.test(path)
+  );
+}
+
+// Read the text-like files of a draft back from R2 and scan them, within the
+// publish-level caps. Binary and oversized files are skipped, not read.
+async function scanUploadedFiles(
+  env: Env,
+  files: ArtifactFile[],
+): Promise<Finding[]> {
+  const findings: Finding[] = [];
+  let scanned = 0;
+  for (const file of files) {
+    if (scanned >= MAX_SCAN_FILES || findings.length >= MAX_FINDINGS) break;
+    if (file.size > MAX_SCAN_BYTES) continue;
+    if (!isTextLike(file.content_type, file.path)) continue;
+    scanned += 1;
+    const object = await env.BUCKET.get(file.storage_key);
+    if (!object || !("body" in object)) continue;
+    findings.push(
+      ...scanForSecrets(
+        await object.text(),
+        file.path,
+        MAX_FINDINGS - findings.length,
+      ),
+    );
+  }
+  return findings;
+}
+
+function secretsDetectedResponse(findings: Finding[]): Response {
+  return json(
+    {
+      error: {
+        code: "secrets_detected",
+        message: secretsDetectedMessage(findings),
+        findings,
+      },
+    },
+    { status: 422 },
   );
 }
 
@@ -511,7 +584,10 @@ async function validateManifest(
   manifest: PublishManifest,
   packageLimit: number,
   fileCountLimit: number,
-): Promise<{ totalSize: number; manifest: PublishManifest } | Response> {
+): Promise<
+  | { totalSize: number; manifest: PublishManifest; files: ArtifactFile[] }
+  | Response
+> {
   if (!manifest || !Array.isArray(manifest.files))
     return error(400, "invalid_manifest", "manifest.files is required");
   const entrypoint = validateAssetPath(
@@ -571,5 +647,9 @@ async function validateManifest(
       "missing_entrypoint",
       "entrypoint must be present in files",
     );
-  return { totalSize, manifest: { entrypoint, files: canonical } };
+  return {
+    totalSize,
+    manifest: { entrypoint, files: canonical },
+    files: uploaded,
+  };
 }

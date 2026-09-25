@@ -500,6 +500,13 @@ artifact-use comments --json '{"artifact": "claims-demo-a1b2c3", "action": "reso
 Other commands: `list`, `stats`, `gate`, `preview`, `workspaces`, and
 `schema --all` (prints every command's JSON schema).
 
+Every publish is scanned for credentials (API keys, private keys, JWTs, this
+service's own creator tokens). A hit returns `422` with `error.code`
+`secrets_detected` and a `findings` list (`path`, `kind`, `line`, masked
+`preview`); nothing is published, so remove the secret and retry. Pass
+`"allow_secrets": true` in the publish input to publish anyway; the response
+then carries the findings as `warnings`.
+
 ## 9. Limits
 
 - Package: 95 MiB.
