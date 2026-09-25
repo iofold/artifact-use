@@ -50,6 +50,7 @@ import {
 } from "./preview";
 import { commentWriteRateLimit, rateLimitedResponse } from "./rl";
 import { UPSTREAM_SEGMENT, proxyUpstream } from "./upstream";
+import { recordPublicView } from "./views";
 import { FEEDBACK_WIDGET_JS } from "./widget/feedback.generated";
 import {
   bearerToken,
@@ -251,7 +252,12 @@ export async function servePublic(
   }
   const response = isUpstream
     ? await proxyUpstream(request, env, artifact, session, rest.slice(1))
-    : await serveVersion(request, env, artifact, publicPath, rest);
+    : await recordPublicView(
+        request,
+        env,
+        artifact,
+        await serveVersion(request, env, artifact, publicPath, rest),
+      );
   return sessionCookie ? withCookie(response, sessionCookie) : response;
 }
 

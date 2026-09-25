@@ -25,6 +25,7 @@ import {
 import { EmailDeliveryError, sendVerificationEmail } from "./mailer";
 import { unavailableArtifactResponse } from "./moderation";
 import { getPublisherSessionAuth } from "./publisher";
+import { type ViewSource, classifyViewer } from "./views";
 import { resolveWorkspaceOrg } from "./workspaces";
 import {
   type RateLimitResult,
@@ -629,6 +630,10 @@ export async function mintViewerSession(
     email,
     verified,
     request,
+    {
+      kind: classifyViewer(request.headers.get("User-Agent")),
+      source: await viewSourceFor(request, env, email, verified, shareLinkId),
+    },
   );
   // One open per session: the counter moves here, never on asset requests.
   if (shareLinkId) await recordShareLinkOpen(env, artifact.id, shareLinkId);
@@ -645,6 +650,26 @@ export async function mintViewerSession(
   const token = await signViewerSession(session, env);
   const cookie = setViewerCookie(viewerCookieName(artifact.id), token);
   return { session, token, cookie, exp };
+}
+
+// How the gate was passed. A share link (validated, or merely attributing a
+// form pass) is `link`; a verified pass whose email is the publisher session
+// riding on the request is the signed-in pass-through (`session`); anything
+// else typed or proved an email at the gate.
+async function viewSourceFor(
+  request: Request,
+  env: Env,
+  email: string,
+  verified: boolean,
+  shareLinkId: string | null,
+): Promise<ViewSource> {
+  if (shareLinkId) return "link";
+  if (verified) {
+    const auth = await getPublisherSessionAuth(request, env);
+    if (auth && normalizeEmail(auth.session.email || "") === email)
+      return "session";
+  }
+  return "gate";
 }
 
 function redirectWithCookie(url: string, cookie: string): Response {
