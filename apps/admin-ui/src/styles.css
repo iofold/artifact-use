@@ -1920,3 +1920,34 @@ code {
     grid-template-columns: 1fr;
   }
 }
+/* Token status on the Connect page: active / expiring / expired badges,
+   with the expired hint in the danger colour. */
+.pill.ok {
+  background: rgba(11, 93, 82, 0.1);
+  color: var(--accent);
+}
+.pill.warn {
+  background: rgba(158, 106, 18, 0.12);
+  color: #8a5a0b;
+}
+.token-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.token-list li.token-expired strong {
+  color: var(--muted);
+}
+.token-list li .token-hint {
+  color: var(--danger);
+}
+@media (max-width: 620px) {
+  .token-list li {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .token-side {
+    justify-content: space-between;
+  }
+}
