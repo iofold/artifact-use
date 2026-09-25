@@ -306,9 +306,11 @@ plus `dir` and `dry_run` on `artifact_publish`.
   `revoke_link` (`link_id`), `move` (`to_workspace`; URL and creator
   preserved), `delete` (requires `confirm: true`; removes every version,
   file, share link, comment, and view record), and `workspaces`.
-- `artifact_comments`: `list` (`status` open|resolved|all, `since`,
-  `page_path`, `limit`), `post` (`body`, optional `parent_id`), `resolve` and
-  `reopen` (`comment_id`).
+- `artifact_comments`: `list` (`status` open|sent|resolved|all, `since`,
+  `wait` up to 25 s, `page_path`, `limit`; every result carries `next_since`),
+  `post` (`body`, optional `parent_id`), `resolve` and `reopen`
+  (`comment_id`), `subscribe` (`url`, optional `events`, optional `artifact`),
+  `unsubscribe` (`webhook_id`), and `webhooks`.
 
 Selection:
 
@@ -355,7 +357,8 @@ files, 2 MiB per file; `artifact` takes a slug or an existing `url_key` to
 republish in place), `artifact_upload_session` (local folders and large or
 multi-file artifacts), `artifact_manage` (list, stats, access, preview copy,
 upstream backend, share links, move, delete, workspaces), and
-`artifact_comments` (list, reply, resolve, reopen). Tool failures return
+`artifact_comments` (list with `wait: 25` to long-poll, reply, resolve,
+reopen, subscribe a webhook). Tool failures return
 `isError: true` with `structuredContent.error = {code, message, status}`.
 Never use Wrangler, Cloudflare API tokens, direct R2, or direct D1 for
 publishing.
@@ -365,27 +368,53 @@ publishing.
 ## 5. Comment loop
 
 Viewers comment on the artifact page through the built-in widget; comments are
-threaded and can be anchored to a specific on-page element. The publisher's
-agent closes the loop:
+threaded and can be anchored to a specific on-page element. A viewer can press
+"Send to agent" on a thread: it is flagged (`status: "sent"`), the
+`comment.sent_to_agent` event fires, and the page shows "picked up" once you
+reply or resolve. The page also shows "an agent checked this page N min ago"
+whenever you list its comments, so keep listing while you work. The
+publisher's agent closes the loop:
 
-1. Find work: `artifact_manage` action `list` -> artifacts with
-   `open_comments > 0`, or `artifact_comments` action `list` with
-   `status: "open"` (add `since: <unix seconds>` to see only new comments).
-2. Read each thread: roots carry the request; replies hang off
-   `parent_comment_id`; `target` (when present) describes the anchored element
-   (`selector`, `label`, `text`, `path`).
-3. Fix the artifact and republish the SAME artifact (pass its `url_key` or the
+1. Learn about feedback by push or by holding a request, never by polling on
+   a timer:
+   - Webhook: `artifact_comments` action `subscribe` with your `url`
+     (optional `events`; optional `artifact` to scope to one, omit it for
+     the whole workspace). Each event is a signed JSON POST
+     (`X-Artifact-Use-Event`, `X-Artifact-Use-Signature: sha256=<HMAC of the
+body with the secret returned once>`), retried for 12 hours.
+   - Long-poll: `artifact_comments` action `list` with `wait: 25` and
+     `since: <next_since from the previous result>`. The call answers as soon
+     as a newer comment exists, or `[]` after 25 s with a fresh `next_since`;
+     loop on it and de-duplicate by `id`.
+2. Act on `status: "sent"` first (a person explicitly asked for you), then
+   `status: "open"`. `artifact_manage` action `list` shows `open_comments`
+   per artifact when you start cold.
+3. Read each thread: roots carry the request; replies hang off
+   `parent_comment_id`; `author_kind` says whether a person or an agent wrote
+   it; `target` (when present) describes the anchored element: `selector`,
+   `label`, `text`, `path`, and on newer comments `tag`, `caption` (alt,
+   aria-label, figcaption), `src` (media file name), `heading` (the section
+   it sits under), `index`, `viewport` and `page_title`, so "div" on an image
+   grid reads as "the second image under Option B".
+4. Fix the artifact and republish the SAME artifact (pass its `url_key` or the
    same slug); the URL stays stable and viewers see the new version.
-4. Reply to each thread (`action: "post"` with `parent_id`) saying what
-   changed, then resolve it (`action: "resolve"` with `comment_id`). Use
-   `reopen` if you resolved by mistake.
+5. Reply to each thread (`action: "post"` with `parent_id`) saying what
+   changed, then resolve it (`action: "resolve"` with `comment_id`). Your
+   replies are attributed to the agent (`author_kind: "agent"`, labelled with
+   the token's name). Use `reopen` if you resolved by mistake.
 
 The same operations over HTTP with a creator bearer token:
 
 ```bash
-# list open threads (filters: status=open|resolved|all, since=<unix>, page_path, limit)
+# hold up to 25 s for feedback newer than $NEXT_SINCE; sent threads first
+# (filters: status=open|sent|resolved|all, since=<unix>, wait=<1..25>, page_path, limit)
 curl -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" \
-  "$ARTIFACT_USE_API_BASE/api/v1/artifacts/{url_key}/comments?status=open"
+  "$ARTIFACT_USE_API_BASE/api/v1/artifacts/{url_key}/comments?status=sent&since=$NEXT_SINCE&wait=25"
+
+# or subscribe a webhook once (the signing secret is returned once)
+curl -X POST -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" -H "Content-Type: application/json" \
+  -d '{"url": "https://hooks.example.com/artifact-use", "artifact": "{url_key}"}' \
+  "$ARTIFACT_USE_API_BASE/api/v1/webhooks"
 
 # reply to comment 42, then resolve it
 curl -X POST -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" -H "Content-Type: application/json" \
@@ -539,7 +568,9 @@ then carries the findings as `warnings`.
 - Entrypoint: `index.html` by default.
 - Declare `file_count` and `package_bytes` on `artifact_upload_session` or
   `POST /api/v1/publish/start` to fail fast with `413` before uploading.
-- Comments: 2000 characters per comment; `list` returns up to 500.
+- Comments: 2000 characters per comment; `list` returns up to 500; `wait`
+  holds a list for at most 25 s; at most 20 active webhooks per workspace,
+  each delivery retried for 12 hours.
 - Upstream proxy: 10 MiB request bodies, 60 s timeout, 120 requests per
   minute per viewer and 1200 per artifact.
 
@@ -629,7 +660,7 @@ repository routes sharing requests through Artifact Use:
 - Republish the existing artifact by its `url_key` instead of creating a new one.
 - Keep the default `email` gate unless told otherwise; titles and descriptions are public.
 - After publishing, return the live URL, the `url_key`, and the gate level.
-- For review feedback, list open comments, fix, republish the same artifact, reply, resolve.
+- For review feedback, subscribe a webhook or long-poll comments with `wait: 25` (carry `next_since`); act on `status: "sent"` first, fix, republish the same artifact, reply, resolve.
 ```
 
 <!-- llms.txt -->
@@ -660,13 +691,17 @@ Reading a gated artifact as an agent (no browser needed):
   are delegated by the human via "Hand to your agent" in the comments widget
   (`POST /_au/agent-token`). The `401` JSON spells out the exact path.
 - Comments with the same bearer:
-  `GET /_au/comments?artifact_key={key}&status=open|resolved|all&since=<unix>`
-  lists threads;
+  `GET /_au/comments?artifact_key={key}&status=open|sent|resolved|all&since=<unix>&wait=<1..25>`
+  lists threads (`wait` holds the request until a newer comment exists; pass
+  the returned `next_since` back as `since`);
   `POST {artifact_key, body, parent_id?, page_path?, target?, client_ref?}`
   comments or replies and returns the created id;
-  `PATCH {artifact_key, id, resolved}` resolves or reopens.
+  `PATCH {artifact_key, id, resolved}` resolves or reopens;
+  `PATCH {artifact_key, id, sent_to_agent: true}` flags a thread for the
+  publishing agent.
 - Publishers close the loop with their own token: the `artifact_comments` MCP
-  tool, CLI `artifact-use comments`, or
+  tool (subscribe a webhook, or list with `wait: 25` and act on
+  `status: "sent"` first), CLI `artifact-use comments`, or
   `/api/v1/artifacts/{url_key}/comments`.
 
 <!-- /llms.txt -->
