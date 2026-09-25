@@ -29,7 +29,15 @@ import {
   getFile,
   getShareLink,
   getVersion,
+  getVersionForArtifact,
 } from "./db";
+import {
+  VERSION_SEGMENT,
+  injectVersionBanner,
+  versionBanner,
+  versionPath,
+  versionUrl,
+} from "./versions";
 import {
   deadLinkResponse,
   getViewerSession,
@@ -99,7 +107,28 @@ export async function servePublic(
     return error(404, "artifact_not_found", "artifact not found");
   const unavailable = unavailableArtifactResponse(request, artifact);
   if (unavailable) return unavailable;
-  if (
+  // Prior versions live under the reserved `_v/<version_id>/` segment and
+  // are served exactly like the current one — same gate, same sessions, same
+  // creator-token reads — from that version's own files. Resolved here, before
+  // the gate, so an unknown or unfinished version is a plain 404 and the rest
+  // of this function never has to know which version it is guarding.
+  let pinnedVersion: ArtifactVersion | null = null;
+  if (rest[0] === VERSION_SEGMENT) {
+    const candidate = await getVersionForArtifact(
+      env,
+      artifact.id,
+      rest[1] || "",
+    );
+    if (!candidate || candidate.status !== "complete")
+      return error(404, "version_not_found", "artifact version not found");
+    if (rest.length === 2 && !path.endsWith("/")) {
+      const url = new URL(request.url);
+      url.pathname = versionPath(env, artifact.url_key, candidate.id);
+      return Response.redirect(url.toString(), 301);
+    }
+    pinnedVersion = candidate;
+    rest = rest.slice(2);
+  } else if (
     (rest.length === 1 && rest[0] === artifact.slug) ||
     (rest.length === 0 && !path.endsWith("/"))
   ) {
@@ -256,7 +285,14 @@ export async function servePublic(
         request,
         env,
         artifact,
-        await serveVersion(request, env, artifact, publicPath, rest),
+        await serveVersion(
+          request,
+          env,
+          artifact,
+          publicPath,
+          rest,
+          pinnedVersion,
+        ),
       );
   return sessionCookie ? withCookie(response, sessionCookie) : response;
 }
@@ -320,24 +356,30 @@ function withCookie(response: Response, cookie: string): Response {
 }
 
 // Everything after the gate: the file lookup, range and conditional handling,
-// widget injection.
+// widget injection. `pinnedVersion` is a prior version reached through
+// `_v/<id>/`; otherwise the artifact's current version is served.
 async function serveVersion(
   request: Request,
   env: Env,
   artifact: Artifact,
   publicPath: string,
   rest: string[],
+  pinnedVersion: ArtifactVersion | null = null,
 ): Promise<Response> {
-  if (!artifact.current_version_id)
+  if (!pinnedVersion && !artifact.current_version_id)
     return error(404, "version_not_found", "artifact version not found");
   const linkPreview = isLinkPreviewRequest(request);
-  const version = await getVersion(env, artifact.current_version_id);
+  const version =
+    pinnedVersion || (await getVersion(env, artifact.current_version_id || ""));
   if (!version || version.status !== "complete")
     return error(404, "version_not_found", "artifact version not found");
+  const base = pinnedVersion
+    ? versionUrl(env, artifact.url_key, version.id)
+    : publicArtifactUrl(env, artifact.url_key);
   // Machine descriptor at the reserved `_au/index.json` path (gate already
   // enforced above) — structure for agents without scraping HTML.
   if (rest.length === 2 && rest[0] === "_au" && rest[1] === "index.json")
-    return artifactDescriptor(env, artifact, version);
+    return artifactDescriptor(env, artifact, version, base);
   // `rest` never carries a trailing slash (split+filter drops the empty
   // segment), so directory-style URLs are detected from the raw request path.
   let assetPath = rest.join("/") || version.entrypoint || "index.html";
@@ -385,6 +427,8 @@ async function serveVersion(
     isHtml,
     row.path,
   );
+  // Which version answered: the current one, or the pinned prior version.
+  headers.set("X-Artifact-Version", version.id);
   if (!("body" in obj))
     return new Response(null, {
       status: preconditionFailed(request.headers) ? 412 : 304,
@@ -397,20 +441,27 @@ async function serveVersion(
     // Point agents at the machine descriptor.
     headers.set(
       "Link",
-      `<${publicArtifactUrl(env, artifact.url_key)}_au/index.json>; rel="describedby"; type="application/json"`,
+      `<${base}_au/index.json>; rel="describedby"; type="application/json"`,
     );
     if (request.method === "HEAD") return new Response(null, { headers });
-    const html = injectArtifactMetadata(
+    let html = injectArtifactMetadata(
       await bodyObj.text(),
       env,
       artifact,
       contentType,
     );
-    // Only inject the feedback widget for real browsers; agents get clean HTML.
-    const body = wantsHtml(request)
-      ? injectWidget(html, artifact, version.id, env)
-      : html;
-    return new Response(body, { headers });
+    // Only inject the feedback widget (and, on a prior version, the banner
+    // strip) for real browsers; agents get clean HTML. The widget receives
+    // the served version's id, so comments left here carry it.
+    if (wantsHtml(request)) {
+      if (pinnedVersion)
+        html = injectVersionBanner(
+          html,
+          versionBanner(env, artifact, pinnedVersion),
+        );
+      html = injectWidget(html, artifact, version.id, env);
+    }
+    return new Response(html, { headers });
   }
   const range = rangeHeaders ? rangeBounds(bodyObj.range, obj.size) : null;
   if (range) {
@@ -900,6 +951,8 @@ function artifactDescriptor(
   env: Env,
   artifact: Artifact,
   version: ArtifactVersion,
+  // The stable URL, or the `_v/<id>/` URL when a prior version is described.
+  base: string = publicArtifactUrl(env, artifact.url_key),
 ): Response {
   let manifest: PublishManifest | null = null;
   try {
@@ -909,7 +962,6 @@ function artifactDescriptor(
   } catch {
     manifest = null;
   }
-  const base = publicArtifactUrl(env, artifact.url_key);
   const site = siteBaseUrl(env);
   return json({
     url_key: artifact.url_key,
@@ -917,9 +969,11 @@ function artifactDescriptor(
     description: artifact.description,
     gate_level: artifact.gate_level,
     version_id: version.id,
+    current_version_id: artifact.current_version_id,
     entrypoint: version.entrypoint,
     updated_at: artifact.updated_at,
     base,
+    version_url: versionUrl(env, artifact.url_key, version.id),
     files: (manifest?.files || []).map((f) => ({
       path: f.path,
       content_type: f.content_type,
