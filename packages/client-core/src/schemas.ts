@@ -37,6 +37,11 @@ export const artifactPublishTool: ToolSchema = {
     type: "object",
     required: ["artifact"],
     properties: {
+      allow_secrets: {
+        type: "boolean",
+        description:
+          "Publish even if the secret scan finds credential-like strings (they are returned as warnings).",
+      },
       artifact: { type: "string", description: "Artifact slug to publish." },
       workspace: workspaceProperty,
       title: { type: "string" },
@@ -248,6 +253,11 @@ export const artifactPublishLocalTool: ToolSchema = {
   inputSchema: {
     ...artifactPublishTool.inputSchema,
     properties: {
+      allow_secrets: {
+        type: "boolean",
+        description:
+          "Publish even if the secret scan finds credential-like strings (they are returned as warnings).",
+      },
       ...artifactPublishTool.inputSchema.properties,
       dir: { type: "string" },
       dry_run: { type: "boolean", default: false },

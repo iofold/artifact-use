@@ -226,6 +226,19 @@ test("a modern tools/list carries resultType, ttlMs, cacheScope and serverInfo",
   };
   assert.equal(body.result.resultType, "complete");
   assert.equal(body.result.tools.length, 4);
+  for (const tool of body.result.tools as Array<{
+    name: string;
+    title?: string;
+    annotations?: { readOnlyHint?: boolean; destructiveHint?: boolean };
+  }>) {
+    assert.ok(tool.title, `${tool.name} has a title`);
+    assert.equal(typeof tool.annotations?.readOnlyHint, "boolean", tool.name);
+    assert.equal(
+      typeof tool.annotations?.destructiveHint,
+      "boolean",
+      tool.name,
+    );
+  }
   assert.equal(body.result.cacheScope, "private");
   assert.ok(body.result.ttlMs > 0);
   const event = recorded.find((r) => r.sql.includes("INSERT INTO mcp_events"));

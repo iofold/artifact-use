@@ -14,6 +14,7 @@ import {
   resolveConfig,
   uploadFiles,
   validatePath,
+  withAnnotations,
 } from "artifact-use-core";
 import {
   artifactCommentsTool,
@@ -45,7 +46,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     artifactUploadSessionTool,
     artifactManageTool,
     artifactCommentsTool,
-  ],
+  ].map(withAnnotations),
 }));
 
 server.setRequestHandler(CallToolRequestSchema, async (request) => {

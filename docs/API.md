@@ -136,6 +136,8 @@ Authorization: Bearer <creator-token-or-upload-token>
 }
 ```
 
+Secret scan. `POST /api/v1/publish/html` scans the HTML and the completion step scans every uploaded text-like file (html, js, css, json, txt, md, svg, xml, csv; up to 2 MiB each, 200 files, 20 findings). If credential-like strings are found the publish is refused with `422 {"error":{"code":"secrets_detected","message":…,"findings":[{"path","kind","line","preview"}]}}` and the draft stays writable; send `allow_secrets: true` to publish anyway, in which case the response carries `warnings` with the same findings. Every successful publish response also carries `note`, a reminder that the URL is unlisted but reachable by anyone who has it and passes the gate.
+
 ## Viewer Comments
 
 The injected comments popup uses the viewer session cookie from the artifact

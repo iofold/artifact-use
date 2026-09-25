@@ -5,6 +5,7 @@ import {
   artifactPublishTool,
   artifactUploadSessionTool,
 } from "artifact-use-core/schemas";
+import { withAnnotations } from "artifact-use-core/annotations";
 import { handleAdminApi } from "./admin";
 import { safeCreator } from "./auth";
 import {
@@ -25,7 +26,7 @@ const TOOLS = [
   artifactUploadSessionTool,
   artifactManageTool,
   artifactCommentsTool,
-];
+].map(withAnnotations);
 
 export const SERVER_INFO = { name: "artifact-use", version: "0.2.0" };
 // Dual-era server (MCP 2026-07-28 "Versioning and Compatibility"): requests
@@ -713,6 +714,7 @@ async function publishInlineFiles(
       `/api/v1/publish/${start.version.id}/complete`,
       postJsonInit(headers, {
         entrypoint: args.entrypoint || "index.html",
+        ...(args.allow_secrets ? { allow_secrets: true } : {}),
         files: normalized.map((file) => ({
           path: file.path,
           content_type: file.contentType,
