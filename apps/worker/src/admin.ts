@@ -56,6 +56,14 @@ import {
 import { normalizeArtifactDescription } from "./preview";
 import { normalizeUpstreamUrl, upstreamSummary } from "./upstream";
 import {
+  diffVersions,
+  isVersionRef,
+  listVersions,
+  promoteVersion,
+  publishLinks,
+  resolveVersionRef,
+} from "./versions";
+import {
   error,
   GATE_LEVELS,
   json,
@@ -109,8 +117,16 @@ export async function handleAdminApi(
 
     if (request.method === "GET" && path === "/api/v1/artifacts") {
       requirePermission(creator, env, "artifacts:read");
+      const artifacts = await listArtifactsForOrg(env, creator.orgId);
       return json({
-        artifacts: await listArtifactsForOrg(env, creator.orgId),
+        artifacts: artifacts.map((artifact) => ({
+          ...artifact,
+          links: publishLinks(
+            env,
+            artifact.url_key,
+            artifact.current_version_id,
+          ),
+        })),
       });
     }
 
@@ -171,11 +187,50 @@ export async function handleAdminApi(
       requirePermission(creator, env, "artifacts:read");
       return json({
         artifact,
+        links: publishLinks(env, artifact.url_key, artifact.current_version_id),
         upstream: upstreamSummary(
           await getArtifactUpstream(env, artifact.id),
           publicArtifactPath(env, artifact.url_key),
         ),
       });
+    }
+
+    // Versions: list, promote (rollback is promoting an older one), diff.
+    if (parsed.action === "versions") {
+      if (request.method === "GET" && !parsed.verb) {
+        requirePermission(creator, env, "artifacts:read");
+        return json(await listVersions(env, artifact));
+      }
+      if (request.method === "POST" && parsed.verb === "promote") {
+        requirePermission(creator, env, "artifacts:publish");
+        const promoted = await promoteVersion(env, artifact, parsed.sub || "");
+        if (promoted instanceof Response) return promoted;
+        return json({
+          ok: true,
+          artifact: promoted.artifact,
+          version_id: promoted.version.id,
+          changed: promoted.changed,
+          links: promoted.links,
+          note: promoted.changed
+            ? `The stable URL now serves version ${promoted.version.id}. Newer versions stay listed and viewable at their _v/ URLs; promote one of them to move forward again.`
+            : `Version ${promoted.version.id} was already current.`,
+        });
+      }
+      if (request.method === "GET" && parsed.verb === "diff") {
+        requirePermission(creator, env, "artifacts:read");
+        const [from, to] = await Promise.all([
+          resolveVersionRef(env, artifact, parsed.sub || ""),
+          resolveVersionRef(env, artifact, parsed.to || ""),
+        ]);
+        if (!from || !to)
+          return error(
+            404,
+            "version_not_found",
+            `${!from ? "from" : "to"} version not found on this artifact (use a version id, "current" or "previous")`,
+          );
+        return json(await diffVersions(env, artifact, from, to));
+      }
+      return error(405, "method_not_allowed", "method not allowed");
     }
 
     if (request.method === "PATCH" && !parsed.action) {
@@ -537,6 +592,28 @@ interface ParsedArtifactPath {
   action: string;
   // `/artifacts/{ref}/share-links/{id}`: the item under an action.
   sub?: string;
+  // `/artifacts/{ref}/versions/{sub}/promote` and
+  // `/artifacts/{ref}/versions/{sub}/diff/{to}`.
+  verb?: "promote" | "diff";
+  to?: string;
+}
+
+// `/artifacts/{ref}/versions[/{id}/promote | /{from}/diff/{to}]`.
+function parseVersionsPath(segments: string[]): ParsedArtifactPath | null {
+  const ref = assertArtifactRef(segments[0] || "");
+  if (segments.length === 2) return { ref, action: "versions" };
+  const sub = assertVersionRef(segments[2] || "");
+  if (segments.length === 4 && segments[3] === "promote")
+    return { ref, action: "versions", sub, verb: "promote" };
+  if (segments.length === 5 && segments[3] === "diff")
+    return {
+      ref,
+      action: "versions",
+      sub,
+      verb: "diff",
+      to: assertVersionRef(segments[4] || ""),
+    };
+  return null;
 }
 
 function parseArtifactApiPath(path: string): ParsedArtifactPath | null {
@@ -547,6 +624,8 @@ function parseArtifactApiPath(path: string): ParsedArtifactPath | null {
     .split("/")
     .filter(Boolean)
     .map(decodeURIComponent);
+  if (segments.length >= 2 && segments[1] === "versions")
+    return parseVersionsPath(segments);
   if (!segments.length || segments.length > 3) return null;
   if (segments.length === 1) {
     return { ref: assertArtifactRef(segments[0] || ""), action: "" };
@@ -601,6 +680,12 @@ async function apiArtifact(
 function assertLinkId(value: string): string {
   if (!/^[a-z0-9]{8,64}$/i.test(value))
     throw new Error("share link id must be 8-64 alphanumeric characters");
+  return value;
+}
+
+function assertVersionRef(value: string): string {
+  if (!isVersionRef(value))
+    throw new Error('version must be a version id, "current" or "previous"');
   return value;
 }
 
