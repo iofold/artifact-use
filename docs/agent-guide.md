@@ -736,3 +736,60 @@ inflate the headline count. `artifact_manage stats` returns
 `views.verified`, `views.via_link` and `views.public`, so when a human asks
 "did anyone look?", answer with `people`, and say "self-reported" for plain
 email-gate identities.
+
+## 16. Versions, rollback and diff
+
+Every completed publish is an immutable version. The stable URL
+(`https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/`)
+serves the artifact's current version; each version also has its own
+address, `https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/_v/{version_id}/`,
+behind the same gate (viewer sessions, share links and your own token all
+work there). Browsers see a banner strip on a prior version; agents get the
+page as-is, with `X-Artifact-Version` naming the version that answered.
+
+Every publish result carries `version_id` and `links`:
+
+- `links.artifact`: the stable URL.
+- `links.version`: this version's `_v/` URL — it keeps serving exactly these
+  files after later republishes, so it is the link to put in a comment reply
+  ("fixed in {links.version}") instead of writing `ver_…` ids into prose or
+  "v2" into titles.
+- `links.review`: the reviewer-facing link to hand to the user (today the
+  stable URL).
+
+`artifact_manage` actions (HTTP routes in `docs/API.md`, section Versions):
+
+- `versions`: the list, newest first, with `current` marked.
+- `promote` (`version_id`): make a version current. Rolling back is
+  promoting an older version; nothing is deleted, and promoting the newer
+  one rolls forward again. Use it when a republish made things worse and the
+  user wants the previous state back immediately.
+- `diff` (`from_version`, `to_version`; version ids, `current` or
+  `previous`; default previous → current): per-file `added` / `removed` /
+  `changed` / `unchanged` plus a unified diff for changed text files, so you
+  can say precisely what the last publish changed, or what someone else
+  changed since your last publish.
+
+Republish safely with `base_version_id`: pass the `version_id` from your
+last publish on the next `artifact_publish` or `artifact_upload_session` of
+the same artifact. If another agent or person published in between, the
+call fails with `version_conflict` before anything is created; the error's
+`detail.error.current_version_id` names the newer version. Then `diff` from
+your base to `current`, merge their change into yours, and republish with
+`base_version_id` set to that current id. Omit `base_version_id` only when
+overwriting whatever is there is the intent.
+
+<!-- llms.txt -->
+
+Versions: every publish is kept; the stable URL serves the current one and
+each version is viewable at `{artifact url}_v/{version_id}/` behind the same
+gate. Publish results carry `version_id` and `links` (`artifact`, `version`,
+`review`); hand `links.review` to the user and cite `links.version` in
+comment replies. `artifact_manage` `versions` lists them, `promote`
+(`version_id`) makes one current (rollback = promote an older version),
+`diff` (`from_version`, `to_version`; default previous → current) shows what
+changed per file. Pass your last `version_id` as `base_version_id` on the
+next republish: a `version_conflict` means someone published in between —
+diff, merge, republish with the newer id.
+
+<!-- /llms.txt -->

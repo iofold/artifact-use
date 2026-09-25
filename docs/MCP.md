@@ -208,3 +208,37 @@ curl -X POST "$complete_url" \
   -H "Content-Type: application/json" \
   --data '{"entrypoint":"index.html","files":[{"path":"index.html","content_type":"text/html; charset=utf-8","size":1234,"sha256":"..."}]}'
 ```
+
+## Versions
+
+Every completed publish is kept; the stable URL serves the current version
+and every version stays viewable at `{artifact url}_v/{version_id}/` behind
+the same gate (a banner strip marks it as not current). `artifact_manage`
+covers the rest:
+
+- `versions`: list them, newest first, each with `id`, `created_at`,
+  `file_count`, `total_size`, `current` and its own `url`.
+- `promote` with `version_id`: make that version current. Rolling back is
+  promoting an older version; nothing is deleted, and promoting a newer one
+  rolls forward again. A draft answers `version_not_complete`, a foreign id
+  `version_not_found`.
+- `diff` with `from_version` / `to_version` (version ids, `current`, or
+  `previous`; default previous vs current, i.e. what the last publish
+  changed): file statuses (`added`, `removed`, `changed`, `unchanged`) and a
+  unified diff for changed text files (up to 200 KB each, 50 files, 300 KB
+  of diff text; `truncated: true` beyond).
+
+`artifact_publish` and `artifact_upload_session` accept `base_version_id`:
+the `version_id` of your last publish. If the artifact has moved on the
+call fails with `version_conflict` (`isError: true`;
+`structuredContent.error.detail.error` carries `current_version_id`,
+`current_created_at`, `current_url` and `base_version_id`) before anything
+is created. The loop: publish → remember `version_id` → pass it as
+`base_version_id` on the next republish → on a conflict, `diff` from your
+base to `current`, merge, republish with the new id. Two agents working on
+the same artifact can no longer silently overwrite each other.
+
+Every publish result carries `links`: `artifact` (the stable URL),
+`version` (this version's `_v/` URL) and `review` (the reviewer-facing
+link, currently the stable URL). Hand `links.review` to the user and keep
+`version_id` for the next republish.

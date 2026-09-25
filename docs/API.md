@@ -523,3 +523,205 @@ and `self_reported` (the plain `email` gate took the viewer's word: not
 verified, no link, not public). The admin dashboard's headline numbers and
 daily chart use people only; agents are a toggle. No email domain is ever
 excluded by name: `kind` is the only mechanism.
+
+## Versions
+
+Every completed publish is kept as an immutable version. The stable URL
+serves the artifact's _current_ version; every version stays reachable at
+its own address, and rolling back is promoting an older version.
+
+```http
+GET  /api/v1/artifacts/{artifact_key}/versions
+POST /api/v1/artifacts/{artifact_key}/versions/{version_id}/promote
+GET  /api/v1/artifacts/{artifact_key}/versions/{from}/diff/{to}
+```
+
+### Listing
+
+`GET .../versions` returns `{"versions": [...]}`, newest first, complete
+versions only (drafts and interrupted uploads never appear):
+
+```json
+{
+  "versions": [
+    {
+      "id": "ver_3f9c…",
+      "created_at": 1759400000,
+      "completed_at": 1759400012,
+      "file_count": 12,
+      "total_size": 4194304,
+      "entrypoint": "index.html",
+      "created_by": "user_01…",
+      "current": true,
+      "url": "https://artifacts.iofold.com/go/claims-demo-a1b2c3/_v/ver_3f9c…/"
+    }
+  ]
+}
+```
+
+Requires `artifacts:read`.
+
+### Viewing a prior version
+
+Every version is served at `{artifact url}_v/{version_id}/[path]`. The
+reserved `_v` segment can never collide with a published file (leading
+underscores are refused at upload). Under that prefix:
+
+- The artifact's gate applies unchanged: viewer sessions, share links
+  (`?v={link_id}`), the SSO auto-pass and creator-token reads all work
+  exactly as on the stable URL.
+- Files resolve within that version, so a page's relative assets are the
+  ones it was published with; `_au/index.json` describes that version.
+- Responses carry `X-Artifact-Version: {version_id}` (the stable URL
+  carries it too, naming the current version) and `X-Robots-Tag: noindex`.
+- HTML pages served to browsers get a small banner strip at the top
+  ("Viewing version from {date} · this is not the current version · Open
+  current"). Agents (`Accept` without `text/html`) get the page as-is.
+- Comments left from a version view carry that `version_id`, and their
+  `page_path` is the `_v/…` path they were left on.
+- An unknown id, a draft, or a version of another artifact is `404`
+  `version_not_found`.
+
+### Promote (and roll back)
+
+`POST .../versions/{version_id}/promote` makes that version current: the
+stable URL serves it from the next request and `updated_at` moves forward.
+Rolling back _is_ promoting an older version; nothing is deleted and the
+newer versions stay listed and viewable, so rolling forward again is another
+promote.
+
+```json
+{
+  "ok": true,
+  "artifact": { "...": "...", "current_version_id": "ver_3f9c…" },
+  "version_id": "ver_3f9c…",
+  "changed": true,
+  "links": {
+    "artifact": "https://artifacts.iofold.com/go/claims-demo-a1b2c3/",
+    "version": "https://artifacts.iofold.com/go/claims-demo-a1b2c3/_v/ver_3f9c…/",
+    "review": "https://artifacts.iofold.com/go/claims-demo-a1b2c3/"
+  },
+  "note": "The stable URL now serves version ver_3f9c…. …"
+}
+```
+
+Only a completed version of this artifact qualifies: a draft answers `409`
+`version_not_complete`, an id that belongs to another artifact `404`
+`version_not_found`. Promoting the version that is already current is a
+no-op (`"changed": false`). Requires `artifacts:publish`.
+
+### Diff
+
+`GET .../versions/{from}/diff/{to}` compares two versions file by file.
+`{from}` and `{to}` are version ids, or `current` (the version the stable
+URL serves) or `previous` (the complete version before the current one),
+so "what changed in the last publish" is `.../versions/previous/diff/current`.
+
+```json
+{
+  "from": "ver_old…",
+  "to": "ver_new…",
+  "from_created_at": 1759300000,
+  "to_created_at": 1759400000,
+  "files": [
+    {
+      "path": "index.html",
+      "status": "changed",
+      "size_from": 130212,
+      "size_to": 130480,
+      "sha_from": "…",
+      "sha_to": "…",
+      "diff": "--- a/index.html\n+++ b/index.html\n@@ -41,7 +41,7 @@\n …"
+    },
+    {
+      "path": "assets/chart.png",
+      "status": "changed",
+      "size_from": 8123,
+      "size_to": 9001,
+      "sha_from": "…",
+      "sha_to": "…"
+    },
+    {
+      "path": "notes.md",
+      "status": "added",
+      "size_from": null,
+      "size_to": 512,
+      "sha_from": null,
+      "sha_to": "…"
+    }
+  ],
+  "summary": { "added": 1, "removed": 0, "changed": 2, "unchanged": 9 },
+  "truncated": false
+}
+```
+
+- `status` is `added`, `removed`, `changed` or `unchanged` (by content hash;
+  by size and bytes for files published before hashes were recorded).
+- `diff` is a unified text diff (three lines of context) for changed
+  text-like files: html, htm, js, mjs, css, json, txt, md, svg, xml, csv,
+  and anything served as `text/*`. Binary files are reported by status only.
+- Budgets: files over 200 KB are not diffed; at most 50 files carry a
+  `diff`; the diffs together stay under 300 KB. Past any cap the response
+  sets `"truncated": true` and the remaining changed files keep their status
+  without a `diff`. Very different files fall back to a whole-file
+  replacement diff rather than a minimal one.
+- Requires `artifacts:read`. A `from` or `to` that is not a completed
+  version of this artifact is `404` `version_not_found`.
+
+### Base version on republish
+
+`POST /api/v1/publish/html`, `POST /api/v1/publish/start` and
+`POST /api/v1/publish/upload-session` accept an optional `base_version_id`:
+the version the caller last published or read. When it is present and is
+not the artifact's `current_version_id`, the request is refused with
+
+```json
+{
+  "error": {
+    "code": "version_conflict",
+    "message": "the artifact's current version is ver_new…, not base_version_id ver_old…: …",
+    "current_version_id": "ver_new…",
+    "current_created_at": 1759400000,
+    "current_url": "https://artifacts.iofold.com/go/claims-demo-a1b2c3/_v/ver_new…/",
+    "base_version_id": "ver_old…"
+  }
+}
+```
+
+as `409`, before any draft, file or artifact row is created. The loop that
+keeps two agents (or an agent and a person) from silently clobbering each
+other's work:
+
+1. Publish; remember `version_id` from the response.
+2. On the next republish of the same artifact, pass that id as
+   `base_version_id`.
+3. On `409 version_conflict`, read the current version (the `diff` route
+   with `from` = your `base_version_id`, `to` = `current` shows exactly what
+   changed), merge, and republish with `base_version_id` set to the
+   `current_version_id` from the error.
+
+Omitting `base_version_id` keeps the previous behaviour: the republish
+always lands. A `base_version_id` sent for an artifact that does not exist
+yet is also a conflict (`current_version_id: null`).
+
+### Links in publish results
+
+Every successful publish response (`publish/html`, upload completion, and
+the MCP publish tools) carries `links`:
+
+```json
+{
+  "links": {
+    "artifact": "https://artifacts.iofold.com/go/claims-demo-a1b2c3/",
+    "version": "https://artifacts.iofold.com/go/claims-demo-a1b2c3/_v/ver_3f9c…/",
+    "review": "https://artifacts.iofold.com/go/claims-demo-a1b2c3/"
+  }
+}
+```
+
+`artifact` is the stable URL, `version` is this version's own address (it
+keeps serving these exact files after later republishes), and `review` is
+the reviewer-facing link — today the stable URL; the key is kept so a
+distinct review surface can replace it without changing callers.
+`GET /api/v1/artifacts` and `GET /api/v1/artifacts/{artifact_key}` carry the
+same object for the current version.
