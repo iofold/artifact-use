@@ -36,6 +36,7 @@ import {
   versionBanner,
   versionPath,
   versionUrl,
+  versionHistory,
 } from "./versions";
 import {
   deadLinkResponse,
@@ -107,8 +108,10 @@ export async function servePublic(
   const unavailable = unavailableArtifactResponse(request, artifact);
   if (unavailable) return unavailable;
   // Prior versions live under the reserved `_v/<version_id>/` segment and
-  // are served exactly like the current one — same gate, same sessions, same
-  // creator-token reads — from that version's own files. Resolved here, before
+  // are served from that version's own files, but only to the publishing
+  // workspace (a signed-in member or a workspace token): anyone else is sent
+  // to the stable URL, so a viewer only ever sees the latest version and an
+  // old link cannot leak what a later publish removed. Resolved here, before
   // the gate, so an unknown or unfinished version is a plain 404 and the rest
   // of this function never has to know which version it is guarding.
   let pinnedVersion: ArtifactVersion | null = null;
@@ -134,6 +137,18 @@ export async function servePublic(
     const url = new URL(request.url);
     url.pathname = publicArtifactPath(env, artifact.url_key);
     return Response.redirect(url.toString(), 301);
+  }
+  if (pinnedVersion && !(await workspaceMember(request, env, artifact))) {
+    const url = new URL(request.url);
+    url.pathname = publicArtifactPath(env, artifact.url_key) + rest.join("/");
+    url.search = "";
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: url.toString(),
+        "Cache-Control": "private, no-store",
+      },
+    });
   }
   const linkPreview = isLinkPreviewRequest(request);
   // Reserved sub-path: gated viewers' requests to the creator's upstream
@@ -624,6 +639,55 @@ export async function handleArtifactContext(
     admin_url: `/admin?open=${encodeURIComponent(artifact.id)}`,
     agent,
   });
+}
+
+// Is this request from the artifact's own workspace: a signed-in member's
+// browser (the site-wide publisher cookie) or a workspace token? With
+// `sameOrigin`, the cookie only counts when the page asking is this artifact,
+// so hostile artifact JS cannot use a visiting publisher's cookie elsewhere.
+async function workspaceMember(
+  request: Request,
+  env: Env,
+  artifact: Artifact,
+  sameOrigin = false,
+): Promise<boolean> {
+  const auth = await getPublisherSessionAuth(request, env);
+  if (
+    auth &&
+    auth.session.orgId === artifact.org_id &&
+    !(sameOrigin && refererOutsideArtifact(request, env, artifact))
+  )
+    return true;
+  return (
+    (request.method === "GET" || request.method === "HEAD") &&
+    (await creatorForArtifact(request, env, artifact, "artifacts:read")) !==
+      null
+  );
+}
+
+// Version history for the injected widget's Versions section. Publishers
+// only: viewers are never told that other versions exist.
+export async function handleVersions(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  if (request.method !== "GET")
+    return error(405, "method_not_allowed", "GET only");
+  const url = new URL(request.url);
+  const artifact = await getArtifactByUrlKey(
+    env,
+    url.searchParams.get("artifact_key") || "",
+  );
+  if (!artifact) return error(404, "artifact_not_found", "artifact not found");
+  const unavailable = unavailableArtifactResponse(request, artifact);
+  if (unavailable) return unavailable;
+  if (!(await workspaceMember(request, env, artifact, true)))
+    return error(
+      403,
+      "workspace_only",
+      "version history is available to the publishing workspace only",
+    );
+  return json(await versionHistory(env, artifact));
 }
 
 export async function handleComments(

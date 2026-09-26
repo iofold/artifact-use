@@ -4,6 +4,13 @@ Notable changes to Artifact Use are documented here.
 
 ## Unreleased
 
+- Prior versions are for the publishing workspace only: `_v/<id>/` answers a
+  workspace token or a signed-in member's browser and redirects everyone else
+  to the stable URL, so viewers only ever see the current version. Publishers
+  get a collapsed Versions line in the comments panel (which version this is,
+  how many exist) that expands into the history with each publish's file
+  changes and thread counts; `GET /_au/versions?artifact_key=` backs it and
+  answers the workspace only.
 - Comments: the "Send to agent" action is gone. Every comment already reaches
   the publishing agent, so the widget no longer asks viewers to send anything;
   `status` is `open`, `resolved` or `all` (a legacy `status=sent` reads as
@@ -23,8 +30,8 @@ Notable changes to Artifact Use are documented here.
   viewport) so image-grid comments stop reading as "div"; agent presence in
   `artifact-context` and the widget; `author_kind` and `agent_label`;
   `page_path` normalised with a backfill. Migration 0015.
-- Versions: `GET .../versions`, prior versions served at `_v/<id>/` with a
-  banner and `X-Artifact-Version`, promote (rollback), per-file diff with a
+- Versions: `GET .../versions`, prior versions served at `_v/<id>/` (workspace
+  only) with a banner and `X-Artifact-Version`, promote (rollback), per-file diff with a
   bounded line diff, `base_version_id` on every publish path returning
   `409 version_conflict`, and `links {artifact, version, review}` on publish
   results and artifact reads; MCP actions `versions`, `promote`, `diff`.

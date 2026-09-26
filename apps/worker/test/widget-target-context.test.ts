@@ -255,5 +255,11 @@ test("the widget sends the context with every new anchor", async () => {
     "every comment reaches the agent; there is no send step",
   );
   assert.match(source, /checked this page/, "presence line");
+  assert.match(
+    source,
+    /\/_au\/versions\?artifact_key=/,
+    "publishers get the version history",
+  );
+  assert.match(source, /data-versions/, "versions section in the panel");
   assert.match(source, /&wait=25/, "the open panel long-polls");
 });
