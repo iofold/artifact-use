@@ -116,6 +116,82 @@ export async function listVersions(
   };
 }
 
+export interface VersionChanges {
+  added: number;
+  removed: number;
+  changed: number;
+}
+
+// Files added, removed or changed between two complete versions, decided from
+// the stored manifests (path, sha256, size) without touching R2.
+export function manifestChanges(
+  from: ArtifactFile[],
+  to: ArtifactFile[],
+): VersionChanges {
+  const fromByPath = new Map(from.map((f) => [f.path, f]));
+  const toByPath = new Map(to.map((f) => [f.path, f]));
+  const changes: VersionChanges = { added: 0, removed: 0, changed: 0 };
+  for (const [path, b] of toByPath) {
+    const a = fromByPath.get(path);
+    if (!a) changes.added += 1;
+    else if (a.sha256 && b.sha256) {
+      if (a.sha256 !== b.sha256) changes.changed += 1;
+    } else if (a.size !== b.size) changes.changed += 1;
+  }
+  for (const path of fromByPath.keys())
+    if (!toByPath.has(path)) changes.removed += 1;
+  return changes;
+}
+
+export const HISTORY_LIMIT = 20;
+
+// The publisher-facing history behind the widget's Versions section: the
+// latest complete versions, each with its thread counts and what its publish
+// changed against the version before it.
+export async function versionHistory(
+  env: Env,
+  artifact: Artifact,
+  limit = HISTORY_LIMIT,
+): Promise<{
+  current_version_id: string | null;
+  versions: Record<string, unknown>[];
+}> {
+  // One extra so the oldest shown version can still be diffed backwards.
+  const versions = (await listCompleteVersions(env, artifact.id)).slice(
+    0,
+    limit + 1,
+  );
+  const counts = new Map<string, { total: number; open: number }>();
+  const rows = await env.DB.prepare(
+    `SELECT version_id, COUNT(*) AS total,
+            SUM(CASE WHEN resolved_at IS NULL THEN 1 ELSE 0 END) AS open
+     FROM comments
+     WHERE artifact_id = ? AND deleted_at IS NULL AND parent_comment_id IS NULL
+     GROUP BY version_id`,
+  )
+    .bind(artifact.id)
+    .all<{ version_id: string | null; total: number; open: number }>();
+  for (const row of rows.results || [])
+    if (row.version_id)
+      counts.set(row.version_id, {
+        total: Number(row.total || 0),
+        open: Number(row.open || 0),
+      });
+  const manifests = await Promise.all(
+    versions.map((version) => listFilesForVersion(env, version.id)),
+  );
+  return {
+    current_version_id: artifact.current_version_id,
+    versions: versions.slice(0, limit).map((version, i) => ({
+      ...versionJson(env, artifact, version),
+      comments: counts.get(version.id) || { total: 0, open: 0 },
+      changes: manifests[i + 1]
+        ? manifestChanges(manifests[i + 1]!, manifests[i]!)
+        : null,
+    })),
+  };
+}
+
 export function isVersionRef(value: string): boolean {
   return /^[A-Za-z0-9_-]{1,80}$/.test(value);
 }

@@ -37,6 +37,12 @@
  * publishing agent (no send step); agent-written comments carry "via agent"; a
  * presence line says when an agent last checked the page; while open, the
  * panel long-polls /_au/comments so replies land without a reload.
+ *
+ * Versions (landed): publishers see a collapsed "Versions" line under the
+ * presence line (which version this is, how many exist) that expands into the
+ * history — each version with what its publish changed and its thread counts,
+ * opening at its own URL. Viewers never see it: /_au/versions answers only the
+ * publishing workspace, and prior-version URLs send everyone else to current.
  */
 (function () {
   if (window.__artifactUseWidget) return;
@@ -147,6 +153,7 @@
     '<label class="au-check"><input type="checkbox" data-pins> Pins</label></div>' +
     "</div>" +
     '<div class="au-presence" data-presence hidden></div>' +
+    '<div class="au-versions" data-versions hidden></div>' +
     '<div class="au-loadbar" data-loadbar></div>' +
     '<div class="au-list" data-list></div>' +
     '<button class="au-new" data-new>+ New comment</button>' +
@@ -1784,6 +1791,7 @@
       .then(function (j) {
         renderPresence(j && j.agent ? j.agent : null);
         if (!j || j.role !== "publisher" || !j.admin_url) return;
+        loadVersions();
         var tools = panel.querySelector(".au-tools");
         var a = document.createElement("a");
         a.className = "au-icon au-admin";
@@ -1799,6 +1807,116 @@
         tools.insertBefore(a, tools.firstChild);
       })
       .catch(function () {});
+  }
+
+  // ---- versions (publishers only) ----
+  // The server answers /_au/versions for the publishing workspace alone, so
+  // this section simply never renders for viewers.
+  function loadVersions() {
+    fetch("/_au/versions?artifact_key=" + encodeURIComponent(artifactKey))
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .then(function (j) {
+        renderVersions(j && j.versions ? j.versions : null);
+      })
+      .catch(function () {});
+  }
+  function changesLabel(c) {
+    if (!c) return "first version";
+    var parts = [];
+    if (c.added) parts.push(c.added + " added");
+    if (c.changed) parts.push(c.changed + " changed");
+    if (c.removed) parts.push(c.removed + " removed");
+    return parts.length
+      ? parts.join(", ") +
+          " file" +
+          (c.added + c.changed + c.removed === 1 ? "" : "s")
+      : "no file changes";
+  }
+  function commentsLabel(c) {
+    var total = c ? Number(c.total || 0) : 0;
+    if (!total) return "no comments";
+    var open = Number(c.open || 0);
+    return (
+      total +
+      " comment" +
+      (total === 1 ? "" : "s") +
+      (open ? " · " + open + " open" : "")
+    );
+  }
+  function renderVersions(list) {
+    var box = $("[data-versions]");
+    if (!box) return;
+    if (!list || !list.length) {
+      box.hidden = true;
+      return;
+    }
+    var total = list.length; // newest first; v1 is the oldest shown
+    var idx = -1;
+    for (var i = 0; i < list.length; i++) if (list[i].id === versionId) idx = i;
+    var viewing = idx >= 0 ? list[idx] : list[0];
+    var num = idx >= 0 ? total - idx : total;
+    box.hidden = false;
+    box.innerHTML = "";
+    var toggle = el("button", "au-versions-toggle", "");
+    toggle.type = "button";
+    toggle.setAttribute("aria-expanded", "false");
+    toggle.appendChild(el("span", "au-versions-caret", "▸"));
+    toggle.appendChild(
+      el(
+        "span",
+        "au-versions-summary",
+        "Versions · v" +
+          num +
+          " of " +
+          total +
+          (viewing.current ? " · current" : " · not current") +
+          " · " +
+          agoLabel(viewing.completed_at || viewing.created_at),
+      ),
+    );
+    var ul = el("ul", "au-versions-list", "");
+    ul.hidden = true;
+    list.forEach(function (v, i) {
+      var li = el(
+        "li",
+        "au-version" + (v.id === versionId ? " is-viewing" : ""),
+        "",
+      );
+      var a = el("a", "au-version-link", "v" + (total - i));
+      a.href = v.url;
+      a.title =
+        v.id === versionId
+          ? "The version you are viewing"
+          : "Open this version";
+      li.appendChild(a);
+      li.appendChild(
+        el(
+          "span",
+          "au-version-meta",
+          agoLabel(v.completed_at || v.created_at) +
+            (v.current ? " · current" : "") +
+            (v.id === versionId && !v.current ? " · viewing" : ""),
+        ),
+      );
+      li.appendChild(
+        el(
+          "span",
+          "au-version-detail",
+          changesLabel(v.changes) + " · " + commentsLabel(v.comments),
+        ),
+      );
+      ul.appendChild(li);
+    });
+    toggle.onclick = function () {
+      var show = ul.hidden;
+      ul.hidden = !show;
+      toggle.classList.toggle("is-open", show);
+      toggle.setAttribute("aria-expanded", show ? "true" : "false");
+    };
+    box.appendChild(toggle);
+    box.appendChild(ul);
   }
 
   // ---- open / close (close == minimize; launcher is never removed) ----
@@ -2275,6 +2393,18 @@
       ".au-chip-agent{background:#e9e6fb;color:#4b3aa6}",
       ".au-presence{flex:0 0 auto;display:flex;align-items:center;gap:7px;padding:6px 12px;font-size:11px;font-weight:600;color:#5c6b66;background:#fafcfb;border-bottom:1px solid #eef2f1}",
       ".au-presence::before{content:'';width:8px;height:8px;border-radius:50%;background:#b8c4bf;flex:0 0 8px}",
+      ".au-versions{flex:0 0 auto;border-bottom:1px solid #eef2f1;background:#fafcfb}",
+      ".au-versions-toggle{width:100%;display:flex;align-items:center;gap:7px;padding:6px 12px;margin:0;font:inherit;font-size:11px;font-weight:600;color:#5c6b66;background:none;border:0;text-align:left;cursor:pointer}",
+      ".au-versions-toggle:hover{color:#0c585b}",
+      ".au-versions-caret{display:inline-block;width:10px;transition:transform .15s}",
+      ".au-versions-toggle.is-open .au-versions-caret{transform:rotate(90deg)}",
+      ".au-versions-list{list-style:none;margin:0;padding:0 12px 8px;max-height:220px;overflow-y:auto}",
+      ".au-version{display:flex;flex-wrap:wrap;gap:2px 8px;align-items:baseline;padding:5px 6px;border-top:1px solid #eef2f1;font-size:12px;border-radius:4px}",
+      ".au-version.is-viewing{background:#eef5f1}",
+      ".au-version-link{font-weight:800;color:#0c585b;text-decoration:none}",
+      ".au-version-link:hover{text-decoration:underline}",
+      ".au-version-meta{color:#5c6b66}",
+      ".au-version-detail{flex-basis:100%;color:#5c6b66;font-size:11px}",
       ".au-presence.is-watching{color:#0f6b3f}",
       ".au-presence.is-watching::before{background:#22a35f;box-shadow:0 0 0 3px rgba(34,163,95,.18)}",
       ".au-item.is-pending{background:#fbfdfc}",

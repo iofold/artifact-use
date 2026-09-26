@@ -212,9 +212,10 @@ curl -X POST "$complete_url" \
 ## Versions
 
 Every completed publish is kept; the stable URL serves the current version
-and every version stays viewable at `{artifact url}_v/{version_id}/` behind
-the same gate (a banner strip marks it as not current). `artifact_manage`
-covers the rest:
+and every version stays viewable at `{artifact url}_v/{version_id}/` for the
+publishing workspace (your token or a signed-in member; viewers are redirected
+to the current version; a banner strip marks it as not current).
+`artifact_manage` covers the rest:
 
 - `versions`: list them, newest first, each with `id`, `created_at`,
   `file_count`, `total_size`, `current` and its own `url`.

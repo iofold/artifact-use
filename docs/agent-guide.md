@@ -738,17 +738,21 @@ Every completed publish is an immutable version. The stable URL
 (`https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/`)
 serves the artifact's current version; each version also has its own
 address, `https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/_v/{version_id}/`,
-behind the same gate (viewer sessions, share links and your own token all
-work there). Browsers see a banner strip on a prior version; agents get the
-page as-is, with `X-Artifact-Version` naming the version that answered.
+for the publishing workspace only: your token and signed-in members of the
+workspace can open it, and everyone else is redirected to the stable URL, so
+viewers only ever see the latest version and an old link cannot leak what a
+later publish removed. Browsers see a banner strip on a prior version; agents
+get the page as-is, with `X-Artifact-Version` naming the version that
+answered.
 
 Every publish result carries `version_id` and `links`:
 
 - `links.artifact`: the stable URL.
 - `links.version`: this version's `_v/` URL — it keeps serving exactly these
-  files after later republishes, so it is the link to put in a comment reply
-  ("fixed in {links.version}") instead of writing `ver_…` ids into prose or
-  "v2" into titles.
+  files after later republishes, for you and the workspace's admins (viewers
+  are sent to the current version). Use it in your own notes and diffs; in a
+  comment reply say what changed and point at `links.artifact`, and do not
+  write `ver_…` ids into prose or "v2" into titles.
 - `links.review`: the reviewer-facing link to hand to the user (today the
   stable URL).
 
@@ -777,10 +781,11 @@ overwriting whatever is there is the intent.
 <!-- llms.txt -->
 
 Versions: every publish is kept; the stable URL serves the current one and
-each version is viewable at `{artifact url}_v/{version_id}/` behind the same
-gate. Publish results carry `version_id` and `links` (`artifact`, `version`,
-`review`); hand `links.review` to the user and cite `links.version` in
-comment replies. `artifact_manage` `versions` lists them, `promote`
+each version is viewable at `{artifact url}_v/{version_id}/` by the
+publishing workspace only (viewers are redirected to the current version).
+Publish results carry `version_id` and `links` (`artifact`, `version`,
+`review`); hand `links.review` to the user and point comment replies at
+`links.artifact`. `artifact_manage` `versions` lists them, `promote`
 (`version_id`) makes one current (rollback = promote an older version),
 `diff` (`from_version`, `to_version`; default previous → current) shows what
 changed per file. Pass your last `version_id` as `base_version_id` on the

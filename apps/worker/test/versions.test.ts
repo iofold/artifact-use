@@ -4,8 +4,9 @@ import { handleAdminApi } from "../src/admin.ts";
 import { signPayload } from "../src/auth.ts";
 import { handleMcp } from "../src/mcp.ts";
 import { handlePublish } from "../src/publish.ts";
-import { servePublic } from "../src/serve.ts";
+import { handleVersions, servePublic } from "../src/serve.ts";
 import type {
+  PublisherSession,
   Artifact,
   ArtifactFile,
   ArtifactVersion,
@@ -170,6 +171,8 @@ function state(
     bucketWrites: [] as string[],
     bucketReads: [] as string[],
     views: 0,
+    // Rows the versions history's GROUP BY over comments returns.
+    commentCounts: [] as { version_id: string; total: number; open: number }[],
   };
   const strip = (file: StoredFile): ArtifactFile => {
     const { text: _t, ...row } = file;
@@ -241,6 +244,8 @@ function state(
             return { results: rows };
           }
           if (sql.includes("FROM artifacts a")) return { results: [artifact] };
+          if (sql.includes("FROM comments"))
+            return { results: st.commentCounts };
           return { results: [] };
         },
         async run() {
@@ -395,6 +400,18 @@ function creator(url: string, init: RequestInit = {}): Request {
   headers.set("Authorization", "Bearer dev-token");
   headers.set("Content-Type", "application/json");
   return new Request(`${ORIGIN}${url}`, { ...init, headers });
+}
+
+async function publisherCookie(env: Env, orgId = "org_ver"): Promise<string> {
+  const session: PublisherSession = {
+    typ: "publisher",
+    sub: "user_ver",
+    orgId,
+    email: "publisher@example.com",
+    name: "Publisher",
+    exp: nowSec() + 600,
+  };
+  return `au_pub=${encodeURIComponent(await signPayload(session, env))}`;
 }
 
 async function viewerCookie(env: Env): Promise<string> {
@@ -577,9 +594,9 @@ test("a creator token reads a prior version at its _v/ URL, assets included", as
   assert.equal(described.base, `${ORIGIN}${PATH}_v/ver_old/`);
 });
 
-test("a browser with a viewer session sees the banner strip and a widget pinned to that version", async () => {
+test("a signed-in member's browser sees a prior version with the banner and a widget pinned to it", async () => {
   const { env } = state();
-  const cookie = await viewerCookie(env);
+  const cookie = `${await publisherCookie(env)}; ${await viewerCookie(env)}`;
   const page = await servePublic(
     browser(`${ORIGIN}${PATH}_v/ver_old/`, { headers: { Cookie: cookie } }),
     env,
@@ -614,71 +631,103 @@ test("a browser with a viewer session sees the banner strip and a widget pinned 
   assert.match(currentHtml, /"versionId":"ver_new"/);
 });
 
-test("the gate applies to prior versions exactly as to the current one", async () => {
+test("prior versions are for the workspace only: everyone else lands on the current version", async () => {
   const { env } = state();
+  // A viewer who passed the gate is still not the workspace.
+  const viewer = await servePublic(
+    browser(`${ORIGIN}${PATH}_v/ver_old/`, {
+      headers: { Cookie: await viewerCookie(env) },
+    }),
+    env,
+    `${PATH}_v/ver_old/`,
+  );
+  assert.equal(viewer.status, 302);
+  assert.equal(viewer.headers.get("Location"), `${ORIGIN}${PATH}`);
+  assert.equal(viewer.headers.get("Cache-Control"), "private, no-store");
+  // Anonymous browsers and machines never see the gate for an old version,
+  // let alone its content; a version's assets bounce to the current path.
   const anonymous = await servePublic(
     browser(`${ORIGIN}${PATH}_v/ver_old/`),
     env,
     `${PATH}_v/ver_old/`,
   );
-  assert.equal(anonymous.status, 200);
-  const gate = await anonymous.text();
-  assert.match(gate, /Enter your email to continue/);
-  assert.doesNotMatch(gate, /old page/);
-  // The gate sends the viewer back to the version URL they asked for.
-  assert.match(
-    gate,
-    new RegExp(
-      `name="redirect_to" value="${PATH.replace(/\//g, "\\/")}_v\\/ver_old\\/"`,
-    ),
-  );
+  assert.equal(anonymous.status, 302);
+  assert.equal(anonymous.headers.get("Location"), `${ORIGIN}${PATH}`);
   const machine = await servePublic(
-    agent(`${ORIGIN}${PATH}_v/ver_old/`),
+    agent(`${ORIGIN}${PATH}_v/ver_old/removed.txt`),
+    env,
+    `${PATH}_v/ver_old/removed.txt`,
+  );
+  assert.equal(machine.status, 302);
+  assert.equal(machine.headers.get("Location"), `${ORIGIN}${PATH}removed.txt`);
+  // A member of another workspace is a viewer here.
+  const stranger = await servePublic(
+    browser(`${ORIGIN}${PATH}_v/ver_old/`, {
+      headers: { Cookie: await publisherCookie(env, "org_other") },
+    }),
     env,
     `${PATH}_v/ver_old/`,
   );
-  assert.equal(machine.status, 401);
-  assert.equal(
-    ((await machine.json()) as { error: { code: string } }).error.code,
-    "gate_required",
+  assert.equal(stranger.status, 302);
+  // The current version is unaffected: the gate still applies there.
+  const gate = await servePublic(browser(`${ORIGIN}${PATH}`), env, PATH);
+  assert.equal(gate.status, 200);
+  assert.match(await gate.text(), /Enter your email to continue/);
+});
+
+test("the widget's version history answers the workspace only, with changes and thread counts", async () => {
+  const st = state();
+  const { env } = st;
+  st.commentCounts = [{ version_id: "ver_new", total: 2, open: 1 }];
+  const route = `${ORIGIN}/_au/versions?artifact_key=${KEY}`;
+  // A signed-in member asking from the artifact's own page.
+  const member = await handleVersions(
+    new Request(route, {
+      headers: {
+        Cookie: await publisherCookie(env),
+        Referer: `${ORIGIN}${PATH}`,
+      },
+    }),
+    env,
   );
-  // A link session minted on the version URL works there too.
-  const linked = state();
-  const link = {
-    id: "openlink00000001",
-    artifact_id: "art_ver",
-    kind: "open",
-    label: null,
-    recipient_email: null,
-    recipient_label: null,
-    password_hash: null,
-    password_salt: null,
-    max_opens: null,
-    open_count: 0,
-    last_opened_at: null,
-    expires_at: null,
-    revoked_at: null,
-    created_by: "user_ver",
-    created_at: 1,
-  };
-  const original = linked.env.DB.prepare.bind(linked.env.DB);
-  (linked.env.DB as { prepare: (sql: string) => unknown }).prepare = (
-    sql: string,
-  ) => {
-    const statement = original(sql) as { first: () => Promise<unknown> };
-    if (sql.includes("FROM share_links WHERE id = ? AND artifact_id = ?"))
-      statement.first = async () => link;
-    return statement;
-  };
-  const viaLink = await servePublic(
-    agent(`${ORIGIN}${PATH}_v/ver_old/?v=openlink00000001`),
-    linked.env,
-    `${PATH}_v/ver_old/`,
+  assert.equal(member.status, 200);
+  const history = await member.json();
+  assert.equal(history.current_version_id, "ver_new");
+  assert.deepEqual(
+    history.versions.map((v: { id: string }) => v.id),
+    ["ver_new", "ver_old"],
   );
-  assert.equal(viaLink.status, 200);
-  assert.match(await viaLink.text(), /old page/);
-  assert.match(viaLink.headers.get("Set-Cookie") || "", /^au_art_ver=/);
-  assert.equal(linked.views, 1);
+  const [newest, oldest] = history.versions;
+  assert.equal(newest.current, true);
+  assert.equal(newest.url, `${ORIGIN}${PATH}_v/ver_new/`);
+  assert.deepEqual(newest.comments, { total: 2, open: 1 });
+  assert.deepEqual(newest.changes, { added: 1, changed: 2, removed: 1 });
+  assert.deepEqual(oldest.comments, { total: 0, open: 0 });
+  assert.equal(oldest.changes, null);
+  // The workspace token works too (the agent side of the loop).
+  const token = await handleVersions(
+    agent(route, { headers: { Authorization: "Bearer dev-token" } }),
+    env,
+  );
+  assert.equal(token.status, 200);
+  // A viewer session is not the workspace, and neither is a member's cookie
+  // presented from some other page.
+  const viewer = await handleVersions(
+    new Request(route, { headers: { Cookie: await viewerCookie(env) } }),
+    env,
+  );
+  assert.equal(viewer.status, 403);
+  assert.equal((await viewer.json()).error.code, "workspace_only");
+  const elsewhere = await handleVersions(
+    new Request(route, {
+      headers: {
+        Cookie: await publisherCookie(env),
+        Referer: `${ORIGIN}/go/other-abc123/`,
+      },
+    }),
+    env,
+  );
+  assert.equal(elsewhere.status, 403);
 });
 
 test("an unknown, draft or foreign version under _v/ is a 404", async () => {

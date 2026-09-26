@@ -566,9 +566,12 @@ Every version is served at `{artifact url}_v/{version_id}/[path]`. The
 reserved `_v` segment can never collide with a published file (leading
 underscores are refused at upload). Under that prefix:
 
-- The artifact's gate applies unchanged: viewer sessions, share links
-  (`?v={link_id}`), the SSO auto-pass and creator-token reads all work
-  exactly as on the stable URL.
+- Only the publishing workspace can open it: a creator or OAuth token of the
+  owning workspace, or a signed-in member's browser (which then passes the
+  gate through the SSO auto-pass as on the stable URL). Every other request,
+  viewer session or not, is answered `302` to the same path under the stable
+  URL, so viewers only ever see the current version and nothing a later
+  publish removed can leak through an old link.
 - Files resolve within that version, so a page's relative assets are the
   ones it was published with; `_au/index.json` describes that version.
 - Responses carry `X-Artifact-Version: {version_id}` (the stable URL

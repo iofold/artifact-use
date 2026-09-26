@@ -22,6 +22,7 @@ import {
   handleArtifactContext,
   handleComments,
   servePublic,
+  handleVersions,
 } from "./serve";
 import {
   backfillFileHashes,
@@ -212,6 +213,7 @@ async function dispatch(
     if (path === "/_au/artifact-icon.svg" || path.startsWith("/_au/preview/"))
       return handleArtifactPreviewAsset(request, env, path);
     if (path === "/_au/comments") return handleComments(request, env, path);
+    if (path === "/_au/versions") return handleVersions(request, env);
     if (path === "/_au/artifact-context")
       return handleArtifactContext(request, env);
     if (path === "/_au/agent-token") return handleAgentToken(request, env);
