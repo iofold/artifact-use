@@ -31,3 +31,6 @@ apps/worker/public/
 
 # Agent worktrees created by Claude Code sessions
 .claude/worktrees/
+
+# /brag launch-video output (local, regenerate with /brag)
+brag-output*/
