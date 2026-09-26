@@ -18,7 +18,6 @@ export interface StoredComment {
   deleted_at: number | null;
   resolved_at: number | null;
   resolved_by: string | null;
-  sent_to_agent_at: number | null;
   author_kind: string;
   agent_label: string | null;
 }
@@ -89,7 +88,6 @@ export function seedComment(
     deleted_at: null,
     resolved_at: null,
     resolved_by: null,
-    sent_to_agent_at: null,
     author_kind: "human",
     agent_label: null,
     ...fields,
@@ -111,7 +109,6 @@ export function seedWebhook(
       "comment.replied",
       "comment.resolved",
       "comment.reopened",
-      "comment.sent_to_agent",
     ]),
     created_by: "user_seed",
     created_at: 1,
@@ -214,8 +211,6 @@ function all(store: Store, sql: string, params: unknown[]): unknown[] {
       rows = rows.filter((c) => rootOf(c).resolved_at === null);
     if (sql.includes("root.resolved_at END IS NOT NULL"))
       rows = rows.filter((c) => rootOf(c).resolved_at !== null);
-    if (sql.includes("root.sent_to_agent_at END IS NOT NULL"))
-      rows = rows.filter((c) => rootOf(c).sent_to_agent_at !== null);
     if (sql.includes("c.created_at > ?")) {
       const since = Number(params[i++]);
       rows = rows.filter((c) => c.created_at > since);
@@ -331,15 +326,6 @@ function run(
     if (row) {
       row.resolved_at = resolved_at as number | null;
       row.resolved_by = resolved_by as string | null;
-      meta.changes = 1;
-    }
-    return { meta };
-  }
-  if (sql.includes("UPDATE comments SET sent_to_agent_at")) {
-    const [sent_at, id] = params;
-    const row = store.comments.find((c) => c.id === Number(id));
-    if (row) {
-      row.sent_to_agent_at = sent_at as number | null;
       meta.changes = 1;
     }
     return { meta };

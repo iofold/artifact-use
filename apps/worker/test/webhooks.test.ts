@@ -251,7 +251,7 @@ test("POST /api/v1/webhooks validates, returns the secret once; GET lists withou
   const created = await call("POST", "/api/v1/webhooks", {
     url: "https://hooks.example.com/au",
     artifact: loopArtifact.url_key,
-    events: ["comment.created", "comment.sent_to_agent"],
+    events: ["comment.created", "comment.resolved"],
   });
   assert.equal(created.status, 200);
   const body = await created.json();
@@ -260,7 +260,7 @@ test("POST /api/v1/webhooks validates, returns the secret once; GET lists withou
   assert.equal(body.webhook.artifact, loopArtifact.url_key);
   assert.deepEqual(body.webhook.events, [
     "comment.created",
-    "comment.sent_to_agent",
+    "comment.resolved",
   ]);
   assert.equal(store.webhooks[0]!.artifact_id, loopArtifact.id);
   assert.equal(store.webhooks[0]!.secret, body.webhook.secret);

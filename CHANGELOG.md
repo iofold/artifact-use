@@ -4,6 +4,11 @@ Notable changes to Artifact Use are documented here.
 
 ## Unreleased
 
+- Comments: the "Send to agent" action is gone. Every comment already reaches
+  the publishing agent, so the widget no longer asks viewers to send anything;
+  `status` is `open`, `resolved` or `all` (a legacy `status=sent` reads as
+  `open`), the `comment.sent_to_agent` webhook event is retired, and a
+  `sent_to_agent` PATCH from an older client is accepted and ignored.
 - Share links are the sharing primitive: `recipient`, `password` and `open`
   kinds with expiry, max opens, open counts and revoke; passcode links pass
   the gate via a form, JSON or HTTP Basic; dead links answer 410. Migration 0014.
@@ -13,9 +18,8 @@ Notable changes to Artifact Use are documented here.
   are labelled verified, via link or self-reported; the landing page and every
   publish response say that URLs are unlisted.
 - Comment loop: signed webhooks with retries for `comment.created`,
-  `replied`, `resolved`, `reopened` and `sent_to_agent`; long-poll with
-  `wait=<1..25>` and `next_since` on both comment endpoints; a Send-to-agent
-  action and `status=sent`; v3 element context (caption, heading, src,
+  `replied`, `resolved` and `reopened`; long-poll with `wait=<1..25>` and
+  `next_since` on both comment endpoints; v3 element context (caption, heading, src,
   viewport) so image-grid comments stop reading as "div"; agent presence in
   `artifact-context` and the widget; `author_kind` and `agent_label`;
   `page_path` normalised with a backfill. Migration 0015.

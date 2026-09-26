@@ -16,7 +16,6 @@ import {
   createComment,
   creatorCommentAuthor,
   listComments,
-  markSentToAgent,
   positiveInteger,
   reanchorComment,
   resolveComment,
@@ -707,17 +706,15 @@ export async function handleComments(
     if (!id) return error(400, "invalid_comment", "comment id is required");
     const limited = await commentWriteRateLimit(request, env, author.email);
     if (limited) return limited;
-    // "Send to agent": flag the thread for the publishing agent (fires the
-    // comment.sent_to_agent webhook and surfaces under status=sent).
-    if (body.sent_to_agent !== undefined) {
-      const sent = await markSentToAgent(
-        env,
-        artifact,
-        id,
-        body.sent_to_agent !== false,
-      );
-      if (!sent) return error(404, "comment_not_found", "comment not found");
-      return json({ ok: true, comment: sent });
+    // Every comment reaches the publishing agent, so the old "Send to agent"
+    // flag is accepted from stale clients and ignored (it must never fall
+    // through to the resolve branch below).
+    if (
+      body.sent_to_agent !== undefined &&
+      body.resolved === undefined &&
+      body.target === undefined
+    ) {
+      return json({ ok: true, comment: { id }, ignored: ["sent_to_agent"] });
     }
     if (body.target !== undefined) {
       const reanchored = await reanchorComment(env, artifact, id, body.target);
@@ -984,7 +981,7 @@ function artifactDescriptor(
     feedback: {
       endpoint: `${site}/_au/comments`,
       auth: "same bearer as reads; the publishing workspace's own token (au_creator_.../MCP OAuth) also works",
-      list: `GET ${site}/_au/comments?artifact_key=${artifact.url_key}&status=open|sent|resolved|all&since=<unix>&page_path=<path>&wait=<1..25> -> threaded comments (parent_comment_id links replies to roots); wait long-polls for a comment newer than since and returns next_since to carry`,
+      list: `GET ${site}/_au/comments?artifact_key=${artifact.url_key}&status=open|resolved|all&since=<unix>&page_path=<path>&wait=<1..25> -> threaded comments (parent_comment_id links replies to roots); wait long-polls for a comment newer than since and returns next_since to carry`,
       post: {
         method: "POST",
         body: {
