@@ -372,8 +372,8 @@ const comments = [
     resolved_at: null,
     resolved_by: null,
   },
-  // Phase 5: a v3 target on a bare div (image grid), sent to the agent and
-  // picked up (agent reply), plus one still waiting.
+  // Phase 5: a v3 target on a bare div (image grid) with an agent reply, plus
+  // one still waiting.
   {
     id: 25,
     parent_comment_id: null,
@@ -395,7 +395,6 @@ const comments = [
     created_at: t0 + 190,
     resolved_at: null,
     resolved_by: null,
-    sent_to_agent_at: t0 + 195,
   },
   {
     id: 26,
@@ -418,7 +417,6 @@ const comments = [
     created_at: t0 + 200,
     resolved_at: null,
     resolved_by: null,
-    sent_to_agent_at: t0 + 205,
   },
 ];
 
@@ -466,7 +464,6 @@ const server = http.createServer(async (req, res) => {
         ...c,
         page_path: c.page_path ?? tjPath(c) ?? null,
         version_id: c.version_id ?? tjVer(c) ?? null,
-        sent_to_agent_at: c.sent_to_agent_at ?? null,
         author_kind: c.author_kind ?? "human",
         agent_label: c.agent_label ?? null,
       }));
@@ -498,7 +495,6 @@ const server = http.createServer(async (req, res) => {
         created_at: Math.floor(Date.now() / 1000),
         resolved_at: null,
         resolved_by: null,
-        sent_to_agent_at: null,
         author_kind: "human",
         agent_label: null,
       };
@@ -523,43 +519,6 @@ const server = http.createServer(async (req, res) => {
           JSON.stringify({
             ok: true,
             comment: { id: c.id, target_json: c.target_json },
-          }),
-        );
-      }
-      if (c && b.sent_to_agent !== undefined) {
-        // "Send to agent" flags the thread root.
-        const root = c.parent_comment_id
-          ? comments.find((x) => x.id === c.parent_comment_id) || c
-          : c;
-        root.sent_to_agent_at =
-          b.sent_to_agent !== false ? Math.floor(Date.now() / 1000) : null;
-        // Pretend the agent picks it up ~6 s later so "picked up" can be seen.
-        if (root.sent_to_agent_at && process.env.AU_AGENT !== "0")
-          setTimeout(() => {
-            comments.push({
-              id: ++nextId,
-              parent_comment_id: root.id,
-              email: "user_01AGENT",
-              body: "On it — republishing with the change in a minute.",
-              target_json: null,
-              page_path: root.page_path,
-              version_id: null,
-              created_at: Math.floor(Date.now() / 1000),
-              resolved_at: null,
-              resolved_by: null,
-              sent_to_agent_at: null,
-              author_kind: "agent",
-              agent_label: "Claude Code",
-            });
-            agentSeen = Math.floor(Date.now() / 1000);
-          }, 6000);
-        return send(
-          res,
-          200,
-          "application/json",
-          JSON.stringify({
-            ok: true,
-            comment: { id: root.id, sent_to_agent_at: root.sent_to_agent_at },
           }),
         );
       }

@@ -33,9 +33,8 @@
  * Phase 5 (landed): the comment -> agent loop. Target v3 captures element
  * context (tag, caption/alt, media src, nearest heading, sibling index,
  * viewport, page title) so a bare "div" on an image grid reads as
- * "image: hero-loop-v2.mp4 under 'Option B'"; "Send to agent" flags a thread
- * (status=sent, comment.sent_to_agent webhook) and shows "picked up" once the
- * agent replies or resolves; agent-written comments carry "via agent"; a
+ * "image: hero-loop-v2.mp4 under 'Option B'"; every comment reaches the
+ * publishing agent (no send step); agent-written comments carry "via agent"; a
  * presence line says when an agent last checked the page; while open, the
  * panel long-polls /_au/comments so replies land without a reload.
  */
@@ -871,7 +870,7 @@
       var item = el("div", "au-item" + (c.resolved_at ? " is-resolved" : ""));
       item.dataset.auId = c.id;
       item.setAttribute("role", "listitem");
-      item.appendChild(commentNode(c, false, replies[String(c.id)] || []));
+      item.appendChild(commentNode(c, false));
       item.appendChild(replyBox(c));
       var rs = replies[String(c.id)] || [];
       var pr = pendingReplies[String(c.id)] || [];
@@ -890,19 +889,7 @@
       list.appendChild(item);
     });
   }
-  // A sent thread is "picked up" once the agent replied after the flag or
-  // resolved it.
-  function pickedUp(c, threadReplies) {
-    if (!c.sent_to_agent_at) return false;
-    if (c.resolved_at) return true;
-    return (threadReplies || []).some(function (r) {
-      return (
-        r.author_kind === "agent" &&
-        Number(r.created_at || 0) >= Number(c.sent_to_agent_at)
-      );
-    });
-  }
-  function commentNode(c, isReply, threadReplies) {
+  function commentNode(c, isReply) {
     var wrap = el("div", isReply ? "au-reply" : "au-comment"),
       main = el("button", "au-comment-main"),
       meta = el("div", "au-meta"),
@@ -939,15 +926,6 @@
           "span",
           "au-chip au-chip-agent",
           "via agent" + (c.agent_label ? " · " + c.agent_label : ""),
-        ),
-      );
-    var picked = !isReply && pickedUp(c, threadReplies);
-    if (!isReply && c.sent_to_agent_at)
-      meta.appendChild(
-        el(
-          "span",
-          "au-chip au-chip-sent" + (picked ? " is-picked" : ""),
-          picked ? "Sent to agent · picked up" : "Sent to agent",
         ),
       );
     if (c.resolved_at && !isReply)
@@ -991,27 +969,6 @@
       };
       actions.appendChild(reply);
       actions.appendChild(resolve);
-      if (!c.resolved_at && !c.sent_to_agent_at) {
-        var send = el("button", "au-link au-sendagent", "Send to agent");
-        send.type = "button";
-        send.title =
-          "Flag this thread for the publishing agent (it is notified and sees it first)";
-        send.onclick = function () {
-          withBusy(send, "Sending…", function () {
-            return sendToAgent(c, true);
-          });
-        };
-        actions.appendChild(send);
-      } else if (c.sent_to_agent_at && !picked && !c.resolved_at) {
-        var unsend = el("button", "au-link", "Undo send");
-        unsend.type = "button";
-        unsend.onclick = function () {
-          withBusy(unsend, "…", function () {
-            return sendToAgent(c, false);
-          });
-        };
-        actions.appendChild(unsend);
-      }
       wrap.appendChild(actions);
     }
     return wrap;
@@ -1470,27 +1427,6 @@
       showToast("Could not update comment.");
       return;
     }
-    load();
-  }
-  // "Send to agent": flag the thread for the publishing agent. The server
-  // notifies any webhook and lists it first under status=sent.
-  async function sendToAgent(c, on) {
-    var r = await api("PATCH", { id: c.id, sent_to_agent: !!on });
-    if (r.status === 401) {
-      // No viewer session yet on a public artifact: collect an email once.
-      var ok = await collectEmail();
-      if (!ok) return;
-      r = await api("PATCH", { id: c.id, sent_to_agent: !!on });
-    }
-    if (!r.ok) {
-      showToast("Could not send this thread to the agent.");
-      return;
-    }
-    showToast(
-      on
-        ? "Sent to the agent — you’ll see “picked up” once it replies."
-        : "No longer flagged for the agent.",
-    );
     load();
   }
   function toggleReply(id) {
@@ -2337,9 +2273,6 @@
       ".au-anchor-missing{background:#fdeaea;color:#a3271f}",
       ".au-anchor-hidden{background:#eef1f0;color:#5a6c66}",
       ".au-chip-agent{background:#e9e6fb;color:#4b3aa6}",
-      ".au-chip-sent{background:#fff3d6;color:#8a5b00}",
-      ".au-chip-sent.is-picked{background:#dff0e8;color:#0f6b3f}",
-      ".au-sendagent{color:#8a5b00}",
       ".au-presence{flex:0 0 auto;display:flex;align-items:center;gap:7px;padding:6px 12px;font-size:11px;font-weight:600;color:#5c6b66;background:#fafcfb;border-bottom:1px solid #eef2f1}",
       ".au-presence::before{content:'';width:8px;height:8px;border-radius:50%;background:#b8c4bf;flex:0 0 8px}",
       ".au-presence.is-watching{color:#0f6b3f}",

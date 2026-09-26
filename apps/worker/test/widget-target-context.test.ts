@@ -248,9 +248,12 @@ test("the widget sends the context with every new anchor", async () => {
   const source = await readFile("apps/worker/src/widget/feedback.js", "utf8");
   assert.match(source, /var ctx = contextFor\(e, document, window\)/);
   assert.match(source, /describeTarget\(t\)/, "list rows use the description");
-  assert.match(source, /sent_to_agent: !!on/, "Send to agent patches the flag");
   assert.match(source, /"via agent"/, "agent-written comments are labelled");
-  assert.match(source, /Sent to agent · picked up/);
+  assert.doesNotMatch(
+    source,
+    /Send to agent|sent_to_agent/,
+    "every comment reaches the agent; there is no send step",
+  );
   assert.match(source, /checked this page/, "presence line");
   assert.match(source, /&wait=25/, "the open panel long-polls");
 });

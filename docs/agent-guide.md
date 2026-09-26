@@ -368,12 +368,10 @@ publishing.
 ## 5. Comment loop
 
 Viewers comment on the artifact page through the built-in widget; comments are
-threaded and can be anchored to a specific on-page element. A viewer can press
-"Send to agent" on a thread: it is flagged (`status: "sent"`), the
-`comment.sent_to_agent` event fires, and the page shows "picked up" once you
-reply or resolve. The page also shows "an agent checked this page N min ago"
-whenever you list its comments, so keep listing while you work. The
-publisher's agent closes the loop:
+threaded and can be anchored to a specific on-page element. Every comment
+reaches you; viewers do not have to send anything. The page shows "an agent
+checked this page N min ago" whenever you list its comments, so keep listing
+while you work. The publisher's agent closes the loop:
 
 1. Learn about feedback by push or by holding a request, never by polling on
    a timer:
@@ -386,9 +384,8 @@ body with the secret returned once>`), retried for 12 hours.
      `since: <next_since from the previous result>`. The call answers as soon
      as a newer comment exists, or `[]` after 25 s with a fresh `next_since`;
      loop on it and de-duplicate by `id`.
-2. Act on `status: "sent"` first (a person explicitly asked for you), then
-   `status: "open"`. `artifact_manage` action `list` shows `open_comments`
-   per artifact when you start cold.
+2. Work through `status: "open"`, oldest first. `artifact_manage` action
+   `list` shows `open_comments` per artifact when you start cold.
 3. Read each thread: roots carry the request; replies hang off
    `parent_comment_id`; `author_kind` says whether a person or an agent wrote
    it; `target` (when present) describes the anchored element: `selector`,
@@ -406,10 +403,10 @@ body with the secret returned once>`), retried for 12 hours.
 The same operations over HTTP with a creator bearer token:
 
 ```bash
-# hold up to 25 s for feedback newer than $NEXT_SINCE; sent threads first
-# (filters: status=open|sent|resolved|all, since=<unix>, wait=<1..25>, page_path, limit)
+# hold up to 25 s for feedback newer than $NEXT_SINCE
+# (filters: status=open|resolved|all, since=<unix>, wait=<1..25>, page_path, limit)
 curl -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" \
-  "$ARTIFACT_USE_API_BASE/api/v1/artifacts/{url_key}/comments?status=sent&since=$NEXT_SINCE&wait=25"
+  "$ARTIFACT_USE_API_BASE/api/v1/artifacts/{url_key}/comments?status=open&since=$NEXT_SINCE&wait=25"
 
 # or subscribe a webhook once (the signing secret is returned once)
 curl -X POST -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" -H "Content-Type: application/json" \
@@ -660,7 +657,7 @@ repository routes sharing requests through Artifact Use:
 - Republish the existing artifact by its `url_key` instead of creating a new one.
 - Keep the default `email` gate unless told otherwise; titles and descriptions are public.
 - After publishing, return the live URL, the `url_key`, and the gate level.
-- For review feedback, subscribe a webhook or long-poll comments with `wait: 25` (carry `next_since`); act on `status: "sent"` first, fix, republish the same artifact, reply, resolve.
+- For review feedback, subscribe a webhook or long-poll comments with `wait: 25` (carry `next_since`); work through `status: "open"`, fix, republish the same artifact, reply, resolve.
 ```
 
 <!-- llms.txt -->
@@ -696,12 +693,10 @@ Reading a gated artifact as an agent (no browser needed):
   the returned `next_since` back as `since`);
   `POST {artifact_key, body, parent_id?, page_path?, target?, client_ref?}`
   comments or replies and returns the created id;
-  `PATCH {artifact_key, id, resolved}` resolves or reopens;
-  `PATCH {artifact_key, id, sent_to_agent: true}` flags a thread for the
-  publishing agent.
+  `PATCH {artifact_key, id, resolved}` resolves or reopens.
 - Publishers close the loop with their own token: the `artifact_comments` MCP
-  tool (subscribe a webhook, or list with `wait: 25` and act on
-  `status: "sent"` first), CLI `artifact-use comments`, or
+  tool (subscribe a webhook, or list with `wait: 25` and work through
+  `status: "open"`), CLI `artifact-use comments`, or
   `/api/v1/artifacts/{url_key}/comments`.
 
 <!-- /llms.txt -->

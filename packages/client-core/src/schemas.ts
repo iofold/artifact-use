@@ -220,13 +220,12 @@ export const WEBHOOK_EVENTS = [
   "comment.replied",
   "comment.resolved",
   "comment.reopened",
-  "comment.sent_to_agent",
 ] as const;
 
 export const artifactCommentsTool: ToolSchema = {
   name: "artifact_comments",
   description:
-    'Read, post, and resolve feedback comments on an artifact, or subscribe a webhook to them. Viewers comment through the on-page widget; this tool is the publisher side of the loop: act on status "sent" first (viewers pressed "Send to agent"), then "open"; fix and republish the same artifact slug, reply to each thread, resolve it. Comments are threaded (parent_id / parent_comment_id), carry author_kind (human|agent) and may carry a `target` describing the on-page element (selector, label, caption, src, heading, text). To wait for new feedback, list with wait: 25 and pass the returned next_since back as since; or subscribe a webhook.',
+    'Read, post, and resolve feedback comments on an artifact, or subscribe a webhook to them. Viewers comment through the on-page widget; this tool is the publisher side of the loop: list status "open" (every comment reaches you; nothing has to be sent); fix and republish the same artifact slug, reply to each thread, resolve it. Comments are threaded (parent_id / parent_comment_id), carry author_kind (human|agent) and may carry a `target` describing the on-page element (selector, label, caption, src, heading, text). To wait for new feedback, list with wait: 25 and pass the returned next_since back as since; or subscribe a webhook.',
   inputSchema: {
     type: "object",
     required: ["action"],
@@ -251,9 +250,9 @@ export const artifactCommentsTool: ToolSchema = {
       workspace: workspaceProperty,
       status: {
         type: "string",
-        enum: ["open", "sent", "resolved", "all"],
+        enum: ["open", "resolved", "all"],
         description:
-          'list: open, sent (flagged "Send to agent" and unresolved), resolved, or all (default). Replies follow their root.',
+          "list: open (unresolved), resolved, or all (default). Replies follow their root.",
       },
       since: {
         type: "number",

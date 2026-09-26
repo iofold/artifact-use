@@ -238,12 +238,12 @@ test("page_path is one key per page: index.html and the trailing slash go on wri
   assert.equal(canonicalPagePath("/go/x/a.html"), "/go/x/a.html");
 });
 
-test("Send to agent flags the thread root, fires comment.sent_to_agent, and surfaces under status=sent", async () => {
+test("every comment reaches the agent: status=open is the queue and the old sent flag is a no-op", async () => {
   const { store, env } = fresh();
   seedWebhook(store, {
     org_id: loopArtifact.org_id,
     url: "https://hooks.example.com/au",
-    events_json: JSON.stringify(["comment.sent_to_agent"]),
+    events_json: JSON.stringify(["comment.resolved"]),
   });
   const root = seedComment(store, {
     artifact_id: loopArtifact.id,
@@ -256,7 +256,7 @@ test("Send to agent flags the thread root, fires comment.sent_to_agent, and surf
     parent_comment_id: root.id,
     created_at: 1_800_000_010,
   });
-  seedComment(store, {
+  const other = seedComment(store, {
     artifact_id: loopArtifact.id,
     body: "Typo in the footer",
     created_at: 1_800_000_020,
@@ -268,81 +268,71 @@ test("Send to agent flags the thread root, fires comment.sent_to_agent, and surf
     return new Response("ok", { status: 200 });
   }) as typeof fetch;
   try {
-    // Flagging a reply flags its root.
-    const sent = await widget(env, "PATCH", await viewerToken(env), {
-      id: reply.id,
-      sent_to_agent: true,
-    });
-    assert.equal(sent.status, 200);
-    const flagged = (await sent.json()).comment;
-    assert.equal(flagged.id, root.id);
-    assert.ok(flagged.sent_to_agent_at > 0);
-    assert.equal(root.sent_to_agent_at, flagged.sent_to_agent_at);
-
-    // The event went out at once, signed, with the root as comment and thread.
-    assert.equal(calls.length, 1);
-    const call = calls[0]!;
-    assert.equal(call.url, "https://hooks.example.com/au");
-    const headers = new Headers(call.init.headers);
-    assert.equal(headers.get("X-Artifact-Use-Event"), "comment.sent_to_agent");
-    assert.match(
-      String(headers.get("X-Artifact-Use-Signature")),
-      /^sha256=[0-9a-f]{64}$/,
-    );
-    assert.match(String(headers.get("X-Artifact-Use-Delivery")), /^dlv_/);
-    const payload = JSON.parse(String(call.init.body));
-    assert.equal(payload.event, "comment.sent_to_agent");
-    assert.equal(payload.comment.id, root.id);
-    assert.equal(payload.thread.id, root.id);
-    assert.equal(payload.comment.sent_to_agent_at, flagged.sent_to_agent_at);
-    assert.deepEqual(payload.artifact, {
-      id: loopArtifact.id,
-      url_key: KEY,
-      url: `${ORIGIN}/go/${KEY}/`,
-      title: loopArtifact.title,
-    });
-    assert.equal(store.deliveries.length, 1);
-    assert.ok(store.deliveries[0]!.delivered_at);
-
-    // The publisher's agent sees the flagged thread (with its replies) first.
+    // The publisher's agent sees every unresolved thread (newest thread
+    // first, replies under their root).
     const queue = await creatorApi(
       env,
       "GET",
       "local-publisher-token",
       undefined,
-      "?status=sent",
+      "?status=open",
     );
     assert.equal(queue.status, 200);
     const queued = await queue.json();
     assert.deepEqual(
       queued.comments.map((c: { id: number }) => c.id),
-      [root.id, reply.id],
+      [other.id, root.id, reply.id],
+    );
+    assert.ok(
+      !("sent_to_agent_at" in queued.comments[0]),
+      "no sent flag on the wire",
     );
     // ... and that read marked the artifact as watched.
     assert.equal(store.watch.get(loopArtifact.id)?.label, "agent");
 
-    // Resolving takes it out of the queue; un-sending does too.
-    const resolved = await creatorApi(env, "PATCH", "local-publisher-token", {
-      id: root.id,
-      resolved: true,
-    });
-    assert.equal(resolved.status, 200);
-    const after = await creatorApi(
+    // Older clients asking for the sent queue get the open one.
+    const legacy = await creatorApi(
       env,
       "GET",
       "local-publisher-token",
       undefined,
       "?status=sent",
     );
-    assert.equal((await after.json()).count, 0);
-    const unsent = await widget(env, "PATCH", await viewerToken(env), {
-      id: root.id,
-      sent_to_agent: false,
+    assert.equal((await legacy.json()).count, 3);
+
+    // A stale widget's "Send to agent" PATCH is accepted and ignored: nothing
+    // resolves and no event fires.
+    const stale = await widget(env, "PATCH", await viewerToken(env), {
+      id: reply.id,
+      sent_to_agent: true,
     });
-    assert.equal((await unsent.json()).comment.sent_to_agent_at, null);
-    assert.equal(root.sent_to_agent_at, null);
-    // Un-sending is not an event.
+    assert.equal(stale.status, 200);
+    assert.deepEqual((await stale.json()).ignored, ["sent_to_agent"]);
+    assert.equal(root.resolved_at, null);
+    assert.equal(calls.length, 0);
+
+    // Resolving takes the thread out of the queue and is what fires.
+    const resolved = await creatorApi(env, "PATCH", "local-publisher-token", {
+      id: root.id,
+      resolved: true,
+    });
+    assert.equal(resolved.status, 200);
     assert.equal(calls.length, 1);
+    assert.equal(
+      new Headers(calls[0]!.init.headers).get("X-Artifact-Use-Event"),
+      "comment.resolved",
+    );
+    const after = await creatorApi(
+      env,
+      "GET",
+      "local-publisher-token",
+      undefined,
+      "?status=open",
+    );
+    assert.deepEqual(
+      (await after.json()).comments.map((c: { id: number }) => c.id),
+      [other.id],
+    );
   } finally {
     globalThis.fetch = realFetch;
   }

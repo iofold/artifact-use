@@ -151,10 +151,11 @@ PATCH /_au/comments
 
 `GET` returns `{comments, count, has_more, next_since}`. Each comment carries
 `parent_comment_id` (replies), `resolved` / `resolved_at` / `resolved_by`,
-`sent_to_agent_at`, `author_kind` (`human` or `agent`), `agent_label`, and
-`target` (parsed) next to `target_json`. `status=sent` lists the unresolved
-threads a viewer flagged with "Send to agent"; replies follow their root for
-every status filter.
+`author_kind` (`human` or `agent`), `agent_label`, and `target` (parsed) next
+to `target_json`. `status` is `open`, `resolved` or `all`; replies follow
+their root for every status filter. Every comment reaches the publishing
+agent, so there is no separate "sent" queue (the legacy `status=sent` value
+is read as `open`).
 
 Long-poll instead of polling: with `wait` (seconds, at most 25) the request is
 held until a comment newer than `since` exists (checked every 2 s) and answers
@@ -168,10 +169,9 @@ so re-list with a larger `limit` first.
 `client_ref` (up to 64 characters, unique per artifact) makes the post
 idempotent: a retry with the same `client_ref` after a lost response returns
 the comment that was already created. `PATCH /_au/comments` accepts
-`artifact_key`, `id`, and one of `resolved` (resolve or reopen), `target`
-(re-anchor), or `sent_to_agent` (`true` flags the thread root for the
-publishing agent, even when `id` is a reply, and fires the
-`comment.sent_to_agent` webhook; `false` clears the flag).
+`artifact_key`, `id`, and one of `resolved` (resolve or reopen) or `target`
+(re-anchor). A `sent_to_agent` field from older clients is accepted and
+ignored.
 
 The publisher endpoint `/api/v1/artifacts/{artifact_key}/comments` speaks the
 same shapes (`GET` with the same filters including `wait`; `POST` with `body`,
@@ -205,7 +205,7 @@ POST /api/v1/webhooks
 {
   "url": "https://hooks.example.com/artifact-use",
   "artifact": "claims-demo-a1b2c3",
-  "events": ["comment.created", "comment.sent_to_agent"],
+  "events": ["comment.created", "comment.resolved"],
   "secret": "optional, 8 to 256 characters"
 }
 GET /api/v1/webhooks
@@ -213,8 +213,7 @@ DELETE /api/v1/webhooks/{id}
 ```
 
 - Events: `comment.created`, `comment.replied`, `comment.resolved`,
-  `comment.reopened`, `comment.sent_to_agent`; omitted `events` means all
-  five. Omit `artifact` to subscribe the whole workspace. At most 20 active
+  `comment.reopened`; omitted `events` means all four. Omit `artifact` to subscribe the whole workspace. At most 20 active
   webhooks per workspace.
 - `POST` and `DELETE` require `artifacts:manage_access` (creator tokens have
   it); `GET` requires `artifacts:read`. The response to `POST` carries the

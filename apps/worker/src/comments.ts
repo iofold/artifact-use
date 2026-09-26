@@ -23,7 +23,7 @@ export interface CommentAuthor {
 }
 
 export interface CommentFilters {
-  status?: string | null; // open | sent | resolved | all (default all)
+  status?: string | null; // open | resolved | all (default all); legacy "sent" reads as open
   since?: number | null; // created_at strictly after this unix timestamp
   pagePath?: string | null;
   limit?: number | null; // default 200, max 500
@@ -42,7 +42,6 @@ export interface ApiComment {
   resolved: boolean;
   resolved_at: number | null;
   resolved_by: string | null;
-  sent_to_agent_at: number | null;
   author_kind: AuthorKind;
   agent_label: string | null;
   target: unknown;
@@ -73,13 +72,12 @@ interface CommentRow {
   created_at: number;
   resolved_at: number | null;
   resolved_by: string | null;
-  sent_to_agent_at: number | null;
   author_kind: string | null;
   agent_label: string | null;
 }
 
 const ROW_COLUMNS =
-  "c.id, c.parent_comment_id, c.email, c.body, c.target_json, c.page_path, c.version_id, c.created_at, c.resolved_at, c.resolved_by, c.sent_to_agent_at, c.author_kind, c.agent_label";
+  "c.id, c.parent_comment_id, c.email, c.body, c.target_json, c.page_path, c.version_id, c.created_at, c.resolved_at, c.resolved_by, c.author_kind, c.agent_label";
 
 export async function listComments(
   env: Env,
@@ -89,16 +87,14 @@ export async function listComments(
 ): Promise<CommentList> {
   const where: string[] = ["c.artifact_id = ?", "c.deleted_at IS NULL"];
   const binds: unknown[] = [artifact.id];
-  // A reply's resolution and sent state are its root's: threads move as a unit.
+  // A reply's resolution is its root's: threads move as a unit.
   const threadResolved =
     "CASE WHEN c.parent_comment_id IS NULL THEN c.resolved_at ELSE root.resolved_at END";
-  const threadSent =
-    "CASE WHEN c.parent_comment_id IS NULL THEN c.sent_to_agent_at ELSE root.sent_to_agent_at END";
-  const status = filters.status === undefined ? null : filters.status;
+  // Every comment reaches the agent, so the former "sent" queue is simply the
+  // open one; the legacy value keeps working for older clients.
+  const status = filters.status === "sent" ? "open" : (filters.status ?? null);
   if (status === "open") where.push(`${threadResolved} IS NULL`);
   else if (status === "resolved") where.push(`${threadResolved} IS NOT NULL`);
-  else if (status === "sent")
-    where.push(`${threadResolved} IS NULL`, `${threadSent} IS NOT NULL`);
   const since =
     filters.since && Number.isFinite(filters.since)
       ? Math.floor(filters.since)
@@ -380,7 +376,6 @@ export async function createComment(
     created_at: createdAt,
     resolved_at: null,
     resolved_by: null,
-    sent_to_agent_at: null,
     author_kind: kind,
     agent_label: label,
   });
@@ -430,39 +425,6 @@ export async function resolveComment(
     );
   }
   return { id, resolved, resolved_at: resolvedAt, resolved_by: resolvedBy };
-}
-
-// "Send to agent": the viewer flags a thread for the publishing agent. The
-// flag lives on the root; a reply id is resolved to its root.
-export async function markSentToAgent(
-  env: Env,
-  artifact: Artifact,
-  id: number,
-  sent: boolean,
-): Promise<{ id: number; sent_to_agent_at: number | null } | null> {
-  const row = await commentById(env, artifact.id, id);
-  if (!row) return null;
-  const rootId = row.parent_comment_id || row.id;
-  const root =
-    rootId === row.id ? row : await commentById(env, artifact.id, rootId);
-  if (!root) return null;
-  const sentAt = sent ? nowSec() : null;
-  await env.DB.prepare(
-    "UPDATE comments SET sent_to_agent_at = ? WHERE id = ? AND artifact_id = ?",
-  )
-    .bind(sentAt, rootId, artifact.id)
-    .run();
-  if (sent) {
-    const comment = apiComment({ ...root, sent_to_agent_at: sentAt });
-    await emitCommentEvent(
-      env,
-      artifact,
-      "comment.sent_to_agent",
-      comment,
-      null,
-    );
-  }
-  return { id: rootId, sent_to_agent_at: sentAt };
 }
 
 // Re-anchor: replace the comment's target with a freshly picked element.
@@ -562,7 +524,6 @@ function apiComment(row: CommentRow): ApiComment {
     resolved: !!row.resolved_at,
     resolved_at: row.resolved_at,
     resolved_by: row.resolved_by,
-    sent_to_agent_at: row.sent_to_agent_at ?? null,
     author_kind: row.author_kind === "agent" ? "agent" : "human",
     agent_label: row.agent_label || null,
     target: parseTarget(row.target_json),

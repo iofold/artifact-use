@@ -21,7 +21,6 @@ export const WEBHOOK_EVENTS = [
   "comment.replied",
   "comment.resolved",
   "comment.reopened",
-  "comment.sent_to_agent",
 ] as const;
 export type CommentEvent = (typeof WEBHOOK_EVENTS)[number];
 
