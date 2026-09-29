@@ -684,7 +684,9 @@ Reading a gated artifact as an agent (no browser needed):
   `POST /_au/gate/email` (`Accept: application/json`; the address must parse
   and its domain must have MX or A records); `verified_email` and
   `allowlist` gates self-serve if you can read the inbox
-  (`POST /_au/gate/start`, read the one-time code, `POST /_au/gate/verify`), or
+  (`POST /_au/gate/start`, read the one-time code, `POST /_au/gate/verify`;
+  a repeat start for the same address within 30 seconds sends no new email
+  and answers `resent: false` with `retry_after`), or
   are delegated by the human via "Hand to your agent" in the comments widget
   (`POST /_au/agent-token`). The `401` JSON spells out the exact path.
 - Comments with the same bearer:

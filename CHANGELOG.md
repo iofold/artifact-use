@@ -4,6 +4,13 @@ Notable changes to Artifact Use are documented here.
 
 ## Unreleased
 
+- Gates: "Send code" no longer sends two emails on a double tap. System
+  pages submit each form once (the button disables and reads "Sending code…"
+  until the page changes, and comes back after a back navigation), and a
+  repeat `POST /_au/gate/start` for the same artifact and email within 30
+  seconds reuses the code already sent instead of mailing and voiding it;
+  it costs no rate-limit quota and answers `resent: false` with
+  `retry_after`.
 - Prior versions are for the publishing workspace only: `_v/<id>/` answers a
   workspace token or a signed-in member's browser and redirects everyone else
   to the stable URL, so viewers only ever see the current version. Publishers

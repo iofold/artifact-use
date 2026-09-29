@@ -126,7 +126,60 @@ ${notice ? `<p class="error">${escapeHtml(notice)}</p>` : ""}
   ${hidden}
   <label>Email</label>
   <input name="email" type="email" autocomplete="email" value="${escapeHtml(prefillEmail || (canContinueAs ? sessionEmail : ""))}" required>
-  <button type="submit">${verified ? "Send code" : "Continue"}</button>
+  <button type="submit" data-busy-label="${verified ? "Sending code…" : "Continuing…"}">${verified ? "Send code" : "Continue"}</button>
+</form>`,
+  );
+}
+
+// A second "Send code" for the same artifact and email inside this window
+// reuses the code already in flight instead of mailing (and voiding) another.
+export const OTP_RESEND_DEBOUNCE_SEC = 30;
+
+function otpSentResponse(
+  request: Request,
+  env: Env,
+  artifact: Artifact,
+  email: string,
+  code: string,
+  redirectTo: string,
+  shareLinkId: string | null,
+  retryAfter = 0,
+): Response {
+  const debug = env.ALLOW_DEBUG_CODES === "true";
+  // Agent OTP self-serve: tell a non-browser caller how to verify the code.
+  if (!wantsHtml(request))
+    return json({
+      status: "otp_sent",
+      verify: `${env.SITE_BASE_URL}/_au/gate/verify`,
+      artifact_key: artifact.url_key,
+      email,
+      instructions:
+        "Read the one-time code from the email just sent to this address, then POST form {artifact_key, email, code} to `verify` with header 'Accept: application/json' to receive a bearer token.",
+      ...(retryAfter
+        ? {
+            resent: false,
+            retry_after: retryAfter,
+            note: `A code was sent to this address in the last ${OTP_RESEND_DEBOUNCE_SEC} seconds; no new email was sent. Use that code.`,
+          }
+        : {}),
+      ...(debug ? { debug_code: code } : {}),
+    });
+  const intro = retryAfter
+    ? `We sent a code to ${escapeHtml(email)} a few seconds ago. Use that one, or request a new code in ${retryAfter} seconds.`
+    : "Use the link or enter the code we sent.";
+  return htmlPage(
+    artifact.title,
+    `<h1>Check your email</h1>
+<p class="muted">${intro}</p>
+${debug ? `<p class="muted">Debug code: <strong>${code}</strong></p>` : ""}
+<form method="post" action="/_au/gate/verify">
+  <input type="hidden" name="artifact_key" value="${escapeHtml(artifact.url_key)}">
+  <input type="hidden" name="email" value="${escapeHtml(email)}">
+  <input type="hidden" name="redirect_to" value="${escapeHtml(redirectTo)}">
+  <input type="hidden" name="share_link_id" value="${escapeHtml(shareLinkId || "")}">
+  <label>Code</label>
+  <input name="code" inputmode="numeric" autocomplete="one-time-code" required>
+  <button type="submit" data-busy-label="Verifying…">Verify</button>
 </form>`,
   );
 }
@@ -285,6 +338,34 @@ export async function handleGateRoute(
               "email_not_allowed",
               "this email is not allowed for this artifact",
             );
+      const redirectTo = safeArtifactRedirect(
+        env,
+        artifact,
+        request,
+        form.get("redirect_to"),
+      );
+      const shareLinkId = String(form.get("share_link_id") || "") || null;
+      // Debounce before the rate limits so a double tap costs no quota.
+      const now = nowSec();
+      const recent = await env.DB.prepare(
+        `SELECT code, created_at FROM viewer_tokens
+         WHERE artifact_id = ? AND email = ? AND used_at IS NULL
+           AND expires_at >= ? AND created_at > ?
+         ORDER BY created_at DESC LIMIT 1`,
+      )
+        .bind(artifact.id, email, now, now - OTP_RESEND_DEBOUNCE_SEC)
+        .first<{ code: string; created_at: number }>();
+      if (recent)
+        return otpSentResponse(
+          request,
+          env,
+          artifact,
+          email,
+          recent.code,
+          redirectTo,
+          shareLinkId,
+          Math.max(1, recent.created_at + OTP_RESEND_DEBOUNCE_SEC - now),
+        );
       const emailHash = await hashRateKey(email);
       const ipHash = await hashRateKey(requestIp(request));
       for (const [bucket, limit, windowSec] of [
@@ -301,13 +382,6 @@ export async function handleGateRoute(
         if (!result.allowed)
           return rateLimitedResponse(result, request, artifact.title);
       }
-      const redirectTo = safeArtifactRedirect(
-        env,
-        artifact,
-        request,
-        form.get("redirect_to"),
-      );
-      const shareLinkId = String(form.get("share_link_id") || "") || null;
       await env.DB.prepare(
         `UPDATE viewer_tokens SET used_at = ?
          WHERE artifact_id = ? AND email = ? AND used_at IS NULL`,
@@ -342,31 +416,14 @@ export async function handleGateRoute(
           .run();
         return emailDeliveryUnavailable(request, env, artifact);
       }
-      // Agent OTP self-serve: tell a non-browser caller how to verify the code.
-      if (!wantsHtml(request))
-        return json({
-          status: "otp_sent",
-          verify: `${env.SITE_BASE_URL}/_au/gate/verify`,
-          artifact_key: artifact.url_key,
-          email,
-          instructions:
-            "Read the one-time code from the email just sent to this address, then POST form {artifact_key, email, code} to `verify` with header 'Accept: application/json' to receive a bearer token.",
-          ...(env.ALLOW_DEBUG_CODES === "true" ? { debug_code: code } : {}),
-        });
-      return htmlPage(
-        artifact.title,
-        `<h1>Check your email</h1>
-<p class="muted">Use the link or enter the code we sent.</p>
-${env.ALLOW_DEBUG_CODES === "true" ? `<p class="muted">Debug code: <strong>${code}</strong></p>` : ""}
-<form method="post" action="/_au/gate/verify">
-  <input type="hidden" name="artifact_key" value="${escapeHtml(artifact.url_key)}">
-  <input type="hidden" name="email" value="${escapeHtml(email)}">
-  <input type="hidden" name="redirect_to" value="${escapeHtml(redirectTo)}">
-  <input type="hidden" name="share_link_id" value="${escapeHtml(shareLinkId || "")}">
-  <label>Code</label>
-  <input name="code" inputmode="numeric" autocomplete="one-time-code" required>
-  <button type="submit">Verify</button>
-</form>`,
+      return otpSentResponse(
+        request,
+        env,
+        artifact,
+        email,
+        code,
+        redirectTo,
+        shareLinkId,
       );
     }
 
