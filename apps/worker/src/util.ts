@@ -221,6 +221,13 @@ export function secureSystemResponse(
   });
 }
 
+// Gate and verify forms post to endpoints that answer only after an email is
+// handed off or a session is minted, so a second tap during that pause used to
+// send a second code (and void the first). Each form submits once: its button
+// is disabled and relabelled until the page changes, and a page restored from
+// the back/forward cache gets its buttons back.
+export const SUBMIT_ONCE_SCRIPT = `document.addEventListener("submit",function(e){var f=e.target;if(f.hasAttribute("data-submitting")){e.preventDefault();return}f.setAttribute("data-submitting","");var b=f.querySelector("button");if(b){b.setAttribute("data-label",b.textContent);b.disabled=true;b.textContent=b.getAttribute("data-busy-label")||"Please wait…"}});window.addEventListener("pageshow",function(e){if(!e.persisted)return;document.querySelectorAll("form[data-submitting]").forEach(function(f){f.removeAttribute("data-submitting");var b=f.querySelector("button");if(b){b.disabled=false;b.textContent=b.getAttribute("data-label")||b.textContent}})});`;
+
 export function htmlPage(title: string, body: string): Response {
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${escapeHtml(title)}</title><style>
@@ -228,8 +235,9 @@ body{margin:0;background:#f6f8f8;color:#1b2429;font-family:Inter,ui-sans-serif,s
 main{max-width:620px;margin:12vh auto;padding:32px;background:#fff;border:1px solid #d9e1e4;border-radius:8px}
 label{display:block;margin:16px 0 6px;font-weight:600}input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #bcc9ce;border-radius:6px;font:inherit}
 button{margin-top:18px;padding:11px 14px;border:0;border-radius:6px;background:#126b6f;color:#fff;font-weight:700;cursor:pointer}
+button:disabled{opacity:.65;cursor:progress}
 .muted{color:#617178}.error{color:#9e2f2f}.row{display:flex;gap:10px;align-items:center}.row input{flex:1}
-</style></head><body><main>${body}</main></body></html>`,
+</style></head><body><main>${body}</main><script>${SUBMIT_ONCE_SCRIPT}</script></body></html>`,
     {
       headers: {
         "Content-Type": "text/html; charset=utf-8",

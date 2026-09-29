@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { handleGateRoute } from "../src/gate.ts";
+import { OTP_RESEND_DEBOUNCE_SEC, handleGateRoute } from "../src/gate.ts";
 import type { Artifact, Env } from "../src/types.ts";
 
 test("OTP start rejects public and plain-email artifacts before writes", async () => {
@@ -55,6 +55,56 @@ test("browser email failures render a branded recovery page", async () => {
   assert.match(body, /email.*temporarily unavailable/i);
   assert.match(body, /no code was sent/i);
   assert.doesNotMatch(body, /cloudflare|daily quota|statusCode|gate_failed/i);
+});
+
+test("a second OTP start within the debounce window reuses the code in flight", async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const state = gateEnv("verified_email", {
+    recentToken: { code: "654321", created_at: now - 5 },
+    countEmails: true,
+  });
+  const response = await startOtp(state.env);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.status, "otp_sent");
+  assert.equal(body.resent, false);
+  assert.ok(body.retry_after >= 24 && body.retry_after <= 26, body.retry_after);
+  assert.equal(body.debug_code, "654321");
+  assert.equal(state.emailsSent, 0);
+  assert.equal(state.tokenWrites.length, 0);
+  assert.equal(state.rateIncrements, 0, "a double tap must not spend quota");
+  const cutoff = Number(state.recentLookups[0]?.[3]);
+  assert.ok(
+    Math.abs(cutoff - (now - OTP_RESEND_DEBOUNCE_SEC)) <= 1,
+    String(cutoff),
+  );
+});
+
+test("browser double taps land on the same check-your-email page", async () => {
+  const now = Math.floor(Date.now() / 1000);
+  const state = gateEnv("verified_email", {
+    recentToken: { code: "654321", created_at: now - 2 },
+    countEmails: true,
+  });
+  const response = await startOtp(state.env, "Viewer@Example.com", "text/html");
+  const body = await response.text();
+
+  assert.equal(response.status, 200);
+  assert.match(body, /Check your email/);
+  assert.match(body, /request a new code in \d+ seconds/);
+  assert.match(body, /action="\/_au\/gate\/verify"/);
+  assert.equal(state.emailsSent, 0);
+});
+
+test("OTP start mails exactly one code when none is in flight", async () => {
+  const state = gateEnv("verified_email", { countEmails: true });
+  const response = await startOtp(state.env);
+
+  assert.equal(response.status, 200);
+  assert.equal((await response.json()).resent, undefined);
+  assert.equal(state.emailsSent, 1);
+  assert.equal(state.recentLookups.length, 1);
 });
 
 test("OTP start enforces email, artifact, and IP windows before token writes", async () => {
@@ -254,6 +304,8 @@ function gateEnv(
     rateCount?: (bucket: string) => number;
     token?: string;
     emailError?: Error;
+    recentToken?: { code: string; created_at: number };
+    countEmails?: boolean;
   } = {},
 ): {
   env: Env;
@@ -263,6 +315,8 @@ function gateEnv(
   rateDeletes: string[];
   tokenReads: number;
   viewWrites: number;
+  emailsSent: number;
+  recentLookups: unknown[][];
 } {
   const artifact: Artifact = {
     id: "art_gate",
@@ -293,6 +347,8 @@ function gateEnv(
     rateDeletes: [] as string[],
     tokenReads: 0,
     viewWrites: 0,
+    emailsSent: 0,
+    recentLookups: [] as unknown[][],
   };
   const db = {
     prepare(sql: string) {
@@ -310,6 +366,10 @@ function gateEnv(
             return { count: options.rateCount?.(bucket) || 1 };
           }
           if (sql.includes("FROM artifacts")) return artifact;
+          if (sql.includes("SELECT code, created_at FROM viewer_tokens")) {
+            state.recentLookups.push(statement.values);
+            return options.recentToken ?? null;
+          }
           if (sql.includes("SELECT token FROM viewer_tokens")) {
             state.tokenReads += 1;
             return options.token ? { token: options.token } : null;
@@ -345,7 +405,15 @@ function gateEnv(
               },
             },
           }
-        : {}),
+        : options.countEmails
+          ? {
+              EMAIL: {
+                async send() {
+                  state.emailsSent += 1;
+                },
+              },
+            }
+          : {}),
     } as unknown as Env,
     get tokenWrites() {
       return state.tokenWrites;
@@ -364,6 +432,12 @@ function gateEnv(
     },
     get viewWrites() {
       return state.viewWrites;
+    },
+    get emailsSent() {
+      return state.emailsSent;
+    },
+    get recentLookups() {
+      return state.recentLookups;
     },
   };
 }
