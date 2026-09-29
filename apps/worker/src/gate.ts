@@ -731,19 +731,37 @@ async function formArtifact(
   return null;
 }
 
-function isAllowed(artifact: Artifact, email: string): boolean {
+export function isAllowed(artifact: Artifact, email: string): boolean {
   if (artifact.gate_level !== "allowlist") return true;
   if (!artifact.allowlist_json) return false;
-  const parsed = JSON.parse(artifact.allowlist_json) as {
-    emails?: string[];
-    domains?: string[];
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(artifact.allowlist_json);
+  } catch {
+    return false;
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    return false;
+  const { emails = [], domains = [] } = parsed as {
+    emails?: unknown;
+    domains?: unknown;
   };
-  const emails = new Set((parsed.emails || []).map((e) => e.toLowerCase()));
-  if (emails.has(email)) return true;
-  const domain = email.split("@")[1] || "";
-  return (parsed.domains || []).some(
-    (d) => d.replace(/^@/, "").toLowerCase() === domain,
-  );
+  // A malformed policy must not become a permissive partial policy, or throw
+  // after a signed session has already passed the surrounding session gate.
+  if (
+    !Array.isArray(emails) ||
+    !Array.isArray(domains) ||
+    !emails.every((e) => typeof e === "string" && validEmail(e)) ||
+    !domains.every(
+      (d) => typeof d === "string" && validEmailDomain(d.replace(/^@/, "")),
+    )
+  )
+    return false;
+  const normalized = normalizeEmail(email);
+  if (!validEmail(normalized)) return false;
+  if (emails.some((e) => e.toLowerCase() === normalized)) return true;
+  const domain = normalized.split("@")[1];
+  return domains.some((d) => d.replace(/^@/, "").toLowerCase() === domain);
 }
 
 // RFC 5322-ish without the exotic forms: one @, a dot-atom local part of at

@@ -6,6 +6,7 @@
 // page never holds a credential of its own.
 import type { Artifact, ArtifactUpstream, Env, ViewerSession } from "./types";
 import { getArtifactUpstream } from "./db";
+import { isAllowed } from "./gate";
 import { hashRateKey, rateLimit, requestIp } from "./rl";
 import { error, siteBaseUrl } from "./util";
 
@@ -122,6 +123,18 @@ export async function proxyUpstream(
       403,
       "upstream_requires_gate",
       "upstream backends are only reachable through a gated artifact; set a non-public gate",
+    );
+  // Static browsing may honor an existing verified session or workspace
+  // membership. Backend access must instead honor the current allowlist on
+  // every request, including sessions minted before an address was removed.
+  if (
+    artifact.gate_level === "allowlist" &&
+    (!session || !isAllowed(artifact, session.email))
+  )
+    return error(
+      403,
+      "email_not_allowed",
+      "this viewer is not allowed to access this artifact's backend",
     );
   const upstream = await getArtifactUpstream(env, artifact.id);
   if (!upstream)
