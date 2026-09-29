@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { signPayload } from "../src/auth.ts";
+import { handleGateRoute } from "../src/gate.ts";
 import worker from "../src/index.ts";
 import { servePublic } from "../src/serve.ts";
 import { normalizeUpstreamUrl } from "../src/upstream.ts";
@@ -8,6 +9,7 @@ import type {
   Artifact,
   ArtifactUpstream,
   Env,
+  PublisherSession,
   ViewerSession,
 } from "../src/types.ts";
 import { nowSec } from "../src/util.ts";
@@ -81,12 +83,16 @@ function fakeEnv(artifact: Artifact, upstream: ArtifactUpstream | null) {
   } as unknown as Env;
 }
 
-async function viewerCookie(env: Env, email = "Viewer@Example.com") {
+async function viewerCookie(
+  env: Env,
+  email = "Viewer@Example.com",
+  verified = false,
+) {
   const session: ViewerSession = {
     artifact_id: "art_console",
     version_id: "ver_console",
     email: email.toLowerCase(),
-    verified: false,
+    verified,
     view_id: 42,
     exp: nowSec() + 600,
   };
@@ -191,6 +197,220 @@ test("a gated viewer's request is forwarded with the secret and gate identity", 
     );
   } finally {
     stub.restore();
+  }
+});
+
+test("allowlisted upstream requests use the current address or domain policy", async () => {
+  for (const allowlist of [
+    { emails: ["VIEWER@EXAMPLE.COM"] },
+    { domains: ["@EXAMPLE.COM"] },
+  ]) {
+    const artifact = artifactRow("allowlist");
+    artifact.allowlist_json = JSON.stringify(allowlist);
+    const env = fakeEnv(artifact, upstreamRow());
+    const stub = stubFetch(() => new Response("ok"));
+    try {
+      const path = `${ARTIFACT_PATH}_api/meta`;
+      const response = await servePublic(
+        new Request(`${ORIGIN}${path}`, {
+          headers: {
+            Cookie: await viewerCookie(env, "viewer@example.com", true),
+            Authorization: "Bearer browser-supplied-not-upstream-secret",
+            "X-Artifact-Key": "forged-artifact",
+            "X-Artifact-Viewer-Email": "forged@example.com",
+            "X-Artifact-Viewer-Verified": "0",
+          },
+        }),
+        env,
+        path,
+      );
+      assert.equal(response.status, 200);
+      assert.equal(stub.calls.length, 1);
+      const headers = stub.calls[0].init.headers;
+      assert.equal(headers.get("Authorization"), "Bearer s3cret");
+      assert.equal(headers.get("X-Artifact-Key"), artifact.url_key);
+      assert.equal(
+        headers.get("X-Artifact-Viewer-Email"),
+        "viewer@example.com",
+      );
+      assert.equal(headers.get("X-Artifact-Viewer-Verified"), "1");
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+test("removing an address revokes upstream access for its existing verified session", async () => {
+  const artifact = artifactRow("allowlist");
+  artifact.allowlist_json = JSON.stringify({ emails: ["viewer@example.com"] });
+  const env = fakeEnv(artifact, upstreamRow());
+  const cookie = await viewerCookie(env, "viewer@example.com", true);
+  const stub = stubFetch(() => new Response("ok"));
+  try {
+    const path = `${ARTIFACT_PATH}_api/meta`;
+    const request = () =>
+      new Request(`${ORIGIN}${path}`, { headers: { Cookie: cookie } });
+    assert.equal((await servePublic(request(), env, path)).status, 200);
+    artifact.allowlist_json = JSON.stringify({
+      emails: ["remaining@example.com"],
+    });
+    const denied = await servePublic(request(), env, path);
+    assert.equal(denied.status, 403);
+    assert.equal((await denied.json()).error.code, "email_not_allowed");
+    assert.equal(
+      stub.calls.length,
+      1,
+      "a denied request must never reach the backend",
+    );
+  } finally {
+    stub.restore();
+  }
+});
+
+test("a nonlisted workspace member's real SSO viewer session cannot reach the upstream", async () => {
+  const artifact = artifactRow("allowlist");
+  artifact.allowlist_json = JSON.stringify({
+    emails: ["recipient@example.com"],
+  });
+  const env = fakeEnv(artifact, upstreamRow());
+  const publisher: PublisherSession = {
+    typ: "publisher",
+    sub: "invented-member",
+    orgId: artifact.org_id,
+    email: "member@example.com",
+    name: "Member",
+    exp: nowSec() + 600,
+  };
+  const gate = await handleGateRoute(
+    new Request(`${ORIGIN}/_au/gate/session`, {
+      method: "POST",
+      headers: {
+        Cookie: `au_pub=${encodeURIComponent(await signPayload(publisher, env))}`,
+        Accept: "application/json",
+        Referer: `${ORIGIN}${ARTIFACT_PATH}`,
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Dest": "document",
+      },
+      body: new URLSearchParams({
+        artifact_key: artifact.url_key,
+        redirect_to: ARTIFACT_PATH,
+      }),
+    }),
+    env,
+    "/_au/gate/session",
+  );
+  assert.equal(
+    gate.status,
+    200,
+    "existing workspace-member browsing remains available",
+  );
+  const { token } = (await gate.json()) as { token: string };
+  const stub = stubFetch(() => new Response("must not reach backend"));
+  try {
+    const path = `${ARTIFACT_PATH}_api/meta`;
+    const denied = await servePublic(
+      new Request(`${ORIGIN}${path}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env,
+      path,
+    );
+    assert.equal(denied.status, 403);
+    assert.equal(stub.calls.length, 0);
+  } finally {
+    stub.restore();
+  }
+});
+
+test("forged viewer headers cannot substitute an allowlisted session identity", async () => {
+  const artifact = artifactRow("allowlist");
+  artifact.allowlist_json = JSON.stringify({
+    emails: ["recipient@example.com"],
+  });
+  const env = fakeEnv(artifact, upstreamRow());
+  const stub = stubFetch(() => new Response("must not reach backend"));
+  try {
+    const path = `${ARTIFACT_PATH}_api/meta`;
+    const denied = await servePublic(
+      new Request(`${ORIGIN}${path}`, {
+        headers: {
+          Cookie: await viewerCookie(env, "outsider@example.com", true),
+          "X-Artifact-Viewer-Email": "recipient@example.com",
+          "X-Artifact-Viewer-Verified": "1",
+          "X-Artifact-Key": artifact.url_key,
+        },
+      }),
+      env,
+      path,
+    );
+    assert.equal(denied.status, 403);
+    assert.equal(stub.calls.length, 0);
+  } finally {
+    stub.restore();
+  }
+});
+
+test("allowlisted upstream access fails closed for missing or malformed policy data", async () => {
+  for (const value of [
+    null,
+    "not-json",
+    "null",
+    "[]",
+    "{}",
+    '{"emails":"viewer@example.com"}',
+    '{"emails":["viewer@example.com",null]}',
+    '{"emails":["viewer@example.com","not-an-address"]}',
+    '{"domains":[7]}',
+    '{"emails":["viewer@example.com"],"domains":["*.example.com"]}',
+    '{"emails":["viewer@example.com"],"domains":"example.com"}',
+  ]) {
+    const artifact = artifactRow("allowlist");
+    artifact.allowlist_json = value;
+    const env = fakeEnv(artifact, upstreamRow());
+    const stub = stubFetch(() => new Response("must not reach backend"));
+    try {
+      const path = `${ARTIFACT_PATH}_api/meta`;
+      const denied = await servePublic(
+        new Request(`${ORIGIN}${path}`, {
+          headers: {
+            Cookie: await viewerCookie(env, "viewer@example.com", true),
+          },
+        }),
+        env,
+        path,
+      );
+      assert.equal(denied.status, 403, String(value));
+      assert.equal(stub.calls.length, 0, String(value));
+    } finally {
+      stub.restore();
+    }
+  }
+});
+
+test("non-allowlist upstream gates retain their existing verified identity behavior", async () => {
+  for (const gate of ["email", "verified_email"] as const) {
+    const env = fakeEnv(artifactRow(gate), upstreamRow());
+    const stub = stubFetch(() => new Response("ok"));
+    try {
+      const path = `${ARTIFACT_PATH}_api/meta`,
+        verified = gate === "verified_email";
+      const response = await servePublic(
+        new Request(`${ORIGIN}${path}`, {
+          headers: {
+            Cookie: await viewerCookie(env, "viewer@example.com", verified),
+          },
+        }),
+        env,
+        path,
+      );
+      assert.equal(response.status, 200);
+      assert.equal(
+        stub.calls[0].init.headers.get("X-Artifact-Viewer-Verified"),
+        verified ? "1" : "0",
+      );
+    } finally {
+      stub.restore();
+    }
   }
 });
 
