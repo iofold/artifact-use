@@ -101,6 +101,7 @@ export function versionJson(
     total_size: Number(version.total_size || 0),
     entrypoint: version.entrypoint,
     created_by: version.created_by,
+    change_note: version.change_note ?? null,
     current: version.id === artifact.current_version_id,
     url: versionUrl(env, artifact.url_key, version.id),
   };

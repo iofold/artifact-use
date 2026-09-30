@@ -747,6 +747,7 @@ async function publishInlineFiles(
         ...(args.base_version_id
           ? { base_version_id: args.base_version_id }
           : {}),
+        ...(args.change_note ? { change_note: args.change_note } : {}),
       }),
     ),
   )) as { version: { id: string } };

@@ -541,11 +541,59 @@ const server = http.createServer(async (req, res) => {
             last_seen_at: agentSeen,
             label: "Claude Code",
           };
+    // AU_ROLE=publisher shows the publisher-only Versions section and Admin link.
+    const publisher = process.env.AU_ROLE === "publisher";
     return send(
       res,
       200,
       "application/json",
-      JSON.stringify({ role: "viewer", agent }),
+      JSON.stringify({
+        role: publisher ? "publisher" : "viewer",
+        agent,
+        ...(publisher ? { admin_url: "/admin?artifact=claims-demo" } : {}),
+      }),
+    );
+  }
+
+  // Version history for the publisher view: notes on the newer publishes,
+  // none on the oldest (as for versions published before notes existed).
+  if (p === "/_au/versions") {
+    const now = Math.floor(Date.now() / 1000);
+    const v = (id, ago, note, changes, comments, current = false) => ({
+      id,
+      created_at: now - ago,
+      completed_at: now - ago,
+      change_note: note,
+      current,
+      url: `${BASE}/_v/${id}/`,
+      changes,
+      comments,
+    });
+    return send(
+      res,
+      200,
+      "application/json",
+      JSON.stringify({
+        current_version_id: VERSION,
+        versions: [
+          v(
+            VERSION,
+            300,
+            "Moved the demo controls into the header and tightened table spacing",
+            { added: 0, changed: 2, removed: 0 },
+            { total: 2, open: 1 },
+            true,
+          ),
+          v(
+            "ver_prev",
+            7200,
+            "Added the evidence page and linked it from findings",
+            { added: 1, changed: 1, removed: 0 },
+            { total: 3, open: 0 },
+          ),
+          v("ver_first", 86400, null, null, { total: 0, open: 0 }),
+        ],
+      }),
     );
   }
 

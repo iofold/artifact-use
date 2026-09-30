@@ -40,7 +40,8 @@
  *
  * Versions (landed): publishers see a collapsed "Versions" line under the
  * presence line (which version this is, how many exist) that expands into the
- * history — each version with what its publish changed and its thread counts,
+ * history — each version with the agent's change note, what its publish
+ * changed in files and its thread counts,
  * opening at its own URL. Viewers never see it: /_au/versions answers only the
  * publishing workspace, and prior-version URLs send everyone else to current.
  */
@@ -1822,17 +1823,27 @@
       })
       .catch(function () {});
   }
+  // "2 files modified", "3 files: 1 added, 2 modified".
   function changesLabel(c) {
     if (!c) return "first version";
     var parts = [];
-    if (c.added) parts.push(c.added + " added");
-    if (c.changed) parts.push(c.changed + " changed");
-    if (c.removed) parts.push(c.removed + " removed");
-    return parts.length
-      ? parts.join(", ") +
-          " file" +
-          (c.added + c.changed + c.removed === 1 ? "" : "s")
-      : "no file changes";
+    if (c.added) parts.push([c.added, "added"]);
+    if (c.changed) parts.push([c.changed, "modified"]);
+    if (c.removed) parts.push([c.removed, "removed"]);
+    if (!parts.length) return "no file changes";
+    var total = 0;
+    for (var i = 0; i < parts.length; i++) total += parts[i][0];
+    var files = total + (total === 1 ? " file" : " files");
+    if (parts.length === 1) return files + " " + parts[0][1];
+    return (
+      files +
+      ": " +
+      parts
+        .map(function (p) {
+          return p[0] + " " + p[1];
+        })
+        .join(", ")
+    );
   }
   function commentsLabel(c) {
     var total = c ? Number(c.total || 0) : 0;
@@ -1900,6 +1911,8 @@
             (v.id === versionId && !v.current ? " · viewing" : ""),
         ),
       );
+      if (v.change_note)
+        li.appendChild(el("span", "au-version-note", v.change_note));
       li.appendChild(
         el(
           "span",
@@ -2404,6 +2417,7 @@
       ".au-version-link{font-weight:800;color:#0c585b;text-decoration:none}",
       ".au-version-link:hover{text-decoration:underline}",
       ".au-version-meta{color:#5c6b66}",
+      ".au-version-note{flex-basis:100%;color:#1f2a27;font-size:12px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}",
       ".au-version-detail{flex-basis:100%;color:#5c6b66;font-size:11px}",
       ".au-presence.is-watching{color:#0f6b3f}",
       ".au-presence.is-watching::before{background:#22a35f;box-shadow:0 0 0 3px rgba(34,163,95,.18)}",

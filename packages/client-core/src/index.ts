@@ -246,6 +246,7 @@ export async function publishFolder(
     ...(input.base_version_id
       ? { base_version_id: input.base_version_id }
       : {}),
+    ...(input.change_note ? { change_note: input.change_note } : {}),
     entrypoint,
   })) as PublishStart;
   if (files.length > start.limits.file_count)

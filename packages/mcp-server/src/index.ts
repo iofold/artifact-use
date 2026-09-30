@@ -233,6 +233,7 @@ async function publishFiles(
     description: args.description,
     ...(args.gate_level ? { gate_level: args.gate_level } : {}),
     ...(args.base_version_id ? { base_version_id: args.base_version_id } : {}),
+    ...(args.change_note ? { change_note: args.change_note } : {}),
     entrypoint,
   })) as PublishStart;
   const total = normalized.reduce((sum, file) => sum + file.size, 0);

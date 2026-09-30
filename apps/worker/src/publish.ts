@@ -78,6 +78,8 @@ interface StartBody {
   // A republish is refused (409 version_conflict) when the artifact has
   // moved on, before anything is created (see baseVersionConflict).
   base_version_id?: string;
+  // One line on what this publish changed, shown in version history.
+  change_note?: string;
 }
 
 interface PublishActor {
@@ -89,6 +91,37 @@ interface PublishActor {
 // means before pasting the link somewhere.
 export const UNLISTED_NOTE =
   "This URL is unlisted: search engines are told not to index it. Anyone who has the link and passes the gate can open it.";
+
+// The workspace reads version history by these notes instead of diffs, so a
+// note is one line: whitespace (newlines included) collapses to single spaces.
+export const CHANGE_NOTE_MAX = 280;
+
+export function normalizeChangeNote(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  const note = String(value)
+    .replace(/[\u0000-\u001f\u007f]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  return note || null;
+}
+
+// Refused before anything is written, like the declared limits: a note that
+// is too long is the caller's to shorten, not ours to cut silently.
+function invalidChangeNote(body: StartBody): Response | null {
+  const note = normalizeChangeNote(body.change_note);
+  if (!note || note.length <= CHANGE_NOTE_MAX) return null;
+  return error(
+    400,
+    "change_note_too_long",
+    `change_note is ${note.length} characters; keep it to one line of at most ${CHANGE_NOTE_MAX}.`,
+  );
+}
+
+// Every publish result says how to update the same artifact safely, so the
+// next publish neither forks a new artifact nor overwrites someone else's.
+function republishHint(urlKey: string, versionId: string): string {
+  return `To update this artifact, republish with artifact "${urlKey}", base_version_id "${versionId}" and a one-line change_note saying what changed.`;
+}
 
 export async function handlePublish(
   request: Request,
@@ -106,6 +139,8 @@ export async function handlePublish(
       const body = (await request.json()) as StartBody;
       const overLimit = declaredLimitsResponse(env, body);
       if (overLimit) return overLimit;
+      const badNote = invalidChangeNote(body);
+      if (badNote) return badNote;
       const conflict = await baseVersionConflict(env, creator, body);
       if (conflict) return conflict;
       return json(await createDraft(env, creator, body));
@@ -124,6 +159,8 @@ export async function handlePublish(
       const body = (await request.json()) as StartBody;
       const overLimit = declaredLimitsResponse(env, body);
       if (overLimit) return overLimit;
+      const badNote = invalidChangeNote(body);
+      if (badNote) return badNote;
       const ttl = uploadSessionTtl(body.ttl_seconds);
       if (ttl instanceof Response) return ttl;
       const conflict = await baseVersionConflict(env, creator, body);
@@ -308,7 +345,11 @@ export async function handlePublish(
           links: artifact
             ? publishLinks(env, artifact.url_key, version.id)
             : null,
+          change_note: version.change_note ?? null,
           note: UNLISTED_NOTE,
+          ...(artifact
+            ? { next: republishHint(artifact.url_key, version.id) }
+            : {}),
           ...(findings.length ? { warnings: findings } : {}),
         });
       } catch (e) {
@@ -338,6 +379,8 @@ export async function handlePublish(
           : [];
       if (findings.length && !allowsSecrets(body))
         return secretsDetectedResponse(findings);
+      const badNote = invalidChangeNote(body);
+      if (badNote) return badNote;
       const conflict = await baseVersionConflict(env, creator, body);
       if (conflict) return conflict;
       // Pin the entrypoint after the spread so a caller-supplied one stays ignored.
@@ -391,7 +434,9 @@ export async function handlePublish(
         version_id: version.id,
         url: publicArtifactUrl(env, artifact.url_key),
         links: publishLinks(env, artifact.url_key, version.id),
+        change_note: version.change_note ?? null,
         note: UNLISTED_NOTE,
+        next: republishHint(artifact.url_key, version.id),
         ...(findings.length ? { warnings: findings } : {}),
       });
     }
@@ -431,7 +476,13 @@ async function createDraft(
     normalizeArtifactDescription(body.description),
     gateLevel,
   );
-  const version = await createDraftVersion(env, creator, artifact, entrypoint);
+  const version = await createDraftVersion(
+    env,
+    creator,
+    artifact,
+    entrypoint,
+    normalizeChangeNote(body.change_note),
+  );
   return {
     artifact,
     version,

@@ -245,15 +245,24 @@ export async function createDraftVersion(
   creator: Creator,
   artifact: Artifact,
   entrypoint: string,
+  changeNote: string | null = null,
 ): Promise<ArtifactVersion> {
   const id = randomId("ver");
   const now = nowSec();
   await env.DB.prepare(
     `INSERT INTO artifact_versions
-      (id, artifact_id, org_id, status, entrypoint, created_by, created_at)
-     VALUES (?, ?, ?, 'draft', ?, ?, ?)`,
+      (id, artifact_id, org_id, status, entrypoint, created_by, created_at, change_note)
+     VALUES (?, ?, ?, 'draft', ?, ?, ?, ?)`,
   )
-    .bind(id, artifact.id, creator.orgId, entrypoint, creator.sub, now)
+    .bind(
+      id,
+      artifact.id,
+      creator.orgId,
+      entrypoint,
+      creator.sub,
+      now,
+      changeNote,
+    )
     .run();
   return (await getVersionForOrg(env, creator.orgId, id)) as ArtifactVersion;
 }

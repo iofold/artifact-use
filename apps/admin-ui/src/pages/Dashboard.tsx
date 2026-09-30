@@ -4,7 +4,6 @@ import { Link, useSearchParams } from "react-router";
 import {
   api,
   postForm,
-  versionDiffUrl,
   type ArtifactRow,
   type ArtifactVersion,
   type CreatedShareLink,
@@ -770,22 +769,40 @@ function LinkCreateForm({
   );
 }
 
-// One published version: when, how big, whether the stable URL serves it,
-// and the three things a publisher does with an old one — open it at its
-// own URL, compare it with the current version, or make it current again.
+// What a publish changed in files ("2 files modified", "3 files: 1 added,
+// 2 modified"), for versions published without a note.
+function changesLabel(changes: ArtifactVersion["changes"]): string {
+  if (!changes) return "First version";
+  const parts: [number, string][] = [
+    [changes.added, "added"],
+    [changes.changed, "modified"],
+    [changes.removed, "removed"],
+  ];
+  const present = parts.filter(([n]) => n > 0);
+  const total = present.reduce((sum, [n]) => sum + n, 0);
+  const files = `${total} ${total === 1 ? "file" : "files"}`;
+  if (!present.length) return "No file changes";
+  if (present.length === 1) return `${files} ${present[0]![1]}`;
+  return `${files}: ${present.map(([n, verb]) => `${n} ${verb}`).join(", ")}`;
+}
+
+// One published version: what changed (the publishing agent's note, or the
+// file counts when it left none), when, whether the stable URL serves it, and
+// the two things a publisher does with an old one — open it at its own URL
+// or make it current again.
 function VersionRow({
-  artifact,
   version,
   promoting,
   onPromote,
 }: {
-  artifact: ArtifactRow;
   version: ArtifactVersion;
   promoting: boolean;
   onPromote: () => void;
 }) {
   const when = version.completed_at || version.created_at;
   const detail = [
+    `${dateLabel(when)} · ${ago(when)}`,
+    version.change_note ? changesLabel(version.changes) : null,
     `${formatNumber(version.file_count)} ${version.file_count === 1 ? "file" : "files"}`,
     formatBytes(version.total_size),
     version.entrypoint !== "index.html" ? version.entrypoint : null,
@@ -796,8 +813,8 @@ function VersionRow({
   return (
     <li>
       <span>
-        <strong>
-          {dateLabel(when)} · {ago(when)}
+        <strong className={version.change_note ? undefined : "version-auto"}>
+          {version.change_note || changesLabel(version.changes)}
           {version.current ? <span className="pill ok">current</span> : null}
         </strong>
         <small>{detail}</small>
@@ -812,24 +829,14 @@ function VersionRow({
           Open ↗
         </a>
         {version.current ? null : (
-          <>
-            <a
-              className="button small ghost"
-              href={versionDiffUrl(artifact.url_key, version.id)}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              Compare with current
-            </a>
-            <button
-              type="button"
-              className="button small ghost"
-              disabled={promoting}
-              onClick={onPromote}
-            >
-              Make current
-            </button>
-          </>
+          <button
+            type="button"
+            className="button small ghost"
+            disabled={promoting}
+            onClick={onPromote}
+          >
+            Make current
+          </button>
         )}
       </span>
     </li>
@@ -862,9 +869,11 @@ function VersionsPanel({
     <>
       <h3>Versions</h3>
       <p className="mini">
-        Every publish is kept. The stable URL serves the current version; making
-        an older one current rolls back without deleting anything, and every
-        version stays viewable at its own URL.
+        Every publish is kept, with the publishing agent&apos;s note on what it
+        changed. The stable URL serves the current version; making an older one
+        current rolls back without deleting anything. Older versions open at
+        their own URL for your workspace only — viewers always get the current
+        one.
       </p>
       {isPending ? (
         <Skeleton style={{ height: 46 }} />
@@ -873,7 +882,6 @@ function VersionsPanel({
           {data.versions.slice(0, 20).map((version) => (
             <VersionRow
               key={version.id}
-              artifact={artifact}
               version={version}
               promoting={promote.isPending}
               onPromote={() => promote.mutate(version.id)}

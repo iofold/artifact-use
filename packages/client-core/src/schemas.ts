@@ -37,6 +37,14 @@ const baseVersionProperty = {
     "Republish only if this is still the current version_id (from your last publish); otherwise 409 version_conflict with the newer version.",
 };
 
+// Shown to the workspace in version history instead of a diff.
+const changeNoteProperty = {
+  type: "string",
+  maxLength: 280,
+  description:
+    'One line on what this publish changed, e.g. "Moved demo controls into the header". Pass it on every republish.',
+};
+
 export const artifactPublishTool: ToolSchema = {
   name: "artifact_publish",
   description:
@@ -62,6 +70,7 @@ export const artifactPublishTool: ToolSchema = {
       gate_level: { type: "string", enum: [...GATE_LEVELS] },
       entrypoint: { type: "string", default: "index.html" },
       base_version_id: baseVersionProperty,
+      change_note: changeNoteProperty,
       html: { type: "string" },
       files: {
         type: "array",
@@ -102,6 +111,7 @@ export const artifactUploadSessionTool: ToolSchema = {
       gate_level: { type: "string", enum: [...GATE_LEVELS] },
       entrypoint: { type: "string", default: "index.html" },
       base_version_id: baseVersionProperty,
+      change_note: changeNoteProperty,
       ttl_seconds: {
         type: "number",
         description: "Token lifetime in seconds. Maximum is 21600 (6 hours).",
