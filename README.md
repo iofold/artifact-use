@@ -75,7 +75,9 @@ Their screenshots, stills, and synthetic data are documented in
 ## What Artifact Use Provides
 
 - **Stable artifact URLs** under `/go/{artifact-slug}-{six-character-code}/`.
-- **Immutable versions** with atomic current-version promotion.
+- **Immutable versions** with atomic current-version promotion, one-line
+  change notes, rollback, and per-file diffs; prior versions stay visible to
+  the publishing workspace only.
 - **Lifecycle management**: move artifacts between workspaces (URL-stable) and
   permanently delete them — from the dashboard, API, or MCP.
 - **Cloudflare-native storage** using Workers, R2, and D1.
@@ -183,15 +185,22 @@ Hosted MCP exposes four tools:
 - `artifact_upload_session`: a short-lived direct upload session for folders
   and large or multi-file artifacts; bytes go straight to the Worker.
 - `artifact_manage`: list, stats, access, public preview copy, upstream
-  backend, share links, move between workspaces, delete, workspaces.
-- `artifact_comments`: list, reply to, resolve, and reopen reviewer threads.
+  backend, share links, versions (list, promote to roll back, diff), move
+  between workspaces, delete, workspaces.
+- `artifact_comments`: list (with a 25-second long-poll), reply to, resolve,
+  and reopen reviewer threads; subscribe, unsubscribe, and list webhooks.
+
+To update an artifact, the agent republishes with `artifact` set to its
+`url_key`, `base_version_id` set to its last `version_id`, and a one-line
+`change_note` saying what changed. The workspace reads version history by
+those notes.
 
 Tool failures come back as `isError` results with
 `structuredContent.error = {code, message, status}`. The bundled skill and the
 [agent guide](docs/agent-guide.md) tell the agent when to publish, how to run
-the comment loop, and what to report; paste the snippet in its last section
-into a project's `AGENTS.md` or `CLAUDE.md` to route "share this" requests
-through Artifact Use.
+the comment loop, and what to report; paste the snippet in its §13 into a
+project's `AGENTS.md` or `CLAUDE.md` to route "share this" requests through
+Artifact Use.
 
 ### Advanced Fallbacks
 
@@ -252,7 +261,7 @@ Artifact Use is designed to run on Cloudflare with your own resources:
 1. Create a Cloudflare D1 database and R2 bucket, and enable Browser Rendering.
 2. Configure `apps/worker/wrangler.toml` for your account, domain, routes,
    D1 database, R2 bucket, Browser Rendering binding, and Email Sending binding.
-3. Apply the D1 baseline migration.
+3. Apply the D1 migrations (the command applies every migration).
 4. Enable a Cloudflare Email Sending domain if you use `verified_email` gates.
 5. Set Worker secrets for sessions and WorkOS.
 6. Deploy the Worker.

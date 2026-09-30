@@ -138,13 +138,15 @@ Authorization: Bearer <creator-token-or-upload-token>
 
 Secret scan. `POST /api/v1/publish/html` scans the HTML and the completion step scans every uploaded text-like file (html, js, css, json, txt, md, svg, xml, csv; up to 2 MiB each, 200 files, 20 findings). If credential-like strings are found the publish is refused with `422 {"error":{"code":"secrets_detected","message":…,"findings":[{"path","kind","line","preview"}]}}` and the draft stays writable; send `allow_secrets: true` to publish anyway, in which case the response carries `warnings` with the same findings. Every successful publish response also carries `note`, a reminder that the URL is unlisted but reachable by anyone who has it and passes the gate.
 
+`publish/html`, `publish/start` and `publish/upload-session` accept `base_version_id` and `change_note` (see [Versions](#versions)); every successful publish response carries `change_note` and `next`, a one-line reminder to republish with the `url_key`, this `version_id` as `base_version_id`, and a `change_note`.
+
 ## Viewer Comments
 
 The injected comments popup uses the viewer session cookie from the artifact
 gate.
 
 ```http
-GET /_au/comments?artifact_key={url_key}&status=open|sent|resolved|all&since=<unix>&wait=<1..25>&page_path=<path>&limit=<n>
+GET /_au/comments?artifact_key={url_key}&status=open|resolved|all&since=<unix>&wait=<1..25>&page_path=<path>&limit=<n>
 POST /_au/comments
 PATCH /_au/comments
 ```
@@ -165,7 +167,9 @@ de-duplicate by `id`; when `has_more` is true `next_since` does not advance,
 so re-list with a larger `limit` first.
 
 `POST /_au/comments` creates either a top-level comment or a reply when
-`parent_id` is supplied. Include `artifact_key` in the JSON body. An optional
+`parent_id` is supplied. Include `artifact_key` in the JSON body. `body` is
+required; bodies longer than 2,000 characters are truncated to 2,000 without
+an error. An optional
 `client_ref` (up to 64 characters, unique per artifact) makes the post
 idempotent: a retry with the same `client_ref` after a lost response returns
 the comment that was already created. `PATCH /_au/comments` accepts
@@ -225,8 +229,10 @@ DELETE /api/v1/webhooks/{id}
   (de-duplicate on it) and `X-Artifact-Use-Signature: sha256=<hex
 HMAC-SHA256 of the raw body with the secret>`. Any 2xx within 10 s is a
   success; redirects are not followed.
-- The first attempt is made right after the write. Failures are retried
-  1 m, 5 m, 30 m, 2 h and 12 h later by the maintenance cron, then dropped.
+- The first attempt is made right after the write. Failed deliveries are
+  retried by the six-hourly maintenance cron with backoff, up to five times,
+  then dropped. The backoff (1 m, 5 m, 30 m, 2 h, 12 h) is a minimum gap:
+  a retry goes out on the first cron run after it falls due.
   `GET` shows `pending`, `last_delivery_at` and `last_status` per webhook.
 
 Payload:
@@ -259,18 +265,31 @@ object for a root comment); both use the comment shape above.
 ```http
 GET /api/v1/me
 GET /api/v1/workspaces
+GET /api/v1/tokens
+POST /api/v1/tokens
 GET /api/v1/artifacts
 GET /api/v1/artifacts/{artifact_key}
 PATCH /api/v1/artifacts/{artifact_key}
+DELETE /api/v1/artifacts/{artifact_key}
+POST /api/v1/artifacts/{artifact_key}/move
 GET /api/v1/artifacts/{artifact_key}/stats
 POST /api/v1/artifacts/{artifact_key}/share-links
 GET /api/v1/artifacts/{artifact_key}/share-links
 DELETE /api/v1/artifacts/{artifact_key}/share-links/{link_id}
-GET /api/v1/artifacts/{artifact_key}/comments
+GET /api/v1/artifacts/{artifact_key}/versions
+POST /api/v1/artifacts/{artifact_key}/versions/{version_id}/promote
+GET /api/v1/artifacts/{artifact_key}/versions/{from}/diff/{to}
+GET|POST|PATCH /api/v1/artifacts/{artifact_key}/comments
 POST /api/v1/webhooks
 GET /api/v1/webhooks
 DELETE /api/v1/webhooks/{id}
 ```
+
+Viewer-side routes live under `/_au/` on the artifact host: the gate
+(`/_au/gate/email`, `/_au/gate/start`, `/_au/gate/verify`, `/_au/gate/link`;
+see [docs/agent-guide.md](agent-guide.md)), comments
+([Viewer Comments](#viewer-comments)), and the workspace-only version history
+`GET /_au/versions` ([Versions](#versions)).
 
 User-scoped creator tokens (`"scope": "user"` on `POST /api/v1/tokens`)
 publish to any workspace their user belongs to and must send
@@ -420,8 +439,15 @@ PATCH /api/v1/artifacts/{artifact_key}
   credentials, query, or fragment, and never the artifact host itself.
 - The artifact must have a non-public gate. Setting an upstream on a `public`
   artifact, or setting `gate_level` to `public` on an artifact with an
-  upstream, is refused; the proxy also answers `403` as a backstop, because a
-  public artifact would hand the stored secret to anyone.
+  upstream, is refused with `409 upstream_requires_gate`; the proxy also
+  answers `403 upstream_requires_gate` as a backstop, because a public
+  artifact would hand the stored secret to anyone.
+- On an `allowlist` artifact every `_api/` request re-checks the artifact's
+  _current_ allowlist against the viewer session's email, not just the gate
+  pass that minted the session. A session from a `password` or `open` share
+  link, a recipient link or signed-in workspace member whose address is not
+  listed, and an address removed from the allowlist after its session was
+  minted all get `403 email_not_allowed`.
 - The proxy is rate-limited to 120 requests per minute per viewer and 1200 per
   artifact; excess requests receive `429 upstream_rate_limited` with
   `Retry-After`.
@@ -439,7 +465,9 @@ POST {artifact url}_api/api/items       ->  POST {base_url}/api/items
 
 - `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, and `DELETE` are forwarded; bodies up
   to 10 MiB; 60 s upstream timeout (`504 upstream_timeout`), unreachable
-  backend `502 upstream_unreachable`, no backend configured `404 no_upstream`.
+  backend `502 upstream_unreachable`, no backend configured `404 no_upstream`,
+  viewer not on the current allowlist `403 email_not_allowed`, public
+  artifact `403 upstream_requires_gate`.
 - Forwarded request headers: `Accept`, `Accept-Language`, `Content-Type`,
   `If-None-Match`, `If-Modified-Since`, `Range`, plus
   `Authorization: Bearer <secret>` (when set), `X-Artifact-Key`,
@@ -527,13 +555,29 @@ excluded by name: `kind` is the only mechanism.
 
 Every completed publish is kept as an immutable version. The stable URL
 serves the artifact's _current_ version; every version stays reachable at
-its own address, and rolling back is promoting an older version.
+its own address for the publishing workspace (viewers are redirected to the
+current version), and rolling back is promoting an older version.
 
 ```http
 GET  /api/v1/artifacts/{artifact_key}/versions
 POST /api/v1/artifacts/{artifact_key}/versions/{version_id}/promote
 GET  /api/v1/artifacts/{artifact_key}/versions/{from}/diff/{to}
+GET  /_au/versions?artifact_key={artifact_key}
 ```
+
+### Change notes
+
+`POST /api/v1/publish/html`, `POST /api/v1/publish/start` and
+`POST /api/v1/publish/upload-session` (and the MCP publish tools, the CLI
+and client-core `publishFolder`) accept an optional `change_note`: one line
+saying what the publish changed, e.g. `"Moved demo controls into the
+header"`. Control characters, newlines and runs of whitespace collapse to
+single spaces; a note longer than 280 characters after that is refused with
+`400 change_note_too_long` before anything is written. The note is stored on
+the version and returned as `change_note` in publish results, the versions
+list and `/_au/versions` (`null` when none was given). The workspace reads
+version history by these notes, so agents should send one on every
+republish together with `base_version_id`.
 
 ### Listing
 
@@ -551,6 +595,7 @@ versions only (drafts and interrupted uploads never appear):
       "total_size": 4194304,
       "entrypoint": "index.html",
       "created_by": "user_01…",
+      "change_note": "Moved demo controls into the header",
       "current": true,
       "url": "https://artifacts.iofold.com/go/claims-demo-a1b2c3/_v/ver_3f9c…/"
     }
@@ -559,6 +604,20 @@ versions only (drafts and interrupted uploads never appear):
 ```
 
 Requires `artifacts:read`.
+
+### History for the page
+
+`GET /_au/versions?artifact_key={artifact_key}` backs the publisher-only
+Versions section of the comments widget; the admin's Versions panel shows
+the same history. It answers only the publishing workspace (a creator or
+OAuth token of the owning workspace, or a signed-in member's browser on the
+artifact's own pages); everyone else gets `403 workspace_only`, so viewers
+are never told that other versions exist. The response is
+`{"current_version_id", "versions": [...]}`: the latest 20 complete
+versions, each shaped like the listing above plus `comments`
+(`{total, open}` threads left on that version) and `changes`
+(`{added, removed, changed}` file counts against the version before it;
+`null` for the first version).
 
 ### Viewing a prior version
 
@@ -575,7 +634,8 @@ underscores are refused at upload). Under that prefix:
 - Files resolve within that version, so a page's relative assets are the
   ones it was published with; `_au/index.json` describes that version.
 - Responses carry `X-Artifact-Version: {version_id}` (the stable URL
-  carries it too, naming the current version) and `X-Robots-Tag: noindex`.
+  carries it too, naming the current version) and
+  `X-Robots-Tag: noindex, nofollow`.
 - HTML pages served to browsers get a small banner strip at the top
   ("Viewing version from {date} · this is not the current version · Open
   current"). Agents (`Accept` without `text/html`) get the page as-is.
@@ -589,8 +649,8 @@ underscores are refused at upload). Under that prefix:
 `POST .../versions/{version_id}/promote` makes that version current: the
 stable URL serves it from the next request and `updated_at` moves forward.
 Rolling back _is_ promoting an older version; nothing is deleted and the
-newer versions stay listed and viewable, so rolling forward again is another
-promote.
+newer versions stay listed and viewable by the workspace, so rolling forward
+again is another promote.
 
 ```json
 {
@@ -696,7 +756,7 @@ other's work:
 
 1. Publish; remember `version_id` from the response.
 2. On the next republish of the same artifact, pass that id as
-   `base_version_id`.
+   `base_version_id`, with a one-line `change_note`.
 3. On `409 version_conflict`, read the current version (the `diff` route
    with `from` = your `base_version_id`, `to` = `current` shows exactly what
    changed), merge, and republish with `base_version_id` set to the
@@ -709,7 +769,7 @@ yet is also a conflict (`current_version_id: null`).
 ### Links in publish results
 
 Every successful publish response (`publish/html`, upload completion, and
-the MCP publish tools) carries `links`:
+the MCP publish tools) carries `links`, `change_note` and `next`:
 
 ```json
 {
@@ -717,12 +777,15 @@ the MCP publish tools) carries `links`:
     "artifact": "https://artifacts.iofold.com/go/claims-demo-a1b2c3/",
     "version": "https://artifacts.iofold.com/go/claims-demo-a1b2c3/_v/ver_3f9c…/",
     "review": "https://artifacts.iofold.com/go/claims-demo-a1b2c3/"
-  }
+  },
+  "change_note": "Moved demo controls into the header",
+  "next": "To update this artifact, republish with artifact \"claims-demo-a1b2c3\", base_version_id \"ver_3f9c…\" and a one-line change_note saying what changed."
 }
 ```
 
 `artifact` is the stable URL, `version` is this version's own address (it
-keeps serving these exact files after later republishes), and `review` is
+keeps serving these exact files after later republishes, for the publishing
+workspace; viewers are redirected to the stable URL), and `review` is
 the reviewer-facing link — today the stable URL; the key is kept so a
 distinct review surface can replace it without changing callers.
 `GET /api/v1/artifacts` and `GET /api/v1/artifacts/{artifact_key}` carry the

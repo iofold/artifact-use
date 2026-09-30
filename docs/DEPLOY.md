@@ -51,7 +51,8 @@ Generated PNGs are cached in the configured R2 bucket. Without this binding,
 artifact and gate pages still render but the social image endpoint returns a
 temporary `503` rather than exposing artifact content as a fallback.
 
-Then apply the baseline schema:
+Then apply the schema (this applies every migration in
+`apps/worker/migrations`, and is the same command after each upgrade):
 
 ```bash
 npx wrangler d1 migrations apply artifact-use --remote
@@ -247,11 +248,22 @@ moderation, and D1 limits remain in force on skipped product paths.
 ## Scheduled maintenance
 
 `[triggers] crons` in `wrangler.toml` runs the worker's `scheduled` handler
-every six hours. It purges upload sessions that never completed (drafts older
-than 24 hours, above the six-hour session ceiling) together with their R2
-objects, and deletes artifact rows that have no versions and nothing attached.
-Keep the trigger when you copy the config; without it, limit-rejected and
-crashed publishes accumulate in storage.
+every six hours. Each run:
+
+- purges upload sessions that never completed (drafts older than 24 hours,
+  above the six-hour session ceiling) together with their R2 objects, and
+  deletes artifact rows that have no versions and nothing attached;
+- retries failed webhook deliveries that are due (the only retry path; the
+  first attempt happens at write time);
+- emails each creator token's owner once, seven days before the token
+  expires;
+- marks unapproved device-code connect requests expired;
+- backfills missing SHA-256 hashes on older files so version diffs can tell
+  changed from unchanged.
+
+Keep the trigger when you copy the config. Without it, limit-rejected and
+crashed publishes accumulate in storage, failed webhooks are never retried,
+and tokens expire without warning.
 
 Explicit-route deployments also need routes for `/robots.txt` and
 `/favicon.ico` (both are in the example config).
