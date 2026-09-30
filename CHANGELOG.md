@@ -4,6 +4,24 @@ Notable changes to Artifact Use are documented here.
 
 ## Unreleased
 
+- Versions carry a change note: every publish path (REST `publish/html`,
+  `publish/start`, `publish/upload-session`; MCP `artifact_publish` and
+  `artifact_upload_session`; the stdio server, CLI and client-core) accepts
+  an optional one-line `change_note` (at most 280 characters after
+  whitespace collapses; longer is `400 change_note_too_long` before anything
+  is written). It is returned on the versions list, `/_au/versions` and
+  publish results, which also carry `next`: how to republish with the
+  `url_key`, `base_version_id` and a note. Migration 0018.
+- Admin Versions panel: each version leads with its change note (or a file
+  summary such as "2 files: 1 added, 1 modified" when it has none) and reads
+  the same history as the widget; "Compare with current" and its
+  `/admin/artifact/diff` route are removed (the diff API and MCP action
+  remain). The widget's publisher-only Versions section shows the note too.
+- Upstream proxy: on `allowlist` artifacts every `_api/` request re-checks
+  the artifact's current allowlist against the viewer's gate email, so
+  password and open share-link sessions, unlisted recipients and workspace
+  members, and addresses removed after their session was minted get
+  `403 email_not_allowed`; a malformed allowlist denies instead of throwing.
 - Gates: "Send code" no longer sends two emails on a double tap. System
   pages submit each form once (the button disables and reads "Sending code…"
   until the page changes, and comes back after a back navigation), and a
@@ -102,7 +120,8 @@ Notable changes to Artifact Use are documented here.
   and `artifact-use-core` (shared client) are publishable at 0.2.0
   as unscoped npm packages (renamed from `@artifact-use/*`; npm rejects the bare
   name `artifact-use` as too similar to an unrelated `artifactuse` package) (`files` limited to
-  `dist`, READMEs, `prepack` builds); not yet published.
+  `dist`, READMEs, `prepack` builds); published to npm on 2026-09-25 as
+  `artifact-use-core`, `artifact-use-mcp` and `artifact-use-cli` 0.2.0.
 
 ## 0.1.0
 

@@ -99,8 +99,9 @@ or `npx plugins add iofold/artifact-use`.
 
 - `artifact_publish`: publish a single `html` string or small inline `files` (2 MiB per file); pass public-safe `description` copy when available. `artifact` is a slug or an existing `url_key`.
 - `artifact_upload_session`: create a 6-hour direct upload token for shell/curl uploads; pass `file_count` and `package_bytes` for an immediate `413` before uploading.
-- `artifact_manage`: `list`, `stats`, `set_access`, `set_preview`, `set_upstream`, `share_link`, `move` (`to_workspace`), `delete` (`confirm: true`), `workspaces`.
-- `artifact_comments`: `list`, `post` (reply with `parent_id`), `resolve`, `reopen`.
+- Both publish tools take `base_version_id` (your last `version_id`; a `version_conflict` means someone published in between) and `change_note` (one line, at most 280 characters, on what this publish changed).
+- `artifact_manage`: `list`, `stats`, `set_access`, `set_preview`, `set_upstream`, `share_link` (`kind`: `recipient`, `password`, `open`), `share_links`, `revoke_link`, `versions`, `promote` (`version_id`; rollback = promote an older version), `diff` (`from_version`, `to_version`), `move` (`to_workspace`), `delete` (`confirm: true`), `workspaces`.
+- `artifact_comments`: `list` (`status`, `since`, `wait` up to 25 s), `post` (reply with `parent_id`), `resolve`, `reopen`, `subscribe` (webhook `url`), `unsubscribe` (`webhook_id`), `webhooks`.
 
 Tool failures return `isError: true` with `structuredContent.error = {code, message, status}` using the HTTP API's error codes.
 
@@ -108,6 +109,7 @@ Tool failures return `isError: true` with `structuredContent.error = {code, mess
 
 - Publish a new artifact with a lower-case `artifact` slug.
 - Republish an existing artifact by passing its `url_key` (from the publish result or `artifact_manage action:"list"`) as `artifact`; the same slug published earlier in the workspace also republishes in place. Omitting `gate_level` on republish keeps the current gate.
+- On every republish also pass your last `version_id` as `base_version_id` and a one-line `change_note` saying what changed (e.g. "Moved demo controls into the header"). People read version history by these notes; each publish result's `next` repeats this reminder.
 - Use the `url_key` for stats, access changes, share links, and comments. Do not guess it; it includes a six-character code from the artifact id.
 - Public artifact URLs are under:
 
@@ -129,7 +131,7 @@ User-scoped tokens ("All my workspaces") must name the target workspace on every
 
 ## Upstream Backends
 
-`artifact_manage action:"set_upstream"` with `upstream_url` (https, public hostname) and an optional write-only `upstream_secret` points an artifact at one backend. After a viewer passes the gate, requests to `<artifact url>_api/<path>` are forwarded there with `Authorization: Bearer <secret>`, `X-Artifact-Viewer-Email`, and `X-Artifact-Viewer-Verified`, so the page holds no credential. The artifact must have a non-public gate. Omit `upstream_url` to remove the backend.
+`artifact_manage action:"set_upstream"` with `upstream_url` (https, public hostname) and an optional write-only `upstream_secret` points an artifact at one backend. After a viewer passes the gate, requests to `<artifact url>_api/<path>` are forwarded there with `Authorization: Bearer <secret>`, `X-Artifact-Viewer-Email`, and `X-Artifact-Viewer-Verified`, so the page holds no credential. The artifact must have a non-public gate. On an `allowlist` artifact every `_api/` request re-checks the current allowlist; viewers whose address is not listed (including password and open share-link sessions) get `403 email_not_allowed`. Omit `upstream_url` to remove the backend.
 
 ## Comment Loop
 
@@ -137,12 +139,14 @@ Viewers comment on the artifact page through the built-in widget; comments are
 threaded and may be anchored to a specific on-page element. Close the loop:
 
 1. Find work: `artifact_manage action:"list"` → artifacts with `open_comments > 0`,
-   or `artifact_comments action:"list", status:"open"` (add `since:<unix>` for
-   only-new comments).
+   or `artifact_comments action:"list", status:"open"`. To wait for new
+   feedback, never poll on a timer: long-poll with `wait: 25` and
+   `since: <next_since from the previous result>` (it answers as soon as a
+   newer comment exists, or `[]` after 25 s), or `subscribe` a webhook.
 2. Read each thread: roots carry the request; replies hang off
    `parent_comment_id`; `target` (when present) describes the anchored element
    (`selector`, `label`, `text`, `path`).
-3. Fix and republish the SAME artifact (its `url_key`) — the URL stays stable for viewers.
+3. Fix and republish the SAME artifact (its `url_key`, with `base_version_id` and a one-line `change_note`) — the URL stays stable for viewers.
 4. Reply to each thread (`action:"post"`, `parent_id`, `body`) saying what
    changed, then resolve it (`action:"resolve"`, `comment_id`). Use `reopen`
    to undo a resolve.
@@ -150,9 +154,10 @@ threaded and may be anchored to a specific on-page element. Close the loop:
 The same operations over HTTP (`Authorization: Bearer $ARTIFACT_USE_TOKEN`):
 
 ```bash
-# list open threads (status=open|resolved|all, since=<unix>, page_path, limit)
+# hold up to 25 s for open threads newer than $NEXT_SINCE
+# (filters: status=open|resolved|all, since=<unix>, wait=<1..25>, page_path, limit)
 curl -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" \
-  "$ARTIFACT_USE_API_BASE/api/v1/artifacts/{url_key}/comments?status=open"
+  "$ARTIFACT_USE_API_BASE/api/v1/artifacts/{url_key}/comments?status=open&since=$NEXT_SINCE&wait=25"
 
 # reply to comment 42, then resolve it
 curl -X POST -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" -H "Content-Type: application/json" \
@@ -165,7 +170,8 @@ curl -X PATCH -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" -H "Content-Type: a
 
 POST returns the created comment including its `id`, so a follow-up resolve or
 reply never needs a re-list. `client_ref` (up to 64 characters) makes a post
-idempotent across retries.
+idempotent across retries. Bodies longer than 2,000 characters are truncated
+to 2,000 without an error.
 
 ## Advanced CLI, HTTP, And Local Stdio Fallbacks
 
@@ -204,7 +210,9 @@ artifact-use publish-folder --json '{
 artifact-use publish-folder --json '{
   "artifact": "claims-demo-a1b2c3",
   "title": "Claims Demo",
-  "dir": "dist"
+  "dir": "dist",
+  "base_version_id": "ver_...",
+  "change_note": "Sorted the claims table by date"
 }'
 ```
 
@@ -254,7 +262,7 @@ curl -X POST "$complete_url" \
   --data '{"entrypoint":"index.html","files":[{"path":"index.html","content_type":"text/html; charset=utf-8","size":1234,"sha256":"..."}]}'
 ```
 
-Prefer the CLI or local MCP for full folders because they build the manifest and upload every file.
+Where the CLI or local stdio MCP is available, it builds the manifest and uploads every file of a folder for you.
 
 ## Limits
 

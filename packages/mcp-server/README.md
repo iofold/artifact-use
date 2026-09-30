@@ -27,7 +27,9 @@ Mint the creator token at `/admin/connect`; tokens expire after 90 days and a
 `401` with `error.code` `token_expired` means a new one is needed. User-scoped
 tokens name their workspace with the `workspace` tool argument,
 `ARTIFACT_USE_WORKSPACE`, or a project `.artifact-use.json`. Pass an existing
-artifact's `url_key` as `artifact` to republish it in place.
+artifact's `url_key` as `artifact` to republish it in place, with your last
+`version_id` as `base_version_id` and a one-line `change_note` saying what
+changed.
 
 Full agent guide: https://artifacts.iofold.com/llms-full.txt. Source and
 issues: https://github.com/iofold/artifact-use. MIT licensed.

@@ -26,8 +26,9 @@ Primary URLs:
 Artifact Use never publishes unless you call a publish tool. Reading, listing,
 stats, and comments change nothing. Publish only when the user asks for a link,
 a share, a review, or a republish; prefer republishing the existing artifact
-(pass its `url_key` as `artifact`) over creating a new one; and hand the
-review link back in your final response.
+(pass its `url_key` as `artifact`, your last `version_id` as
+`base_version_id`, and a one-line `change_note`) over creating a new one; and
+hand the review link back in your final response.
 
 <!-- /llms.txt -->
 
@@ -242,8 +243,9 @@ your harness supports instead of hand-writing config:
 - Agent Plugins 1.0 clients: `npx plugins add iofold/artifact-use`, or load the
   repository root (`plugin.json`, `mcp.json`, `skills/`).
 
-Each package registers the hosted MCP endpoint (OAuth) and the `artifact-use`
-skill.
+The Claude Code, Codex and Agent Plugins packages register the hosted MCP
+endpoint (OAuth) and the `artifact-use` skill. `npx skills add` installs only
+the skill; connect the MCP endpoint separately (section 2).
 
 ## 3. Skill setup
 
@@ -266,11 +268,13 @@ Artifact Use publishes static artifacts to https://artifacts.iofold.com.
   path for the current harness (OAuth in Claude Code and Codex; a creator
   token from /admin/connect elsewhere).
 - Publish only when the user asks for a link, share, review, or republish.
-  Prefer republishing the existing artifact by its `url_key`.
+  Prefer republishing the existing artifact by its `url_key`, with your last
+  `version_id` as `base_version_id` and a one-line `change_note`.
 - `artifact_publish` for one HTML string or small inline files;
   `artifact_upload_session` (or the stdio MCP / CLI) for folders and large
   files; `artifact_manage` for list, stats, access, preview copy, upstream,
-  share links, move, delete; `artifact_comments` for the review loop.
+  share links, versions, promote, diff, move, delete; `artifact_comments` for
+  the review loop.
 - Titles and descriptions are public link-preview copy even on gated
   artifacts. Default gate is `email`.
 - Report the live URL, gate level, slug and `url_key`, checks run, and any
@@ -295,6 +299,8 @@ plus `dir` and `dry_run` on `artifact_publish`.
   `package_bytes` up front to get an immediate `413` (`too_many_files`,
   `package_too_large`) before uploading anything. Also accepts `artifact` as a
   slug or `url_key`.
+- Both publish tools take `base_version_id` (your last `version_id`) and
+  `change_note` (one line on what this publish changed); see section 16.
 - `artifact_manage`: `list` (returns `url_key` and `open_comments` per
   artifact), `stats`, `set_access` (`gate_level`, `allowlist`), `set_preview`
   (`title`, `description`), `set_upstream` (`upstream_url`, optional write-only
@@ -303,10 +309,11 @@ plus `dir` and `dry_run` on `artifact_publish`.
   `recipient_label`, `passcode` for password links — generated when omitted
   and returned once — `expires_days`, `max_opens`; returns the link with its
   `url`), `share_links` (list with `open_count`, `last_opened_at`, `state`),
-  `revoke_link` (`link_id`), `move` (`to_workspace`; URL and creator
-  preserved), `delete` (requires `confirm: true`; removes every version,
-  file, share link, comment, and view record), and `workspaces`.
-- `artifact_comments`: `list` (`status` open|sent|resolved|all, `since`,
+  `revoke_link` (`link_id`), `versions`, `promote` (`version_id`), `diff`
+  (`from_version`, `to_version`; section 16), `move` (`to_workspace`; URL and
+  creator preserved), `delete` (requires `confirm: true`; removes every
+  version, file, share link, comment, and view record), and `workspaces`.
+- `artifact_comments`: `list` (`status` open|resolved|all, `since`,
   `wait` up to 25 s, `page_path`, `limit`; every result carries `next_since`),
   `post` (`body`, optional `parent_id`), `resolve` and `reopen`
   (`comment_id`), `subscribe` (`url`, optional `events`, optional `artifact`),
@@ -356,7 +363,8 @@ Tools after connection: `artifact_publish` (one HTML string or small inline
 files, 2 MiB per file; `artifact` takes a slug or an existing `url_key` to
 republish in place), `artifact_upload_session` (local folders and large or
 multi-file artifacts), `artifact_manage` (list, stats, access, preview copy,
-upstream backend, share links, move, delete, workspaces), and
+upstream backend, share links, versions, promote, diff, move, delete,
+workspaces), and
 `artifact_comments` (list with `wait: 25` to long-poll, reply, resolve,
 reopen, subscribe a webhook). Tool failures return
 `isError: true` with `structuredContent.error = {code, message, status}`.
@@ -379,7 +387,9 @@ while you work. The publisher's agent closes the loop:
      (optional `events`; optional `artifact` to scope to one, omit it for
      the whole workspace). Each event is a signed JSON POST
      (`X-Artifact-Use-Event`, `X-Artifact-Use-Signature: sha256=<HMAC of the
-body with the secret returned once>`), retried for 12 hours.
+body with the secret returned once>`). The first attempt is immediate;
+     failed deliveries are retried by the six-hourly maintenance cron with
+     backoff, up to five times, then dropped.
    - Long-poll: `artifact_comments` action `list` with `wait: 25` and
      `since: <next_since from the previous result>`. The call answers as soon
      as a newer comment exists, or `[]` after 25 s with a fresh `next_since`;
@@ -394,7 +404,8 @@ body with the secret returned once>`), retried for 12 hours.
    it sits under), `index`, `viewport` and `page_title`, so "div" on an image
    grid reads as "the second image under Option B".
 4. Fix the artifact and republish the SAME artifact (pass its `url_key` or the
-   same slug); the URL stays stable and viewers see the new version.
+   same slug, your last `version_id` as `base_version_id`, and a one-line
+   `change_note`); the URL stays stable and viewers see the new version.
 5. Reply to each thread (`action: "post"` with `parent_id`) saying what
    changed, then resolve it (`action: "resolve"` with `comment_id`). Your
    replies are attributed to the agent (`author_kind: "agent"`, labelled with
@@ -426,8 +437,10 @@ curl -X PATCH -H "Authorization: Bearer $ARTIFACT_USE_TOKEN" -H "Content-Type: a
 resolve or reply never needs a re-list. `client_ref` (up to 64 characters) makes
 a post idempotent: retrying after a lost response with the same `client_ref`
 returns the comment that was already created instead of duplicating it.
-Viewer-side agents (delegated or self-served via the gate) use the same shapes
-on `/_au/comments` with `artifact_key` in the query or body; see section 14.
+Bodies longer than 2,000 characters are truncated to 2,000 without an error,
+so split a long reply into several posts. Viewer-side agents (delegated or
+self-served via the gate) use the same shapes on `/_au/comments` with
+`artifact_key` in the query or body; see section 14.
 
 ## 6. HTML artifact quality
 
@@ -500,7 +513,8 @@ artifact-use publish-html --json '{
 }'
 ```
 
-Folder (dry run first, then publish; pass the `url_key` to republish):
+Folder (dry run first, then publish; pass the `url_key`, your last
+`version_id` and a `change_note` to republish):
 
 ```bash
 artifact-use publish-folder --dry-run --json '{
@@ -513,7 +527,9 @@ artifact-use publish-folder --dry-run --json '{
 artifact-use publish-folder --json '{
   "artifact": "claims-demo-a1b2c3",
   "title": "Claims Demo",
-  "dir": "dist"
+  "dir": "dist",
+  "base_version_id": "ver_...",
+  "change_note": "Sorted the claims table by date"
 }'
 ```
 
@@ -540,6 +556,7 @@ Comments:
 
 ```bash
 artifact-use comments --json '{"artifact": "claims-demo-a1b2c3", "status": "open"}'
+artifact-use comments --json '{"artifact": "claims-demo-a1b2c3", "status": "open", "since": 1759400000, "wait": 25}'
 artifact-use comments --json '{"artifact": "claims-demo-a1b2c3", "action": "post", "parent_id": 42, "body": "Fixed in v2."}'
 artifact-use comments --json '{"artifact": "claims-demo-a1b2c3", "action": "resolve", "comment_id": 42}'
 ```
@@ -565,9 +582,13 @@ then carries the findings as `warnings`.
 - Entrypoint: `index.html` by default.
 - Declare `file_count` and `package_bytes` on `artifact_upload_session` or
   `POST /api/v1/publish/start` to fail fast with `413` before uploading.
-- Comments: 2000 characters per comment; `list` returns up to 500; `wait`
-  holds a list for at most 25 s; at most 20 active webhooks per workspace,
-  each delivery retried for 12 hours.
+- Comments: bodies longer than 2,000 characters are truncated to 2,000
+  without an error; `list` returns up to 500; `wait` holds a list for at most
+  25 s; at most 20 active webhooks per workspace; failed deliveries are
+  retried by the six-hourly maintenance cron with backoff, up to five times,
+  then dropped.
+- `change_note`: one line, at most 280 characters after whitespace collapses;
+  longer is `400 change_note_too_long`.
 - Upstream proxy: 10 MiB request bodies, 60 s timeout, 120 requests per
   minute per viewer and 1200 per artifact.
 
@@ -627,7 +648,13 @@ its HTML.
 - `base_url` must be `https://` to a public hostname: no IP literals,
   credentials, query, or fragment, and never the artifact host itself.
 - The artifact must have a non-public gate. Configuration refuses `public` +
-  upstream from either direction, and the proxy answers `403` as a backstop.
+  upstream from either direction (`409 upstream_requires_gate`), and the
+  proxy answers `403 upstream_requires_gate` as a backstop.
+- On an `allowlist` artifact every `_api/` request re-checks the artifact's
+  current allowlist against the viewer's gate email. A session from a
+  `password` or `open` share link, a recipient link or signed-in workspace
+  member whose address is not listed, and an address removed after its
+  session was minted all get `403 email_not_allowed`.
 - In the page, call the backend at `_api/<path>` relative to the artifact URL:
   `GET {artifact url}_api/api/items?x=1` becomes `GET {base_url}/api/items?x=1`.
   `GET`, `HEAD`, `POST`, `PUT`, `PATCH`, and `DELETE` are forwarded.
@@ -638,7 +665,8 @@ its HTML.
   `If-None-Match`, `If-Modified-Since`, and `Range`. Cookies never cross in
   either direction; returned headers are limited to content and caching
   metadata and `Cache-Control` is always `private, no-store`.
-- Errors: `404 no_upstream`, `502 upstream_unreachable`,
+- Errors: `404 no_upstream`, `403 email_not_allowed`,
+  `403 upstream_requires_gate`, `502 upstream_unreachable`,
   `504 upstream_timeout`, `429 upstream_rate_limited` with `Retry-After`.
 - Without a viewer session the path answers the machine-readable gate (`401`
   JSON) regardless of `Accept`; the page must be opened through the gate first.
@@ -654,7 +682,7 @@ repository routes sharing requests through Artifact Use:
 - When asked to "share this", "make a link", "send for review", or "publish",
   use the Artifact Use MCP tools (guide: https://artifacts.iofold.com/llms-full.txt).
 - Publish only when asked; reading, listing, and comments never publish.
-- Republish the existing artifact by its `url_key` instead of creating a new one.
+- Republish the existing artifact by its `url_key` instead of creating a new one; pass your last `version_id` as `base_version_id` and a one-line `change_note` saying what changed.
 - Keep the default `email` gate unless told otherwise; titles and descriptions are public.
 - After publishing, return the live URL, the `url_key`, and the gate level.
 - For review feedback, subscribe a webhook or long-poll comments with `wait: 25` (carry `next_since`); work through `status: "open"`, fix, republish the same artifact, reply, resolve.
@@ -690,7 +718,7 @@ Reading a gated artifact as an agent (no browser needed):
   are delegated by the human via "Hand to your agent" in the comments widget
   (`POST /_au/agent-token`). The `401` JSON spells out the exact path.
 - Comments with the same bearer:
-  `GET /_au/comments?artifact_key={key}&status=open|sent|resolved|all&since=<unix>&wait=<1..25>`
+  `GET /_au/comments?artifact_key={key}&status=open|resolved|all&since=<unix>&wait=<1..25>`
   lists threads (`wait` holds the request until a newer comment exists; pass
   the returned `next_since` back as `since`);
   `POST {artifact_key, body, parent_id?, page_path?, target?, client_ref?}`
@@ -705,7 +733,7 @@ Reading a gated artifact as an agent (no browser needed):
 
 ## 14. Reading a gated artifact as an agent
 
-The block above is the complete contract. Two additions for agents that
+The block above is the complete contract. Three additions for agents that
 receive an artifact link from a human:
 
 - The `_au/index.json` descriptor lists the title, pages, files with content
@@ -747,20 +775,30 @@ later publish removed. Browsers see a banner strip on a prior version; agents
 get the page as-is, with `X-Artifact-Version` naming the version that
 answered.
 
-Every publish result carries `version_id` and `links`:
+Every publish result carries `version_id`, `change_note`, `links`, and `next`
+(a one-line reminder of how to republish this artifact safely):
 
 - `links.artifact`: the stable URL.
 - `links.version`: this version's `_v/` URL — it keeps serving exactly these
-  files after later republishes, for you and the workspace's admins (viewers
-  are sent to the current version). Use it in your own notes and diffs; in a
-  comment reply say what changed and point at `links.artifact`, and do not
-  write `ver_…` ids into prose or "v2" into titles.
+  files after later republishes, for your token and signed-in members of the
+  workspace (viewers are sent to the current version). Use it in your own
+  notes and diffs; in a comment reply say what changed and point at
+  `links.artifact`, and do not write `ver_…` ids into prose or "v2" into
+  titles.
 - `links.review`: the reviewer-facing link to hand to the user (today the
   stable URL).
 
+Pass `change_note` on every republish: one line saying what the publish
+changed, e.g. "Moved demo controls into the header". Humans read version
+history by these notes (the admin's Versions panel and the widget's
+publisher-only Versions section show them), not by diffs. Newlines and
+runs of whitespace collapse to single spaces; more than 280 characters after
+that is `400 change_note_too_long`, refused before anything is written.
+
 `artifact_manage` actions (HTTP routes in `docs/API.md`, section Versions):
 
-- `versions`: the list, newest first, with `current` marked.
+- `versions`: the list, newest first, with `current` marked and each
+  version's `change_note` (`null` when none was given).
 - `promote` (`version_id`): make a version current. Rolling back is
   promoting an older version; nothing is deleted, and promoting the newer
   one rolls forward again. Use it when a republish made things worse and the
@@ -780,18 +818,23 @@ your base to `current`, merge their change into yours, and republish with
 `base_version_id` set to that current id. Omit `base_version_id` only when
 overwriting whatever is there is the intent.
 
+Every republish, then: `artifact` = the `url_key`, `base_version_id` = your
+last `version_id`, and a one-line `change_note`.
+
 <!-- llms.txt -->
 
 Versions: every publish is kept; the stable URL serves the current one and
 each version is viewable at `{artifact url}_v/{version_id}/` by the
 publishing workspace only (viewers are redirected to the current version).
-Publish results carry `version_id` and `links` (`artifact`, `version`,
-`review`); hand `links.review` to the user and point comment replies at
-`links.artifact`. `artifact_manage` `versions` lists them, `promote`
-(`version_id`) makes one current (rollback = promote an older version),
-`diff` (`from_version`, `to_version`; default previous → current) shows what
-changed per file. Pass your last `version_id` as `base_version_id` on the
-next republish: a `version_conflict` means someone published in between —
-diff, merge, republish with the newer id.
+Publish results carry `version_id`, `change_note`, `links` (`artifact`,
+`version`, `review`) and `next`; hand `links.review` to the user and point
+comment replies at `links.artifact`. On every republish pass `artifact` =
+the `url_key`, `base_version_id` = your last `version_id`, and a one-line
+`change_note` (at most 280 characters) saying what changed; humans read
+version history by these notes. `artifact_manage` `versions` lists them,
+`promote` (`version_id`) makes one current (rollback = promote an older
+version), `diff` (`from_version`, `to_version`; default previous → current)
+shows what changed per file. A `version_conflict` means someone published
+in between — diff, merge, republish with the newer id.
 
 <!-- /llms.txt -->

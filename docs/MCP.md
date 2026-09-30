@@ -140,7 +140,8 @@ identical).
 
 - `artifact_publish`: publish single HTML, small inline multi-file payloads (2 MiB per inline file over hosted MCP), or a local `dir` when using the bundled stdio MCP. `artifact` is a lower-case slug for a new artifact or the `url_key` of an existing one; both republish an existing artifact in place instead of creating a duplicate.
 - `artifact_upload_session`: create a draft and receive a 6-hour upload token for direct HTTP file upload from a shell/curl-capable agent. Pass `file_count` and `package_bytes` to get an immediate `413` before uploading.
-- `artifact_manage`: list artifacts, fetch stats, update access (`gate_level`; `verified_email` is the "share with a client" preset), edit public preview copy with `set_preview`, point an artifact at a backend with `set_upstream` (`upstream_url`, optional write-only `upstream_secret`; gated viewers reach it through `<artifact url>_api/<path>` and the backend receives `X-Artifact-Viewer-Email`; omit `upstream_url` to remove it; the artifact must have a non-public gate), manage share links — `share_link` creates one (`kind`: `recipient` (default), `password`, or `open`; `label`, `recipient_email`, `recipient_label`, `passcode` for password links (generated when omitted, returned once), `expires_days`, `max_opens`; every result carries `url` and a `note` that artifact URLs are unlisted), `share_links` lists them with `open_count`, `last_opened_at` and `state` (`active`, `expired`, `revoked`, `exhausted`), and `revoke_link` (`link_id`) revokes — move an artifact to another workspace its user belongs to with `action: "move"` (`to_workspace`: org id or slug; URL and creator preserved), permanently delete with `action: "delete"` (requires `confirm: true`; removes every version, file, share link, comment, and view record), or list workspaces with `action: "workspaces"`. Use the returned `url_key` from `action: "list"` for exact management calls. A link passes the artifact's gate at every level until it expires, is revoked, or hits its open limit; hand a password link's passcode over separately from its URL.
+- Both publish tools take `base_version_id` and `change_note` (see Versions below).
+- `artifact_manage`: list artifacts, fetch stats, update access (`gate_level`; `verified_email` is the "share with a client" preset), edit public preview copy with `set_preview`, point an artifact at a backend with `set_upstream` (`upstream_url`, optional write-only `upstream_secret`; gated viewers reach it through `<artifact url>_api/<path>` and the backend receives `X-Artifact-Viewer-Email`; omit `upstream_url` to remove it; the artifact must have a non-public gate), manage share links — `share_link` creates one (`kind`: `recipient` (default), `password`, or `open`; `label`, `recipient_email`, `recipient_label`, `passcode` for password links (generated when omitted, returned once), `expires_days`, `max_opens`; every result carries `url` and a `note` that artifact URLs are unlisted), `share_links` lists them with `open_count`, `last_opened_at` and `state` (`active`, `expired`, `revoked`, `exhausted`), and `revoke_link` (`link_id`) revokes — list, promote and diff versions with `versions`, `promote` and `diff` (see Versions below), move an artifact to another workspace its user belongs to with `action: "move"` (`to_workspace`: org id or slug; URL and creator preserved), permanently delete with `action: "delete"` (requires `confirm: true`; removes every version, file, share link, comment, and view record), or list workspaces with `action: "workspaces"`. Use the returned `url_key` from `action: "list"` for exact management calls. A link passes the artifact's gate at every level until it expires, is revoked, or hits its open limit; hand a password link's passcode over separately from its URL.
 - `artifact_comments`: list (`status` open|resolved|all, `since`, `wait` up to 25 s to long-poll for new feedback; every result carries `next_since` to pass back as `since`), reply to, resolve, or reopen comment threads; `subscribe` a webhook (`url`, optional `events`, optional `artifact`; the signing `secret` is returned once), `unsubscribe` (`webhook_id`), and `webhooks` to list them. Comments carry `author_kind` / `agent_label` (creator-token and delegated-agent writes are `agent`) and a `target` with element context (`tag`, `caption`, `src`, `heading`, `index`, `viewport`). Every comment reaches the agent; `status: "open"` is the work queue.
 
 Results: a successful call returns the JSON result both as text content and as
@@ -218,7 +219,7 @@ to the current version; a banner strip marks it as not current).
 `artifact_manage` covers the rest:
 
 - `versions`: list them, newest first, each with `id`, `created_at`,
-  `file_count`, `total_size`, `current` and its own `url`.
+  `file_count`, `total_size`, `change_note`, `current` and its own `url`.
 - `promote` with `version_id`: make that version current. Rolling back is
   promoting an older version; nothing is deleted, and promoting a newer one
   rolls forward again. A draft answers `version_not_complete`, a foreign id
@@ -239,7 +240,17 @@ is created. The loop: publish → remember `version_id` → pass it as
 base to `current`, merge, republish with the new id. Two agents working on
 the same artifact can no longer silently overwrite each other.
 
+They also accept `change_note`: one line saying what the publish changed,
+e.g. "Moved demo controls into the header" (whitespace and newlines collapse
+to single spaces; over 280 characters is `change_note_too_long`, refused
+before anything is written). People read version history by these notes, in
+the admin's Versions panel and the widget's publisher-only Versions section.
+On every republish pass `artifact` = the `url_key`, `base_version_id` = your
+last `version_id`, and a one-line `change_note`.
+
 Every publish result carries `links`: `artifact` (the stable URL),
-`version` (this version's `_v/` URL) and `review` (the reviewer-facing
-link, currently the stable URL). Hand `links.review` to the user and keep
-`version_id` for the next republish.
+`version` (this version's `_v/` URL, for the publishing workspace only) and
+`review` (the reviewer-facing link, currently the stable URL), plus
+`change_note` and `next`, a one-line reminder of those three republish
+arguments. Hand `links.review` to the user and keep `version_id` for the
+next republish.

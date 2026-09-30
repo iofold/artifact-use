@@ -568,26 +568,18 @@ codex</code></pre>
           for the complete publishing rules and limits after connecting.
         </div>
 
-        <h3>
-          Advanced: agent-initiated device connect
-          <span class="pill">no browser, no token yet</span>
-        </h3>
+        <h3>No token and no OAuth yet?</h3>
         <p>
-          A tokenless agent can request a code, ask you to approve it, then poll
-          for its token:
+          There is no agent-initiated device-code flow. Either add the hosted
+          MCP URL to an OAuth-capable client and authenticate in the browser, or
+          open
+          <a href="https://artifacts.iofold.com/admin/connect"
+            >Admin → Connect an agent</a
+          >, copy the setup prompt (it carries a creator token once), and paste
+          it to the agent. An expired token answers <code>401</code> with
+          <code>token_expired</code> and a <code>renew_url</code>; mint a new
+          one on the same page.
         </p>
-        <pre><code><span class="c"># agent asks for a code</span>
-POST https://artifacts.iofold.com/api/v1/connect/start
-     {"agent_label": "codex on my-laptop"}
-<span class="c"># → { device_code, user_code, verification_url, expires_in }</span>
-
-<span class="c"># human approves the code (15-minute window)</span>
-<span class="u">https://artifacts.iofold.com/admin/connect?code=ABCD-2345</span>
-
-<span class="c"># agent polls every 3s until approved</span>
-POST https://artifacts.iofold.com/api/v1/connect/poll
-     {"device_code": "dc_…"}
-<span class="c"># → { token, expires_at, prompt }  — delivered exactly once</span></code></pre>
 
         <h2 id="publish">Publishing</h2>
 
@@ -614,14 +606,19 @@ POST https://artifacts.iofold.com/api/v1/connect/poll
           <tr>
             <td><code>artifact_manage</code></td>
             <td>
-              List artifacts, read stats, change access, create share links.
-              <code>action: "list"</code> returns each artifact's
+              List artifacts, read stats, change access and preview copy, point
+              at an upstream backend, create, list and revoke share links, list,
+              promote (roll back) and diff versions, move, delete, list
+              workspaces. <code>action: "list"</code> returns each artifact's
               <code>url_key</code> for exact management calls.
             </td>
           </tr>
           <tr>
             <td><code>artifact_comments</code></td>
-            <td>List, reply to, resolve, or reopen comment threads.</td>
+            <td>
+              List (with a 25-second long-poll), reply to, resolve, or reopen
+              comment threads; subscribe a webhook.
+            </td>
           </tr>
         </table>
 
@@ -663,7 +660,10 @@ POST /api/v1/publish/{version_id}/complete   <span class="c"># manifest JSON</sp
           All direct HTTP publish calls take
           <code>Authorization: Bearer &lt;token&gt;</code>. Republishing the
           same <code>artifact</code> slug creates a new immutable version and
-          atomically promotes it — the public URL never changes.
+          atomically promotes it — the public URL never changes. Pass your last
+          <code>version_id</code> as <code>base_version_id</code> and a one-line
+          <code>change_note</code> saying what changed; the workspace reads
+          version history by these notes.
         </p>
         <div class="note">
           <strong>Never</strong> publish with Wrangler, Cloudflare API tokens,
@@ -710,6 +710,12 @@ POST /api/v1/publish/{version_id}/complete   <span class="c"># manifest JSON</sp
             Slugs are lower-case hyphen-case; the six-character code is assigned
             at creation and survives every republish.
           </li>
+          <li>
+            Each version keeps its agent's one-line <code>change_note</code>.
+            Prior versions open at <code>_v/{version_id}/</code> for the
+            publishing workspace only; viewers always get the current version.
+            Rolling back is promoting an older version.
+          </li>
         </ul>
 
         <h2 id="gates">Access gates</h2>
@@ -748,9 +754,12 @@ POST /api/v1/publish/{version_id}/complete   <span class="c"># manifest JSON</sp
 
         <h2 id="share">Share links</h2>
         <p>
-          Share links pre-authorize a recipient through the gate — useful for
-          sending a gated artifact to one person without editing an allowlist.
-          Create them from the admin's artifact row or from an agent:
+          Share links pass the gate on your say-so — useful for sending a gated
+          artifact without editing an allowlist. Three kinds:
+          <code>recipient</code> (the URL is the credential for one named
+          person), <code>password</code> (the viewer types a passcode, shown
+          once), and <code>open</code> (anyone with the URL). Create them from
+          the admin's artifact row or from an agent:
         </p>
         <pre><code>artifact-use share --json '{
   "artifact": "claims-demo-a1b2c3",
@@ -758,15 +767,19 @@ POST /api/v1/publish/{version_id}/complete   <span class="c"># manifest JSON</sp
   "recipient_label": "Viewer",
   "expires_days": 14
 }'</code></pre>
-        <p>Links can expire and can be revoked from the admin at any time.</p>
+        <p>
+          Links can expire, stop after a number of opens, and be revoked from
+          the admin at any time.
+        </p>
 
         <h2 id="feedback">Comments</h2>
         <p>
-          Browser viewers get a lightweight comments widget injected into gated
-          artifact pages: comments with element anchors, replies, and
-          resolve/reopen — on the artifact itself. Everything lands in the
-          publisher admin and is fully readable and writable by agents through
-          the API, so review comments flow straight into the next iteration.
+          Browser viewers get a lightweight comments widget injected into
+          artifact pages, gated or public: comments with element anchors,
+          replies, and resolve/reopen — on the artifact itself. Everything lands
+          in the publisher admin and is fully readable and writable by agents
+          through the API, so review comments flow straight into the next
+          iteration.
         </p>
         <p>
           The publisher's agent closes the loop with the workspace token it
@@ -776,8 +789,9 @@ POST /api/v1/publish/{version_id}/complete   <span class="c"># manifest JSON</sp
         <pre><code># which artifacts have open comments? (open_comments per artifact)
 GET /api/v1/artifacts
 
-# read open threads (filters: status, since, page_path, limit)
-GET /api/v1/artifacts/{url_key}/comments?status=open
+# wait up to 25 s for open threads newer than next_since
+# (filters: status, since, wait, page_path, limit)
+GET /api/v1/artifacts/{url_key}/comments?status=open&amp;since={next_since}&amp;wait=25
 
 # reply to a thread, then resolve it
 POST  /api/v1/artifacts/{url_key}/comments   {"body": "Fixed in v2.", "parent_id": 42}
@@ -854,8 +868,8 @@ PATCH /_au/comments   {"artifact_key": "…", "id": 42, "resolved": true}</code>
               >
             </td>
             <td>
-              List comment threads (status/since filters), reply or comment,
-              resolve/reopen.
+              List comment threads (status, since and wait filters), reply or
+              comment, resolve/reopen.
             </td>
           </tr>
           <tr>
@@ -880,8 +894,15 @@ PATCH /_au/comments   {"artifact_key": "…", "id": 42, "resolved": true}</code>
             </td>
           </tr>
           <tr>
-            <td><code>POST /api/v1/connect/start · /poll</code></td>
-            <td>Device-style agent connect (see above).</td>
+            <td>
+              <code
+                >GET /api/v1/artifacts/{url_key}/versions · /promote ·
+                /diff</code
+              >
+            </td>
+            <td>
+              List versions with change notes, roll back, diff two versions.
+            </td>
           </tr>
         </table>
         <p>
@@ -895,8 +916,11 @@ PATCH /_au/comments   {"artifact_key": "…", "id": 42, "resolved": true}</code>
         <ul>
           <li>
             Creator tokens (<code>au_creator_…</code>) are scoped to one
-            workspace: publish, read, manage access, view stats. They cannot
-            invite teammates or mint further tokens.
+            workspace by default: publish, read, manage access, view stats. A
+            user-scoped token ("All my workspaces") can publish to any workspace
+            its user belongs to and names the target with
+            <code>workspace</code> on each call. Tokens cannot invite teammates
+            or mint further tokens.
           </li>
           <li>
             Every token is listed under
@@ -942,12 +966,16 @@ PATCH /_au/comments   {"artifact_key": "…", "id": 42, "resolved": true}</code>
             <td>2 MiB per file — use upload sessions beyond that</td>
           </tr>
           <tr>
-            <td>Connect codes</td>
-            <td>15-minute approval window</td>
+            <td>Change note</td>
+            <td>One line, 280 characters</td>
+          </tr>
+          <tr>
+            <td>Comment body</td>
+            <td>2,000 characters (longer bodies are truncated)</td>
           </tr>
           <tr>
             <td>Creator tokens</td>
-            <td>1–90 days (default 30)</td>
+            <td>1–365 days (default 90)</td>
           </tr>
         </table>
 

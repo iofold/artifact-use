@@ -4,7 +4,7 @@
 
 ```text
 agent / CLI / MCP
-  -> WorkOS OAuth bearer token
+  -> WorkOS OAuth bearer token or au_creator_ creator token
   -> Artifact Use REST API
   -> Cloudflare Worker
   -> D1 metadata + R2 static files
@@ -17,7 +17,7 @@ The Worker owns R2 writes through its binding.
 
 ## Ownership
 
-Creators authenticate with WorkOS. The Worker expects a JWT with an organization identifier and permissions or OAuth scopes.
+Creators authenticate with WorkOS, or with an `au_creator_` token minted from a WorkOS session at `/admin/connect`. For WorkOS tokens the Worker expects a JWT with an organization identifier and permissions or OAuth scopes.
 Read/write authorization is configurable, so a hosted deployment can start with WorkOS `openid` scopes and later tighten to dedicated `artifacts:*` scopes.
 Artifacts are owned by WorkOS organization IDs. `created_by` must be a WorkOS `user_...` id.
 
@@ -40,6 +40,8 @@ Every publish creates a draft row in `artifact_versions`.
 Files upload into that draft.
 `complete` validates file existence and flips `artifacts.current_version_id`.
 Readers never see partial uploads.
+A version may carry a one-line `change_note` from the publishing agent, which version history shows instead of a diff.
+Prior versions are served under `_v/{version_id}/` to the publishing workspace only; viewers always get the current version.
 
 ## Public Preview Envelope
 
@@ -53,7 +55,7 @@ A folder artifact is a static website with an `index.html` entrypoint and relate
 The manifest lists every path, content type, size, and SHA-256 hash.
 
 HTTP MCP can publish small multi-file artifacts through inline file payloads.
-Large local folders should use the CLI or local stdio MCP, because a remote HTTP MCP server cannot inspect a client's filesystem.
+Large or multi-file uploads default to `artifact_upload_session`: the tool returns a short-lived upload token and the agent `PUT`s each file straight to the Worker, so bytes never pass through MCP. The CLI and local stdio MCP remain for harnesses that cannot make those HTTP calls, because a remote HTTP MCP server cannot inspect a client's filesystem.
 
 Recommended v1 limits:
 
@@ -81,7 +83,8 @@ after the gate check in `servePublic`, so the backend inherits the artifact's
 viewer gate instead of running its own login: the Worker attaches the stored
 bearer secret and the viewer's gate identity (`X-Artifact-Viewer-Email`), the
 published HTML holds no credential, and the backend only ever sees requests
-from viewers who passed the gate. Request and response headers are
-allowlisted, upstream cookies are dropped, and proxied responses are never
-cached. Upstream URLs are limited to public hostnames over HTTPS; the secret is
+from viewers who passed the gate. On `allowlist` artifacts every proxied
+request re-checks the current allowlist against the session's email. Request
+and response headers are allowlisted, upstream cookies are dropped, and
+proxied responses are never cached. Upstream URLs are limited to public hostnames over HTTPS; the secret is
 write-only through the API.
