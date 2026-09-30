@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { handleAdminApi } from "../src/admin.ts";
-import { signPayload } from "../src/auth.ts";
+import { issueAdminCsrfToken, signPayload } from "../src/auth.ts";
 import { handleMcp } from "../src/mcp.ts";
-import { handlePublish } from "../src/publish.ts";
+import { CHANGE_NOTE_MAX, handlePublish } from "../src/publish.ts";
+import { handleAdminUiApi } from "../src/publisher.ts";
 import { handleVersions, servePublic } from "../src/serve.ts";
 import type {
   PublisherSession,
@@ -203,6 +204,10 @@ function state(
           }
           if (sql.includes("FROM artifacts WHERE id = ?"))
             return v[0] === artifact.id ? artifact : null;
+          if (sql.includes("FROM artifacts WHERE url_key = ? AND org_id = ?"))
+            return v[0] === artifact.url_key && v[1] === artifact.org_id
+              ? artifact
+              : null;
           if (sql.includes("org_suspensions")) return null;
           if (sql.includes("INSERT INTO rate_counters")) return { count: 1 };
           if (sql.includes("FROM share_links")) return null;
@@ -269,6 +274,7 @@ function state(
               created_by: String(v[4]),
               created_at: Number(v[5]),
               completed_at: null,
+              change_note: (v[6] as string | null) ?? null,
             });
           } else if (sql.startsWith("INSERT INTO artifact_files")) {
             const versionId = String(v[0]);
@@ -1269,4 +1275,170 @@ test("base_version_id on an artifact that does not exist yet is a conflict too",
   assert.equal(body.error.code, "version_conflict");
   assert.equal(body.error.current_version_id, null);
   assert.equal(st.writes.length, 0);
+});
+
+test("a change note is stored one-line from every publish path and shown in history", async () => {
+  const st = state();
+  const html = await handlePublish(
+    creator("/api/v1/publish/html", {
+      method: "POST",
+      body: JSON.stringify({
+        artifact: KEY,
+        html: "<h1>third</h1>",
+        base_version_id: "ver_new",
+        change_note: "  Moved the demo controls\n into the\theader  ",
+      }),
+    }),
+    st.env,
+    "/api/v1/publish/html",
+  );
+  assert.equal(html.status, 200);
+  const published = (await html.json()) as {
+    version_id: string;
+    change_note: string;
+    next: string;
+  };
+  assert.equal(
+    published.change_note,
+    "Moved the demo controls into the header",
+  );
+  assert.equal(
+    st.versions.get(published.version_id)?.change_note,
+    "Moved the demo controls into the header",
+  );
+  // The result says how to update the same artifact next time.
+  assert.match(published.next, new RegExp(`artifact "${KEY}"`));
+  assert.match(
+    published.next,
+    new RegExp(`base_version_id "${published.version_id}"`),
+  );
+  assert.match(published.next, /change_note/);
+
+  const started = (await (
+    await handlePublish(
+      creator("/api/v1/publish/start", {
+        method: "POST",
+        body: JSON.stringify({ artifact: KEY, change_note: "Upload path" }),
+      }),
+      st.env,
+      "/api/v1/publish/start",
+    )
+  ).json()) as { version: { id: string; change_note: string } };
+  assert.equal(started.version.change_note, "Upload path");
+
+  const tool = await mcp(st.env, "artifact_publish", {
+    artifact: KEY,
+    files: [{ path: "index.html", content: "<h1>inline</h1>" }],
+    change_note: "Inline files path",
+  });
+  assert.equal(tool.isError, undefined);
+  const toolVersion = String(tool.structuredContent.version_id);
+  assert.equal(st.versions.get(toolVersion)?.change_note, "Inline files path");
+
+  // The widget's history and the versions list both carry the note.
+  const history = await (
+    await handleVersions(
+      agent(`${ORIGIN}/_au/versions?artifact_key=${KEY}`, {
+        headers: { Authorization: "Bearer dev-token" },
+      }),
+      st.env,
+    )
+  ).json();
+  const byId = new Map(
+    history.versions.map((v: { id: string }) => [v.id, v]),
+  ) as Map<string, { change_note: string | null }>;
+  assert.equal(
+    byId.get(published.version_id)?.change_note,
+    "Moved the demo controls into the header",
+  );
+  assert.equal(byId.get("ver_old")?.change_note, null);
+});
+
+test("an over-long change note is refused before anything is written", async () => {
+  const note = "x".repeat(CHANGE_NOTE_MAX + 1);
+  for (const [route, extra] of [
+    ["/api/v1/publish/html", { html: "<h1>too long</h1>" }],
+    ["/api/v1/publish/start", {}],
+    ["/api/v1/publish/upload-session", {}],
+  ] as const) {
+    const st = state();
+    const response = await handlePublish(
+      creator(route, {
+        method: "POST",
+        body: JSON.stringify({ artifact: KEY, change_note: note, ...extra }),
+      }),
+      st.env,
+      route,
+    );
+    assert.equal(response.status, 400, route);
+    const body = (await response.json()) as {
+      error: { code: string; message: string };
+    };
+    assert.equal(body.error.code, "change_note_too_long", route);
+    assert.match(body.error.message, new RegExp(String(CHANGE_NOTE_MAX)));
+    assert.deepEqual(st.writes, [], route);
+  }
+  // Exactly the limit is fine.
+  const st = state();
+  const ok = await handlePublish(
+    creator("/api/v1/publish/start", {
+      method: "POST",
+      body: JSON.stringify({
+        artifact: KEY,
+        change_note: "y".repeat(CHANGE_NOTE_MAX),
+      }),
+    }),
+    st.env,
+    "/api/v1/publish/start",
+  );
+  assert.equal(ok.status, 200);
+});
+
+test("the admin versions panel gets each version's note and file changes", async () => {
+  const st = state({
+    versions: [
+      versionRow("ver_old", { created_at: 100, completed_at: 100 }),
+      versionRow("ver_new", {
+        created_at: 200,
+        completed_at: 200,
+        change_note: "Swapped the logo and added the tracking script",
+      }),
+    ],
+  });
+  const exp = nowSec() + 600;
+  const raw = await signPayload(
+    {
+      typ: "publisher",
+      sub: "user_ver",
+      orgId: "org_ver",
+      email: "publisher@example.com",
+      name: "Publisher",
+      exp,
+    } satisfies PublisherSession,
+    st.env,
+  );
+  const csrf = await issueAdminCsrfToken(raw, exp, st.env);
+  const headers = {
+    Accept: "application/json",
+    Cookie: `au_pub=${encodeURIComponent(raw)}; au_admin_csrf=${encodeURIComponent(csrf.token)}`,
+    "X-CSRF-Token": csrf.token,
+  };
+  const response = await handleAdminUiApi(
+    new Request(`${ORIGIN}/admin/api/artifact/versions?artifact_key=${KEY}`, {
+      headers,
+    }),
+    st.env,
+    "/admin/api/artifact/versions",
+  );
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.current_version_id, "ver_new");
+  const [newest, oldest] = body.versions;
+  assert.equal(
+    newest.change_note,
+    "Swapped the logo and added the tracking script",
+  );
+  assert.deepEqual(newest.changes, { added: 1, changed: 2, removed: 1 });
+  assert.equal(oldest.change_note, null);
+  assert.equal(oldest.changes, null);
 });

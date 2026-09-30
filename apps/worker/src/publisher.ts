@@ -56,13 +56,7 @@ import {
 } from "./db";
 import { createShareLinkFromInput } from "./admin";
 import { type ShareLink, UNLISTED_NOTE, shareLinkJson } from "./links";
-import {
-  diffVersions,
-  isVersionRef,
-  listVersions,
-  promoteVersion,
-  resolveVersionRef,
-} from "./versions";
+import { promoteVersion, versionHistory } from "./versions";
 import { moderateArtifact, moderateOrganization } from "./moderation";
 import {
   artifactPreviewImageUrl,
@@ -1007,38 +1001,6 @@ export async function handlePublisherAdmin(
     return spaShell(request, env, raw, session.exp);
   if (path === "/admin/switch" && request.method === "GET")
     return switchWorkspace(request, env, session);
-  // The version diff as JSON, reachable from a plain link (the SPA's
-  // "Compare with current" opens it in a new tab): session cookie only, so
-  // it is a GET on this side rather than a CSRF-checked /admin/api route.
-  if (path === "/admin/artifact/diff" && request.method === "GET") {
-    const q = new URL(request.url).searchParams;
-    const artifact = await publisherArtifactByKey(
-      env,
-      session,
-      q.get("artifact_key") || "",
-    );
-    if (!artifact)
-      return error(404, "artifact_not_found", "artifact not found");
-    const fromRef = q.get("from") || "previous";
-    const toRef = q.get("to") || "current";
-    if (!isVersionRef(fromRef) || !isVersionRef(toRef))
-      return error(
-        400,
-        "invalid_version",
-        'from and to must be version ids, "current" or "previous"',
-      );
-    const [from, to] = await Promise.all([
-      resolveVersionRef(env, artifact, fromRef),
-      resolveVersionRef(env, artifact, toRef),
-    ]);
-    if (!from || !to)
-      return error(
-        404,
-        "version_not_found",
-        "version not found on this artifact",
-      );
-    return json(await diffVersions(env, artifact, from, to));
-  }
   if (request.method !== "GET" && !(await verifyAdminCsrf(request, raw, env)))
     return csrfFailed();
   if (path === "/admin/super/transfer" && request.method === "POST")
@@ -1166,10 +1128,9 @@ export async function handleAdminUiApi(
     if (created instanceof Response) return created;
     return json(created);
   }
-  // Versions panel: the list for the SPA, and promote (rollback is promoting
-  // an older version) as JSON so the sheet refreshes in place. The diff
-  // opens in a new tab, so it lives on the session-only GET route
-  // /admin/artifact/diff (handlePublisherAdmin) where no CSRF header exists.
+  // Versions panel: the history for the SPA (each version's change note, what
+  // its publish changed and its thread counts), and promote (rollback is
+  // promoting an older version) as JSON so the sheet refreshes in place.
   if (path === "/admin/api/artifact/versions" && request.method === "GET") {
     const artifact = await publisherArtifactByKey(
       env,
@@ -1178,10 +1139,7 @@ export async function handleAdminUiApi(
     );
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
-    return json({
-      ...(await listVersions(env, artifact)),
-      current_version_id: artifact.current_version_id,
-    });
+    return json(await versionHistory(env, artifact));
   }
   if (path === "/admin/api/artifact/promote" && request.method === "POST") {
     const body = (await request.json().catch(() => ({}))) as {

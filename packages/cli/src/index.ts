@@ -19,6 +19,11 @@ const SCHEMAS = {
       entrypoint: { type: "string", default: "index.html" },
       allow_secrets: { type: "boolean" },
       base_version_id: { type: "string" },
+      change_note: {
+        type: "string",
+        maxLength: 280,
+        description: "One line on what this publish changed.",
+      },
     },
   },
   "publish-html": {
@@ -39,6 +44,11 @@ const SCHEMAS = {
           "Publish even when the HTML contains what look like credentials (the server otherwise refuses with secrets_detected).",
       },
       base_version_id: { type: "string" },
+      change_note: {
+        type: "string",
+        maxLength: 280,
+        description: "One line on what this publish changed.",
+      },
     },
   },
   preview: {

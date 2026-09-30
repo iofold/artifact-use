@@ -131,7 +131,9 @@ export type Comment = {
 export type ArtifactDetail = { shares: ShareLink[]; comments: Comment[] };
 
 // One completed publish. `url` opens that version at its own `_v/` address;
-// `current` marks the one the stable URL serves.
+// `current` marks the one the stable URL serves. `change_note` is the
+// publishing agent's one line on what changed; `changes` counts files against
+// the version before it (null for the first version).
 export type ArtifactVersion = {
   id: string;
   created_at: number;
@@ -140,6 +142,8 @@ export type ArtifactVersion = {
   total_size: number;
   entrypoint: string;
   created_by: string | null;
+  change_note: string | null;
+  changes: { added: number; removed: number; changed: number } | null;
   current: boolean;
   url: string;
 };
@@ -155,18 +159,6 @@ export type PromotedVersion = {
   current_version_id: string | null;
   changed: boolean;
 };
-
-// The JSON diff between two versions, served on a session-only GET so a
-// plain link can open it in a new tab. `from`/`to` take a version id,
-// "current" or "previous".
-export function versionDiffUrl(
-  artifactKey: string,
-  from: string,
-  to = "current",
-): string {
-  const q = new URLSearchParams({ artifact_key: artifactKey, from, to });
-  return `/admin/artifact/diff?${q}`;
-}
 
 // Expired tokens stay listed for 30 days after expiry so "why is my agent
 // getting 401s" has an answer; "expiring" means within the next 7 days.

@@ -108,6 +108,7 @@ export interface ArtifactVersion {
   created_by: string;
   created_at: number;
   completed_at: number | null;
+  change_note?: string | null;
 }
 
 export interface ArtifactFile {

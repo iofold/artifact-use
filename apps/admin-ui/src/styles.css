@@ -1958,6 +1958,11 @@ code {
   background: rgba(158, 106, 18, 0.12);
   color: #8a5a0b;
 }
+/* A version without an agent note shows its file counts instead, quieter. */
+.detail-list li strong.version-auto {
+  color: var(--muted);
+  font-weight: 500;
+}
 .detail-list li strong .pill {
   margin-left: 6px;
   vertical-align: middle;
@@ -1969,6 +1974,13 @@ code {
   gap: 6px;
   align-items: center;
   flex: none;
+}
+/* On a phone the version text gets the full row and its actions sit below. */
+@media (max-width: 620px) {
+  .versions-list li {
+    flex-direction: column;
+    gap: 8px;
+  }
 }
 .link-form {
   display: grid;
