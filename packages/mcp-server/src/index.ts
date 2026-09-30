@@ -36,7 +36,7 @@ function confFor(
 }
 
 const server = new Server(
-  { name: "artifact-use", version: "0.2.0" },
+  { name: "artifact-use", version: "0.2.1" },
   { capabilities: { tools: {} } },
 );
 
