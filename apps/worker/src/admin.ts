@@ -212,7 +212,7 @@ export async function handleAdminApi(
           changed: promoted.changed,
           links: promoted.links,
           note: promoted.changed
-            ? `The stable URL now serves version ${promoted.version.id}. Newer versions stay listed and viewable at their _v/ URLs; promote one of them to move forward again.`
+            ? `The stable URL now serves version ${promoted.version.id}. Newer versions stay in the version history (their _v/ URLs open for your workspace only); promote one of them to move forward again.`
             : `Version ${promoted.version.id} was already current.`,
         });
       }

@@ -521,7 +521,7 @@ export async function renderHome(
         <div class="term rise d2" role="img" aria-label="A coding agent publishing an artifact and getting a stable link back">
           <div class="term-bar"><i></i><i></i><i></i><span>agent session</span></div>
           <pre><span class="t-dim"># your agent, at the end of a task</span>
-&gt; artifact_publish { title: "Claims audit console", dir: "dist/" }
+&gt; artifact_publish { artifact: "claims-audit-console", files: [12 files], change_note: "Added the evidence page" }
 
 <span class="t-ok">published</span>  12 files · v3 · gate: email
 <span class="t-url">${escapeHtml(base + prefix)}/claims-audit-console-4fk2a9/</span>
@@ -640,7 +640,7 @@ export async function renderHome(
           <div class="fviz" aria-hidden="true"><svg viewBox="0 0 220 96">
       <rect class="db" x="8" y="8" width="204" height="54" rx="8"/>
       <circle cx="20" cy="19" r="2.5" fill="var(--accent)"/><circle cx="29" cy="19" r="2.5" fill="var(--line)"/><circle cx="38" cy="19" r="2.5" fill="var(--line)"/>
-      <text class="dt" x="18" y="40" fill="var(--ink)">$ au publish ./dist</text>
+      <text class="dt" x="18" y="40" fill="var(--ink)">$ artifact-use publish-folder</text>
       <text class="dt" x="18" y="53" fill="var(--accent)">→ v4 live · same URL</text>
       <rect class="db" x="8" y="70" width="40" height="17" rx="8"/><text class="dl" x="28" y="81.5" text-anchor="middle">MCP</text>
       <rect class="db" x="54" y="70" width="40" height="17" rx="8"/><text class="dl" x="74" y="81.5" text-anchor="middle">CLI</text>
@@ -828,17 +828,16 @@ export async function renderHome(
         <div>
           <p class="eyebrow">Built for agents first</p>
           <h2>Your agent can set itself up.</h2>
-          <p>Point any MCP-capable agent at the endpoint and it authenticates with OAuth — or it requests a token and asks you to approve a one-time code, with no browser on its side.</p>
+          <p>Point any MCP-capable agent at the endpoint and it authenticates with OAuth — or copy a setup prompt from the admin and paste it into the agent; it carries a scoped token and the steps for that harness.</p>
           <p>No lock-in on either side: swap models, harnesses, or subscriptions any time — your artifacts and their history stay put, and the next agent picks up where the last one left off.</p>
           <p>Everything here is machine-readable. Agents start at <a href="/llms.txt">${escapeHtml(base)}/llms.txt</a>.</p>
         </div>
         <div>
           <div class="codeblock"><button class="copy-btn" type="button" data-copy="mcp-config">Copy</button><pre id="mcp-config">${escapeHtml(mcpConfig(env))}</pre></div>
-          <div class="codeblock"><button class="copy-btn" type="button" data-copy="connect-snippet">Copy</button><pre id="connect-snippet"><span class="t-dim"># tokenless agents: device-style connect</span>
-POST ${escapeHtml(base)}/api/v1/connect/start
-<span class="t-dim"># -> human approves the code at ${escapeHtml(base)}/admin/connect</span>
-POST ${escapeHtml(base)}/api/v1/connect/poll
-<span class="t-dim"># -> bearer token + ready-to-run setup prompt</span></pre></div>
+          <div class="codeblock"><button class="copy-btn" type="button" data-copy="connect-snippet">Copy</button><pre id="connect-snippet"><span class="t-dim"># agents without OAuth: copy a setup prompt</span>
+${escapeHtml(base)}/admin/connect
+<span class="t-dim"># -> paste it into the agent; it carries a scoped token</span>
+<span class="t-dim">#    and follows ${escapeHtml(base)}/llms.txt</span></pre></div>
         </div>
       </section>
       <dialog class="vidmodal" aria-label="Demo video, enlarged">
@@ -3242,6 +3241,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid var(--lume);outline-of
 .agents a{color:#8ce0cf;text-decoration:underline dotted}
 .codeblock{position:relative;background:var(--dark-2);border:1px solid rgba(232,240,233,.14);border-radius:8px;margin-top:12px}
 .codeblock pre{margin:0;padding:14px 16px;font:12.5px/1.6 var(--mono);color:#cfe3d8;overflow-x:auto}
+@media (max-width:720px){.codeblock pre{padding-top:42px}}
 .copy-btn{position:absolute;top:8px;right:8px;min-height:26px;padding:0 9px;font:600 11px var(--mono);border-radius:4px;border:1px solid rgba(232,240,233,.25);background:rgba(232,240,233,.06);color:#cfe3d8;cursor:pointer}
 .copy-btn:hover{background:rgba(232,240,233,.14)}
 .copy-btn.copied{border-color:var(--lume);color:var(--lume);background:transparent}

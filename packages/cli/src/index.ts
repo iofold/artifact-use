@@ -92,9 +92,26 @@ const SCHEMAS = {
         type: "string",
         description: "Artifact url_key from list output, or artifact slug.",
       },
+      kind: {
+        type: "string",
+        enum: ["recipient", "password", "open"],
+        default: "recipient",
+        description:
+          "recipient: the URL is the credential for one named person; password: viewers type a passcode (returned once); open: anyone with the URL.",
+      },
       recipient_email: { type: "string" },
       recipient_label: { type: "string" },
-      expires_days: { type: "number" },
+      label: { type: "string", description: "Shown in the admin." },
+      passcode: {
+        type: "string",
+        description:
+          "kind=password: custom passcode (6-72 chars); generated when omitted.",
+      },
+      expires_days: { type: "number", description: "1-365." },
+      max_opens: {
+        type: "number",
+        description: "Opens allowed before the link stops working.",
+      },
     },
   },
   stats: {
@@ -129,6 +146,11 @@ const SCHEMAS = {
         type: "number",
         description: "list: only comments created after this unix timestamp.",
       },
+      wait: {
+        type: "number",
+        description:
+          "list: hold the request up to this many seconds (1-25) until a newer comment exists; pass the returned next_since back as since.",
+      },
       page_path: { type: "string" },
       limit: { type: "number" },
       body: { type: "string", description: "post: the comment text." },
@@ -155,7 +177,8 @@ const SUMMARIES: Record<string, string> = {
   stats: "View counts and gate statistics for an artifact.",
   gate: "Change who can open an artifact (gate level and allowlist).",
   preview: "Set the public title and link-preview description.",
-  share: "Create a tracked share link for one recipient.",
+  share:
+    "Create a share link: for one recipient, behind a passcode, or open to anyone with the URL.",
   comments: "List, post, resolve, or reopen reviewer comments.",
   workspaces: "List the workspaces this token can publish to.",
   schema: "Print a command's JSON input schema; --all prints every schema.",
@@ -273,7 +296,13 @@ async function comments(
   const path = `/api/v1/artifacts/${encodeURIComponent(String(input.artifact || ""))}/comments`;
   if (action === "list") {
     const q = new URLSearchParams();
-    for (const key of ["status", "since", "page_path", "limit"] as const) {
+    for (const key of [
+      "status",
+      "since",
+      "wait",
+      "page_path",
+      "limit",
+    ] as const) {
       if (input[key] !== undefined && input[key] !== null && input[key] !== "")
         q.set(key, String(input[key]));
     }

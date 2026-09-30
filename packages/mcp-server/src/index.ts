@@ -149,6 +149,25 @@ async function manageArtifact(
       `/api/v1/artifacts/${artifactRef}/versions/${encodeURIComponent(from)}/diff/${encodeURIComponent(to)}`,
     );
   }
+  // Same guard as the hosted server: deletion is permanent, so it needs an
+  // explicit confirm from the agent.
+  if (action === "delete") {
+    if (args.confirm !== true)
+      throw new Error(
+        "artifact_manage delete permanently removes the artifact with every version, file, share link, comment, and view record; pass confirm: true to proceed",
+      );
+    return api(conf, "DELETE", `/api/v1/artifacts/${artifactRef}`);
+  }
+  if (action === "move") {
+    const target = String(args.to_workspace || "").trim();
+    if (!target)
+      throw new Error(
+        "artifact_manage move requires to_workspace (org id or slug)",
+      );
+    return api(conf, "POST", `/api/v1/artifacts/${artifactRef}/move`, {
+      workspace: target,
+    });
+  }
   throw new Error(`unknown artifact_manage action: ${action}`);
 }
 
