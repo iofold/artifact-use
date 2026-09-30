@@ -161,7 +161,7 @@
     '<div class="au-composer" data-composer>' +
     '<div class="au-selectbar" data-selectbar>Selecting — click any element on the page</div>' +
     '<div class="au-targetrow" data-target></div>' +
-    '<textarea class="au-text" data-body placeholder="Leave a comment"></textarea>' +
+    '<textarea class="au-text" data-body placeholder="Leave a comment" maxlength="2000"></textarea>' +
     '<div class="au-composer-actions au-main-actions"><button class="au-send" data-send aria-keyshortcuts="Control+Enter Meta+Enter" title="Post comment (Ctrl+Enter or ⌘+Enter)">Post comment</button>' +
     '<button class="au-action" data-select aria-pressed="false">⌖ Select element</button>' +
     '<button class="au-link" data-cancel-new>Cancel</button></div>' +
@@ -991,6 +991,8 @@
       cancel = el("button", "au-link", "Cancel");
     area.placeholder = "Reply";
     area.wrap = "soft";
+    // The server keeps 2,000 characters of a comment; stop typing there.
+    area.maxLength = 2000;
     bindAutoSizeTextarea(area);
     send.type = cancel.type = "button";
     send.onclick = function () {
