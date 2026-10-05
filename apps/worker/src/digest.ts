@@ -121,9 +121,13 @@ function page(
   const base = publicArtifactUrl(env, row.url_key);
   const prefix = new URL(base).pathname;
   const raw = row.page_path || "";
-  const rel = raw.startsWith(prefix)
-    ? raw.slice(prefix.length)
-    : raw.replace(/^\/+/, "");
+  // The artifact root arrives both with and without its trailing slash.
+  const rel =
+    raw === prefix.replace(/\/$/, "")
+      ? ""
+      : raw.startsWith(prefix)
+        ? raw.slice(prefix.length)
+        : raw.replace(/^\/+/, "");
   return !rel || rel === "index.html"
     ? { pagePath: null, pageUrl: null }
     : { pagePath: rel, pageUrl: `${base}${rel}` };
@@ -307,7 +311,7 @@ export function renderFeedbackDigest(digest: FeedbackDigest): {
   const now = digest.until;
   const text: string[] = [headline(digest), ""];
   const html: string[] = [
-    `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1b2429;max-width:680px">`,
+    `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,Helvetica,sans-serif;color:#1b2429;max-width:680px">`,
     `<p style="font-size:15px;line-height:1.5">${escapeHtml(headline(digest))}</p>`,
   ];
 
@@ -315,7 +319,7 @@ export function renderFeedbackDigest(digest: FeedbackDigest): {
     `- ${i.author} · ${ago(now - i.createdAt)}${i.pageUrl ? ` · ${i.pageUrl}` : ""} · ${STATUS_LABEL[i.status]}\n  "${i.excerpt}"`;
   const itemHtml = (i: DigestItem) =>
     `<div style="margin:10px 0;padding:8px 12px;border-left:3px solid ${i.status === "waiting" ? "#c2410c" : "#cbd5d1"};background:#f6f8f8">` +
-    `<div style="font-size:12px;color:#5c6b66">${escapeHtml(i.author)} · ${escapeHtml(ago(now - i.createdAt))}${i.pagePath && i.pageUrl ? ` · <a href="${escapeHtml(i.pageUrl)}" style="color:#5c6b66">${escapeHtml(i.pagePath)}</a>` : ""} · <strong>${escapeHtml(STATUS_LABEL[i.status])}</strong></div>` +
+    `<div style="font-size:12px;color:#5c6b66">${escapeHtml(i.author)} · ${escapeHtml(ago(now - i.createdAt))}${i.pagePath && i.pageUrl ? ` · <a href="${escapeHtml(i.pageUrl)}" style="color:#5c6b66">${escapeHtml(i.pagePath)}</a>` : ""} · <strong style="white-space:nowrap">${escapeHtml(STATUS_LABEL[i.status])}</strong></div>` +
     `<div style="font-size:14px;line-height:1.45;margin-top:4px;white-space:pre-wrap">${escapeHtml(i.excerpt)}</div></div>`;
 
   const section = (heading: string, groups: DigestArtifact[]) => {
@@ -330,7 +334,8 @@ export function renderFeedbackDigest(digest: FeedbackDigest): {
         "",
       );
       html.push(
-        `<h3 style="font-size:15px;margin:18px 0 4px"><a href="${escapeHtml(artifact.url)}" style="color:#0c585b">${escapeHtml(artifact.title)}</a> <span style="font-weight:400;color:#5c6b66;font-size:13px">· ${escapeHtml(count)} · <a href="${escapeHtml(artifact.adminUrl)}" style="color:#5c6b66">admin</a></span></h3>`,
+        `<h3 style="font-size:15px;margin:18px 0 0"><a href="${escapeHtml(artifact.url)}" style="color:#0c585b">${escapeHtml(artifact.title)}</a></h3>`,
+        `<div style="font-size:13px;color:#5c6b66;margin:2px 0 6px">${escapeHtml(count)} · <a href="${escapeHtml(artifact.adminUrl)}" style="color:#0c585b">open in admin</a></div>`,
         ...artifact.items.map(itemHtml),
       );
     }
@@ -354,7 +359,8 @@ export function renderFeedbackDigest(digest: FeedbackDigest): {
   return {
     subject: digestSubject(digest),
     text: text.join("\n"),
-    html: html.join("\n"),
+    // A whole document, so phone mail clients get a viewport and don't shrink it.
+    html: `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body style="margin:0;padding:16px;background:#ffffff">${html.join("\n")}</body></html>`,
   };
 }
 

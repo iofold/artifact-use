@@ -275,10 +275,19 @@ test("the email escapes reviewer text, and plain text keeps it verbatim", async 
     at: NOW - HOUR,
     pagePath: "/go/omics-def456/clinician.html",
   });
+  comment(raw, {
+    artifact: "art_omics",
+    body: "on the entry page",
+    at: NOW - 2 * HOUR,
+    pagePath: "/go/omics-def456",
+  });
   const email = renderFeedbackDigest(
     await buildFeedbackDigest(env, digestConfig(env)!, NOW),
   );
-  assert.equal(email.subject, "Artifact feedback: 1 new comment on 1 artifact");
+  assert.equal(
+    email.subject,
+    "Artifact feedback: 2 new comments on 1 artifact",
+  );
   assert.doesNotMatch(email.html, /<img src=x/);
   assert.match(email.html, /&lt;img src=x onerror=alert\(1\)&gt;/);
   assert.match(email.html, /Omics &lt;workbench&gt;/);
@@ -287,8 +296,10 @@ test("the email escapes reviewer text, and plain text keeps it verbatim", async 
   assert.match(email.text, /…"/);
   assert.match(
     email.text,
-    /Last 24 hours: 1 new comment on 1 artifact from 1 person/,
+    /Last 24 hours: 2 new comments on 1 artifact from 1 person/,
   );
+  // The artifact root, with or without its trailing slash, is not a "page".
+  assert.doesNotMatch(email.html, />go\/omics-def456</);
   // Pages are named relative to the artifact and linked.
   assert.match(
     email.html,
