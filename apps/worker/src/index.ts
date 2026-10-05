@@ -33,6 +33,7 @@ import {
 } from "./maintenance";
 import { UPSTREAM_PATH } from "./upstream";
 import { handleWebhooksApi } from "./webhooks";
+import { isDigestCron, sendFeedbackDigest } from "./digest";
 import { error, json, secureSystemResponse, wantsHtml } from "./util";
 
 const CORS = {
@@ -44,13 +45,19 @@ const CORS = {
 };
 
 export default {
-  // Cron (see [triggers] in wrangler.toml): abandoned upload sessions and
-  // empty artifact shells are swept so limit-rejected packages stop leaking.
+  // Cron (see [triggers] in wrangler.toml). The daily feedback digest has its
+  // own trigger; every other one runs housekeeping: abandoned upload sessions
+  // and empty artifact shells are swept so limit-rejected packages stop
+  // leaking, and token warnings, connect expiry, hashes and webhook retries.
   async scheduled(
-    _controller: ScheduledController,
+    controller: ScheduledController,
     env: Env,
     ctx: ExecutionContext,
   ): Promise<void> {
+    if (isDigestCron(env, controller.cron)) {
+      ctx.waitUntil(sendFeedbackDigest(env));
+      return;
+    }
     ctx.waitUntil(sweepAbandonedUploads(env));
     ctx.waitUntil(notifyExpiringTokens(env));
     ctx.waitUntil(expireStaleConnectRequests(env));
