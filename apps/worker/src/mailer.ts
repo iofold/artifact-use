@@ -46,6 +46,31 @@ export async function sendTokenExpiryEmail(
   }
 }
 
+// Operator-facing mail (the feedback digest): the caller has already built
+// and escaped the bodies.
+export async function sendSystemEmail(
+  env: Env,
+  to: string,
+  message: { subject: string; text: string; html: string },
+): Promise<void> {
+  if (!env.EMAIL)
+    throw new EmailDeliveryError(new Error("email binding missing"));
+  try {
+    await env.EMAIL.send({
+      from: {
+        email: env.MAIL_FROM || "artifacts@example.com",
+        name: env.MAIL_FROM_NAME || "Artifact Use",
+      },
+      to,
+      subject: message.subject,
+      text: message.text,
+      html: message.html,
+    });
+  } catch (error) {
+    throw new EmailDeliveryError(error);
+  }
+}
+
 export async function sendVerificationEmail(
   env: Env,
   artifact: Artifact,

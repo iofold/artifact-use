@@ -261,6 +261,24 @@ every six hours. Each run:
 - backfills missing SHA-256 hashes on older files so version diffs can tell
   changed from unchanged.
 
+### Daily feedback digest (optional)
+
+A second trigger, `0 14 * * *`, emails a daily digest of reviewer feedback.
+It is off until two vars are set:
+
+```toml
+FEEDBACK_DIGEST_TO = "you@example.com"          # comma-separated recipients
+FEEDBACK_DIGEST_ORGS = "org_01...,org_02..."    # workspaces it covers
+# FEEDBACK_DIGEST_CRON = "0 14 * * *"           # if you move the trigger
+```
+
+The digest lists the last 24 hours of comments from people and from
+reviewers' delegated agents, grouped by artifact, with each thread's state
+(no reply yet, answered or resolved). It also lists threads from the previous
+14 days that still have no reply. Replies by your own agents are counted, not
+listed. It is sent at most once per UTC day, skipped when there is nothing to
+report, and needs the same `EMAIL` binding as one-time codes.
+
 Keep the trigger when you copy the config. Without it, limit-rejected and
 crashed publishes accumulate in storage, failed webhooks are never retried,
 and tokens expire without warning.

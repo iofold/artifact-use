@@ -118,9 +118,11 @@ pattern = "artifacts.example.com/health*"
 zone_name = "example.com"
 
 # Sweep abandoned upload sessions (drafts older than 24h) and empty artifact
-# shells every six hours; see src/maintenance.ts.
+# shells every six hours; see src/maintenance.ts. The second trigger sends the
+# daily feedback digest (src/digest.ts; off until FEEDBACK_DIGEST_TO and
+# FEEDBACK_DIGEST_ORGS are set).
 [triggers]
-crons = ["23 */6 * * *"]
+crons = ["23 */6 * * *", "0 14 * * *"]
 
 [[routes]]
 pattern = "artifacts.example.com/robots.txt"
@@ -157,6 +159,11 @@ ARTIFACT_USE_WRITE_SCOPES = "openid"
 ABUSE_EMAIL = "abuse@example.com"
 MAIL_FROM = "artifacts@example.com"
 MAIL_FROM_NAME = "Artifact Use"
+# Daily feedback digest (optional): who receives it and which workspaces it
+# covers, both comma-separated. Sent at the "0 14 * * *" trigger above unless
+# FEEDBACK_DIGEST_CRON names another one.
+# FEEDBACK_DIGEST_TO = "you@example.com"
+# FEEDBACK_DIGEST_ORGS = "org_..."
 DEFAULT_PACKAGE_LIMIT_BYTES = "99614720"
 DEFAULT_FILE_LIMIT_BYTES = "78643200"
 DEFAULT_FILE_COUNT_LIMIT = "200"

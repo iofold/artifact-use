@@ -25,6 +25,11 @@ export interface Env {
   ABUSE_EMAIL?: string;
   MAIL_FROM?: string;
   MAIL_FROM_NAME?: string;
+  // Daily feedback digest (src/digest.ts): recipients and workspaces, both
+  // comma-separated; off unless both are set.
+  FEEDBACK_DIGEST_TO?: string;
+  FEEDBACK_DIGEST_ORGS?: string;
+  FEEDBACK_DIGEST_CRON?: string;
   DEFAULT_PACKAGE_LIMIT_BYTES?: string;
   DEFAULT_FILE_LIMIT_BYTES?: string;
   DEFAULT_FILE_COUNT_LIMIT?: string;

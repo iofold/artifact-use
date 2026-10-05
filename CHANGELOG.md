@@ -4,6 +4,12 @@ Notable changes to Artifact Use are documented here.
 
 ## Unreleased
 
+- Daily feedback digest: an optional second cron (`0 14 * * *`) emails the
+  operator the last 24 hours of reviewer comments across chosen workspaces,
+  grouped by artifact with each thread's state, plus threads from the previous
+  14 days still waiting for a first reply. Configured with
+  `FEEDBACK_DIGEST_TO` and `FEEDBACK_DIGEST_ORGS`; off by default, at most once
+  per UTC day, skipped on quiet days.
 - Versions carry a change note: every publish path (REST `publish/html`,
   `publish/start`, `publish/upload-session`; MCP `artifact_publish` and
   `artifact_upload_session`; the stdio server, CLI and client-core) accepts
