@@ -40,7 +40,7 @@
   },
   "dependencies": {
     "artifact-use-core": "^0.2.1",
-    "@modelcontextprotocol/sdk": "^1.12.1"
+    "@modelcontextprotocol/sdk": "^1.31.0"
   },
   "devDependencies": {
     "tsx": "^4.19.4"
