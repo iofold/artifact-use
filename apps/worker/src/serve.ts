@@ -343,6 +343,23 @@ function sessionPassesGate(
   return session.verified || Boolean(session.link_id);
 }
 
+// The viewer session on the request, if it still opens this artifact today:
+// the same two checks the page itself applies (a verified gate wants a
+// verified or link session; a revoked or expired link's session is dead).
+// The comments and agent-token routes must not accept less than the page.
+async function gatePassingSession(
+  request: Request,
+  env: Env,
+  artifact: Artifact,
+): Promise<ViewerSession | null> {
+  const session = await linkSessionStillValid(
+    env,
+    artifact,
+    await getViewerSession(request, env, artifact),
+  );
+  return sessionPassesGate(artifact, session) ? session : null;
+}
+
 // A session minted through a share link stops working when the link is
 // revoked or expires, not 30 days later. Reaching the open limit does not
 // cut off sessions already issued: the last permitted opener would otherwise
@@ -860,7 +877,7 @@ async function commentIdentity(
   artifact: Artifact,
   mode: "read" | "write",
 ): Promise<CommentAuthor | null> {
-  const session = await getViewerSession(request, env, artifact);
+  const session = await gatePassingSession(request, env, artifact);
   if (session) {
     // A delegated "Hand to your agent" session writes as an agent under the
     // viewer's email; a plain gate session is the human viewer.
@@ -1109,10 +1126,15 @@ export async function handleAgentToken(
       ].join("\n"),
     });
   }
-  const session = await getViewerSession(request, env, artifact);
-  if (!session) return error(401, "unauthorized", "viewer session required");
-  if (!sessionPassesGate(artifact, session))
+  const raw = await linkSessionStillValid(
+    env,
+    artifact,
+    await getViewerSession(request, env, artifact),
+  );
+  if (!raw) return error(401, "unauthorized", "viewer session required");
+  if (!sessionPassesGate(artifact, raw))
     return error(403, "verification_required", "verified session required");
+  const session = raw;
   const exp = nowSec() + 24 * 60 * 60; // 24h
   const token = await signViewerSession(
     {
