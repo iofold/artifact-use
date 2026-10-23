@@ -4,6 +4,20 @@ Notable changes to Artifact Use are documented here.
 
 ## Unreleased
 
+- Author display names: comments carry `author_name` (the name the author
+  set, else their email's local part; `Guest` for shared-link sessions) and
+  `author_role` (`workspace` for the publishing team, shown as a "Team" tag in
+  the widget). Agent replies written with a workspace token show the person
+  behind the token, or the workspace name when unknown.
+  - Viewers set their name from the widget composer ("Commenting as … ·
+    Change"); only verified and recipient-link viewers and signed-in members
+    can. Publishers set theirs in the admin header or with
+    `PATCH /api/v1/me {"display_name"}`.
+  - `GET/POST /_au/profile`; names are at most 60 characters, never contain
+    `@`, and drop invisible formatting characters. Migration 0020.
+- Admin: the artifact sheet stacks Feedback under Access, and its comment
+  list shows author names.
+
 - Continue with Google on artifact gates (`GATE_GOOGLE_SIGNIN`, off by
   default): `email`, `verified_email` and `allowlist` gates offer Google sign-in
   through WorkOS (provider `GoogleOAuth`).

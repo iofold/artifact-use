@@ -399,7 +399,8 @@ body with the secret returned once>`). The first attempt is immediate;
    `list` shows `open_comments` per artifact when you start cold.
 3. Read each thread: roots carry the request; replies hang off
    `parent_comment_id`; `author_kind` says whether a person or an agent wrote
-   it; `target` (when present) describes the anchored element: `selector`,
+   it, `author_name` who (their chosen name, else their email's prefix), and
+   `author_role: "workspace"` marks your team's comments; `target` (when present) describes the anchored element: `selector`,
    `label`, `text`, `path`, and on newer comments `tag`, `caption` (alt,
    aria-label, figcaption), `src` (media file name), `heading` (the section
    it sits under), `index`, `viewport` and `page_title`, so "div" on an image
