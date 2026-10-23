@@ -12,7 +12,7 @@ test("system pages ship the submit-once guard", async () => {
 
 test("the verified gate labels its busy state", async () => {
   const body = await renderGate(artifact("verified_email"), "/go/x/").text();
-  assert.match(body, /data-busy-label="Sending code…">Send code</);
+  assert.match(body, /data-busy-label="Sending code…"[^>]*>Send code</);
 });
 
 test("a form submits once, then swallows repeat taps and Enter presses", () => {

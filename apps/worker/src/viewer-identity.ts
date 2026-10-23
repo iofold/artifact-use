@@ -6,11 +6,12 @@
 // viewers: no WorkOS organization, no publisher session — the publisher
 // login (/callback) would create a workspace for every new user.
 //
-// Staying signed in: a site-wide viewer identity cookie (au_vid) remembers
-// the Google-verified email, so later gates offer a one-click "Continue as".
-// It never grants workspace membership and never passes a gate by itself:
-// coming back from Google lands on the gate with "Continue as", and that
-// click is the consent.
+// Coming back from Google passes the gate the viewer started from and lands
+// on the page (gate.ts finishGoogleSignIn). Staying signed in: a site-wide
+// viewer identity cookie (au_vid) remembers the Google-verified email, so
+// other artifacts' gates offer a one-click "Continue as". It never grants
+// workspace membership and never passes another artifact's gate by itself:
+// that click is the consent.
 //
 // Every artifact shares this origin and runs untrusted script, which can
 // fetch() other pages and even make its own URL look like another artifact's

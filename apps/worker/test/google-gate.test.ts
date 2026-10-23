@@ -4,11 +4,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { signPayload, verifyViewerSession } from "../src/auth.ts";
 import { handleGateRoute } from "../src/gate.ts";
+import { hashRateKey, rateLimit } from "../src/rl.ts";
 import { handleComments, servePublic } from "../src/serve.ts";
 import type { Env, GateLevel } from "../src/types.ts";
 import { nowSec } from "../src/util.ts";
 import { viewerIdentityCookie } from "../src/viewer-identity.ts";
-import { ORIGIN, feedbackEnv, seedArtifact } from "./helpers/feedback-env.ts";
+import {
+  ORIGIN,
+  feedbackEnv,
+  seedArtifact,
+  seedShareLink,
+} from "./helpers/feedback-env.ts";
 
 const WORKOS = {
   GATE_GOOGLE_SIGNIN: "true",
@@ -94,11 +100,12 @@ async function start(
   env: Env,
   key = "g-abc123",
   headers: Record<string, string> = {},
+  shareLinkId = "",
 ): Promise<Response> {
   const form = new URLSearchParams({
     artifact_key: key,
     redirect_to: `/go/${key}/report.html?tab=2`,
-    share_link_id: "",
+    share_link_id: shareLinkId,
   });
   return handleGateRoute(
     new Request(`${ORIGIN}/_au/gate/google/start`, {
@@ -139,8 +146,13 @@ async function callback(
 }
 
 // Start, then come back from Google with `reply` from WorkOS.
-async function signIn(env: Env, reply: WorkosReply, key = "g-abc123") {
-  const started = await start(env, key);
+async function signIn(
+  env: Env,
+  reply: WorkosReply,
+  key = "g-abc123",
+  shareLinkId = "",
+) {
+  const started = await start(env, key, {}, shareLinkId);
   const setCookie = started.headers.get("Set-Cookie") || "";
   const stateCookie = cookieValue(setCookie, "au_gstate");
   const state = new URL(started.headers.get("Location") || "").searchParams.get(
@@ -173,6 +185,20 @@ test("email gates offer Continue with Google only when it is switched on", async
   }
   const { env: off } = setup("verified_email", { GATE_GOOGLE_SIGNIN: "" });
   assert.doesNotMatch(await gatePage(off, "g-abc123"), /Continue with Google/);
+});
+
+test("the email form comes first, then an or divider, then Google", async () => {
+  for (const gate of ["email", "verified_email"] as GateLevel[]) {
+    const { env } = setup(gate);
+    const page = await gatePage(env, "g-abc123");
+    const email = page.indexOf('name="email"');
+    const send = page.indexOf(gate === "email" ? ">Continue<" : ">Send code<");
+    const or = page.indexOf('class="or"');
+    const google = page.indexOf("Continue with Google");
+    assert.ok(email > 0 && send > email, "email form first");
+    assert.ok(or > send, "divider after the email form");
+    assert.ok(google > or, "Google below the divider");
+  }
 });
 
 test("start sends the browser straight to Google through WorkOS", async () => {
@@ -259,55 +285,74 @@ async function continueAs(
   );
 }
 
-test("a verified Google email signs the viewer in and returns them to the gate", async () => {
+// The session the callback minted for art_g, if any.
+async function passedSession(env: Env, res: Response) {
+  return verifyViewerSession(
+    cookieValue(res.headers.get("Set-Cookie") || "", "au_art_g") || "",
+    env,
+  );
+}
+
+test("a verified Google email goes straight to the page and stays signed in", async () => {
   const { env, raw } = setup();
   const { res, workos } = await signIn(env, verifiedAlice);
   assert.equal(res.status, 302);
   assert.equal(res.headers.get("Location"), "/go/g-abc123/report.html?tab=2");
+  const session = await passedSession(env, res);
+  assert.equal(session?.email, "alice@gmail.com");
+  assert.equal(session?.verified, true);
   const setCookie = res.headers.get("Set-Cookie") || "";
-  // Signed in, but the gate itself is passed by the click that follows.
-  assert.equal(cookieValue(setCookie, "au_art_g"), null);
   const identity = cookieValue(setCookie, "au_vid");
-  assert.ok(identity, "viewer identity is set");
+  assert.ok(identity, "viewer identity is set for later gates");
   assert.match(setCookie, /au_gstate=;/);
   const exchange = workos.calls.find((c) =>
     c.url.includes("/user_management/authenticate"),
   );
   assert.equal(exchange?.body.client_secret, "sk_test");
   assert.equal(exchange?.body.grant_type, "authorization_code");
-
-  const cookie = `au_vid=${encodeURIComponent(identity || "")}`;
-  const page = await gatePage(env, "g-abc123", { Cookie: cookie });
-  assert.match(page, /Continue as alice@gmail\.com/);
-  const passed = await continueAs(env, "g-abc123", cookie, consentFrom(page));
-  assert.equal(passed.status, 302);
-  const session = await verifyViewerSession(
-    cookieValue(passed.headers.get("Set-Cookie") || "", "au_art_g") || "",
-    env,
-  );
-  assert.equal(session?.email, "alice@gmail.com");
-  assert.equal(session?.verified, true);
   const view = raw
-    .prepare("SELECT email, verified FROM views WHERE artifact_id = 'art_g'")
-    .get() as { email: string; verified: number };
+    .prepare(
+      "SELECT email, verified, source FROM views WHERE artifact_id = 'art_g'",
+    )
+    .get() as { email: string; verified: number; source: string };
   assert.equal(view.email, "alice@gmail.com");
   assert.equal(view.verified, 1);
+  assert.equal(view.source, "gate");
+
+  // Another artifact is one click away, never silent.
+  const cookie = `au_vid=${encodeURIComponent(identity || "")}`;
+  const other = await gatePage(env, "g2-abc123", { Cookie: cookie });
+  assert.match(other, /Continue as alice@gmail\.com/);
+});
+
+test("a Google sign-in from a share link keeps the link's attribution", async () => {
+  const { env, raw } = setup();
+  seedShareLink(raw, { id: "lnk_g", artifact_id: "art_g", kind: "open" });
+  const { res } = await signIn(env, verifiedAlice, "g-abc123", "lnk_g");
+  assert.equal(res.status, 302);
+  const view = raw
+    .prepare("SELECT share_link_id FROM views WHERE artifact_id = 'art_g'")
+    .get() as { share_link_id: string };
+  assert.equal(view.share_link_id, "lnk_g");
+  // Attribution only: the session is the Google email's, not the link's.
+  assert.equal((await passedSession(env, res))?.email, "alice@gmail.com");
 });
 
 test("Google sign-in also works on plain email access", async () => {
   const { env } = setup("email");
   const { res } = await signIn(env, verifiedAlice);
   assert.equal(res.status, 302);
-  const cookie = `au_vid=${encodeURIComponent(
-    cookieValue(res.headers.get("Set-Cookie") || "", "au_vid") || "",
-  )}`;
-  const page = await gatePage(env, "g-abc123", { Cookie: cookie });
-  const passed = await continueAs(env, "g-abc123", cookie, consentFrom(page));
-  const session = await verifyViewerSession(
-    cookieValue(passed.headers.get("Set-Cookie") || "", "au_art_g") || "",
-    env,
-  );
-  assert.equal(session?.verified, true);
+  assert.equal((await passedSession(env, res))?.verified, true);
+});
+
+test("a Google sign-in shares the gate's session rate limit", async () => {
+  const { env } = setup();
+  // Use up the hour's 60 sessions for this IP, as codes or Continue as would.
+  const bucket = `gate:email:ip:hour:${await hashRateKey("203.0.113.30")}`;
+  for (let i = 0; i < 60; i++) await rateLimit(env, bucket, 60, 60 * 60);
+  const { res: limited } = await signIn(env, verifiedAlice);
+  assert.equal(limited.status, 429);
+  assert.equal(await passedSession(env, limited), null);
 });
 
 test("a forged Continue as never passes the gate", async () => {
@@ -360,6 +405,7 @@ test("a workspace member of several orgs still completes a gate sign-in", async 
     },
   });
   assert.equal(res.status, 302);
+  assert.equal((await passedSession(env, res))?.email, "multi@acme.com");
 });
 
 test("an address Google does not vouch for falls back to the email code", async () => {
@@ -431,6 +477,7 @@ test("the allowlist still applies to Google sign-ins", async () => {
     },
   });
   assert.equal(allowed.status, 302);
+  assert.equal((await passedSession(env, allowed))?.email, "bob@acme.com");
 });
 
 test("a signed-in Google viewer gets one-click Continue as on other gates, never via fetch()", async () => {

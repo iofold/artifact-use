@@ -236,7 +236,7 @@ main{max-width:620px;margin:12vh auto;padding:32px;background:#fff;border:1px so
 label{display:block;margin:16px 0 6px;font-weight:600}input{width:100%;box-sizing:border-box;padding:12px;border:1px solid #bcc9ce;border-radius:6px;font:inherit}
 button{margin-top:18px;padding:11px 14px;border:0;border-radius:6px;background:#126b6f;color:#fff;font-weight:700;cursor:pointer}
 button:disabled{opacity:.65;cursor:progress}
-.muted{color:#617178}.error{color:#9e2f2f}.row{display:flex;gap:10px;align-items:center}.row input{flex:1}
+.muted{color:#617178}.error{color:#9e2f2f}.or{display:flex;align-items:center;gap:12px;margin:24px 0 0;color:#617178;font-size:14px}.or::before,.or::after{content:"";flex:1;border-top:1px solid #d9e1e4}.row{display:flex;gap:10px;align-items:center}.row input{flex:1}
 </style></head><body><main>${body}</main><script>${SUBMIT_ONCE_SCRIPT}</script></body></html>`,
     {
       headers: {

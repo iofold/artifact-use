@@ -359,14 +359,14 @@ When the deployment enables it (`GATE_GOOGLE_SIGNIN`), browsers on `email`,
 `verified_email` and `allowlist` gates can also choose **Continue with
 Google**:
 
+- The gate shows the email form first, then "or", then the Google button.
 - WorkOS sends the viewer straight to Google. An address Google reports as
-  verified signs the browser in, and the viewer returns to the gate, which
-  now offers "Continue as <address>".
-- That click passes the gate exactly like an email code: same allowlist,
-  same rate limit, same 30-day verified session. An unverified address falls
-  back to the code instead, with the address prefilled.
-- The sign-in lasts 30 days and is renewed on use, so every later gate is
-  the same single "Continue as" click.
+  verified passes the gate exactly like an email code (same allowlist, same
+  rate limit, same 30-day verified session) and the viewer lands on the
+  page. An unverified address falls back to the code instead, with the
+  address prefilled.
+- The browser stays signed in for 30 days, renewed on use, so every other
+  artifact's gate is a single "Continue as <address>" click.
 - The address and the click's consent token appear only on top-level page
   loads. The token is bound to the signed-in cookie and the artifact, so a
   script on another artifact can neither read it nor forge the click.

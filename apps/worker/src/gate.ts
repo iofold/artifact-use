@@ -143,8 +143,14 @@ export interface GateOptions {
 const GOOGLE_G = `<svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>`;
 
 // With "Continue as" on the page, the email form is the alternative path.
-const SECONDARY_BUTTON = ` style="background:#fff;color:#126b6f;border:1px solid #126b6f"`;
+const SECONDARY_BUTTON =
+  "background:#fff;color:#126b6f;border:1px solid #126b6f";
+const GOOGLE_BUTTON =
+  "display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#fff;color:#1f1f1f;border:1px solid #747775;font-weight:600";
 
+// Email first, then an "or" divider, then Google. A signed-in viewer gets
+// one primary action ("Continue as") with the email form below the divider
+// for a different address; Google is offered only while nobody is signed in.
 export function renderGate(
   artifact: Artifact,
   redirectTo: string,
@@ -164,46 +170,48 @@ export function renderGate(
   const hidden = `<input type="hidden" name="artifact_key" value="${escapeHtml(artifact.url_key)}">
   <input type="hidden" name="redirect_to" value="${escapeHtml(redirectTo)}">
   <input type="hidden" name="share_link_id" value="${escapeHtml(shareLinkId)}">`;
+  const intro = canContinueAs
+    ? `<p class="muted">You're signed in — continue with one click.</p>`
+    : `<p class="muted">Enter your email to continue.</p>`;
   const continueAs = canContinueAs
-    ? `<p class="muted">You're signed in — continue with one click.</p>
-<form method="post" action="/_au/gate/session">
+    ? `<form method="post" action="/_au/gate/session">
   ${hidden}
   <input type="hidden" name="consent" value="${escapeHtml(options.consent || "")}">
-  <button type="submit">Continue as ${escapeHtml(sessionEmail)}</button>
+  <button type="submit" style="width:100%">Continue as ${escapeHtml(sessionEmail)}</button>
 </form>`
-    : options.google
-      ? `<p class="muted">Sign in with Google or your email.</p>`
-      : `<p class="muted">Enter your email to continue.</p>`;
-  // Google is offered while nobody is signed in; a signed-in viewer keeps
-  // one primary action ("Continue as") and switches accounts by signing out.
-  const google =
-    options.google && !canContinueAs
-      ? `<form method="post" action="${GOOGLE_START_PATH}">
-  ${hidden}
-  <button type="submit" data-busy-label="Opening Google…" style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#fff;color:#1f1f1f;border:1px solid #747775;font-weight:600">${GOOGLE_G}<span>Continue with Google</span></button>
-</form>
-<p class="muted" style="margin:16px 0 0;text-align:center">or ${verified ? "get a code by email" : "use your email"}</p>`
-      : "";
+    : "";
   const signOut =
     canContinueAs && options.identity
       ? `<form method="post" action="/_au/gate/signout">
   ${hidden}
-  <button type="submit" style="margin-top:8px;padding:0;background:none;color:#126b6f;font-weight:600;text-decoration:underline">Not you? Sign out</button>
+  <button type="submit" style="margin-top:12px;padding:0;background:none;color:#126b6f;font-weight:600;text-decoration:underline">Not you? Sign out</button>
+</form>`
+      : "";
+  const emailButton = `width:100%${canContinueAs ? `;${SECONDARY_BUTTON}` : ""}`;
+  const emailForm = `<form method="post" action="${action}">
+  ${hidden}
+  <label>Email</label>
+  <input name="email" type="email" autocomplete="email" value="${escapeHtml(prefillEmail)}" required>
+  <button type="submit" data-busy-label="${verified ? "Sending code…" : "Continuing…"}" style="${emailButton}">${verified ? "Send code" : "Continue"}</button>
+</form>`;
+  const google =
+    options.google && !canContinueAs
+      ? `<p class="or">or</p>
+<form method="post" action="${GOOGLE_START_PATH}">
+  ${hidden}
+  <button type="submit" data-busy-label="Opening Google…" style="${GOOGLE_BUTTON}">${GOOGLE_G}<span>Continue with Google</span></button>
 </form>`
       : "";
   return htmlPage(
     artifact.title,
     `<h1>${escapeHtml(artifact.title)}</h1>
+${intro}
+${notice ? `<p class="error" style="margin:16px 0 4px;padding:10px 12px;background:#fdf1f1;border-radius:6px">${escapeHtml(notice)}</p>` : ""}
 ${continueAs}
 ${signOut}
-${google}
-${notice ? `<p class="error">${escapeHtml(notice)}</p>` : ""}
-<form method="post" action="${action}"${canContinueAs ? ' style="margin-top:28px"' : ""}>
-  ${hidden}
-  <label>${canContinueAs ? "Or use a different email" : "Email"}</label>
-  <input name="email" type="email" autocomplete="email" value="${escapeHtml(prefillEmail)}" required>
-  <button type="submit" data-busy-label="${verified ? "Sending code…" : "Continuing…"}"${canContinueAs ? SECONDARY_BUTTON : ""}>${verified ? "Send code" : "Continue"}</button>
-</form>`,
+${canContinueAs ? `<p class="or">or use a different email</p>` : ""}
+${emailForm}
+${google}`,
   );
 }
 
@@ -772,10 +780,16 @@ async function startGoogleSignIn(
   return new Response(null, { status: 302, headers });
 }
 
-// Back from WorkOS/Google: the email Google reports as verified becomes the
-// browser's viewer identity, and the viewer returns to the gate, which now
-// offers "Continue as" (same allowlist, rate limit and verified session as a
-// code once clicked).
+// Back from WorkOS/Google: the email Google reports as verified passes the
+// gate like a code would (same allowlist, rate limit and verified session)
+// and the viewer lands on the page. It also becomes the browser's viewer
+// identity, so other artifacts' gates offer one-click "Continue as".
+//
+// Accepted trade-off (Yash, 2026-10-23): a script on another artifact can
+// forge the start (see consentRequestOk), so a visitor who then picks their
+// account on Google's chooser is let into the artifact that script named.
+// Google always shows the chooser (prompt=select_account), so it takes the
+// visitor's own click; "Continue as" on later gates stays consent-bound.
 async function finishGoogleSignIn(
   request: Request,
   env: Env,
@@ -826,26 +840,36 @@ async function finishGoogleSignIn(
       "Google couldn't confirm this email address. Use your email below instead.",
       result.email || "",
     );
-  // Not on the allowlist: say so here rather than bouncing to a gate that
-  // simply leaves the "Continue as" button out.
+  // Not on the allowlist: say so on the gate, whose email form takes
+  // another address.
   if (artifact.gate_level === "allowlist" && !isAllowed(artifact, result.email))
     return retry(`${result.email} is not allowed for this artifact.`);
-  // Back to the gate, now signed in: it shows "Continue as <email>", and
-  // that click is what passes it. Passing it from here would let any
-  // same-origin script that starts this flow (a forged start, see
-  // gateConsentToken) hand the viewer's email to the artifact it names.
-  const response = new Response(null, {
-    status: 302,
-    headers: {
-      Location: safeArtifactRedirect(env, artifact, request, saved.redirect_to),
-      "Cache-Control": "private, no-store",
-    },
-  });
-  response.headers.append(
-    "Set-Cookie",
-    await viewerIdentityCookie(env, result.email, result.sub),
+  const identity = await viewerIdentityCookie(env, result.email, result.sub);
+  // The same hourly bucket as codes and "Continue as".
+  const ipHash = await hashRateKey(requestIp(request));
+  const limit = await rateLimit(
+    env,
+    `gate:email:ip:hour:${ipHash}`,
+    60,
+    60 * 60,
   );
-  return withClear(response);
+  if (!limit.allowed) {
+    const limited = rateLimitedResponse(limit, request, artifact.title);
+    limited.headers.append("Set-Cookie", identity);
+    return withClear(limited);
+  }
+  const passed = await issueViewerSession(
+    request,
+    env,
+    artifact,
+    result.email,
+    true,
+    saved.share_link_id,
+    safeArtifactRedirect(env, artifact, request, saved.redirect_to),
+  );
+  passed.headers.append("Set-Cookie", identity);
+  passed.headers.set("Cache-Control", "private, no-store");
+  return withClear(passed);
 }
 
 async function consumeVerified(
