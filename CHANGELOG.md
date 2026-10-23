@@ -7,16 +7,22 @@ Notable changes to Artifact Use are documented here.
 - Continue with Google on artifact gates (`GATE_GOOGLE_SIGNIN`, off by
   default): `email`, `verified_email` and `allowlist` gates offer Google sign-in
   through WorkOS (provider `GoogleOAuth`).
-  - An address Google reports as verified passes like an email code, with
-    the same allowlist, rate limit and 30-day verified session. Anything else
-    falls back to the code with the address prefilled.
+  - An address Google reports as verified signs the browser in for 30 days,
+    renewed on use; anything else falls back to the code with the address
+    prefilled.
+  - Back on the gate, one "Continue as" click passes it with the same
+    allowlist, rate limit and verified session as a code, and every later
+    gate is that same click. "Not you? Sign out" or `/logout` clears the
+    sign-in.
   - No workspace is created for the viewer.
-  - A 30-day site-wide viewer identity, renewed on use, turns later gates
-    into a one-click "Continue as". "Not you? Sign out" or `/logout` clears
-    it.
-  - Gate pages now show any signed-in address, including a publisher's, only
-    on top-level page loads, so a script on another artifact cannot read it
-    with `fetch()`.
+- "Continue as" on gates (publishers and Google viewers alike) now needs a
+  consent token that only that artifact's gate page, loaded top-level in
+  that browser, carries. A script on another artifact could previously
+  fake the Referer (`history.pushState`) and the navigation
+  (`form.submit()`) and pass a gate with the visitor's email. Gate pages
+  show a signed-in address only on top-level loads, never to `fetch()`.
+- Viewer-session verification rejects any signed payload carrying a `typ`,
+  so gate state and consent tokens can never be replayed as sessions.
 
 - Private feedback: an artifact can be set to `feedback: "private"` (REST
   `PATCH`, MCP and stdio `artifact_manage set_access`, CLI `gate`, and a

@@ -9,7 +9,11 @@ import type {
 import { abuseMailto } from "./abuse";
 import { getCreator, requirePermission, signViewerSession } from "./auth";
 import { resolveWorkspaceOrg } from "./workspaces";
-import { googleGateEnabled, topLevelNavigation } from "./viewer-identity";
+import {
+  gateConsentToken,
+  googleGateEnabled,
+  topLevelNavigation,
+} from "./viewer-identity";
 import {
   ANONYMOUS_AUDIENCE,
   type CommentAuthor,
@@ -293,6 +297,9 @@ export async function servePublic(
           {
             google: googleGateEnabled(env),
             identity: showSignedIn && signedIn.source === "identity",
+            consent: showSignedIn
+              ? await gateConsentToken(env, artifact.id, signedIn.raw)
+              : "",
           },
         );
         return gatePage(request, env, artifact, gate);

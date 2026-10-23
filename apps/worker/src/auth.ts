@@ -604,8 +604,16 @@ export async function verifyViewerSession(
   raw: string,
   env: Env,
 ): Promise<ViewerSession | null> {
-  const decoded = await verifyPayload<ViewerSession>(raw, env);
+  const decoded = await verifyPayload<ViewerSession & { typ?: unknown }>(
+    raw,
+    env,
+  );
   if (!decoded || !decoded.exp || decoded.exp < nowSec()) return null;
+  // Viewer sessions carry no `typ`; every other payload signed with this
+  // secret does (publisher, upload, gate state, consent, viewer identity),
+  // and some of them name an artifact_id too.
+  if (decoded.typ !== undefined || typeof decoded.email !== "string")
+    return null;
   return decoded;
 }
 

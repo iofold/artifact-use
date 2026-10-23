@@ -360,12 +360,16 @@ When the deployment enables it (`GATE_GOOGLE_SIGNIN`), browsers on `email`,
 Google**:
 
 - WorkOS sends the viewer straight to Google. An address Google reports as
-  verified passes the gate exactly like an email code: same allowlist, same
-  rate limit, same 30-day verified session. Otherwise the viewer falls back
-  to the code, with the address prefilled.
-- The browser then keeps a 30-day viewer identity, renewed on use, so later
-  gates offer a one-click "Continue as". That address is shown only on
-  top-level page loads, never to a `fetch()`.
+  verified signs the browser in, and the viewer returns to the gate, which
+  now offers "Continue as <address>".
+- That click passes the gate exactly like an email code: same allowlist,
+  same rate limit, same 30-day verified session. An unverified address falls
+  back to the code instead, with the address prefilled.
+- The sign-in lasts 30 days and is renewed on use, so every later gate is
+  the same single "Continue as" click.
+- The address and the click's consent token appear only on top-level page
+  loads. The token is bound to the signed-in cookie and the artifact, so a
+  script on another artifact can neither read it nor forge the click.
 - "Not you? Sign out" on the gate (`POST /_au/gate/signout`) or `/logout`
   forgets the identity.
 - It is browser-only: agents keep the code, share links and "Hand to your

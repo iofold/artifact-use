@@ -212,25 +212,65 @@ test("start refuses anything but a click on the artifact's own gate page", async
   assert.equal((await start(off)).status, 404);
 });
 
-test("a verified Google email passes the gate as a verified session", async () => {
+// The consent token a top-level load of the gate page rendered.
+function consentFrom(html: string): string {
+  return /name="consent" value="([^"]*)"/.exec(html)?.[1] || "";
+}
+
+async function continueAs(
+  env: Env,
+  key: string,
+  cookie: string,
+  consent: string,
+  referer = `${ORIGIN}/go/${key}/`,
+): Promise<Response> {
+  return handleGateRoute(
+    new Request(`${ORIGIN}/_au/gate/session`, {
+      method: "POST",
+      headers: navigationHeaders({
+        "Content-Type": "application/x-www-form-urlencoded",
+        Referer: referer,
+        Cookie: cookie,
+      }),
+      body: new URLSearchParams({
+        artifact_key: key,
+        redirect_to: `/go/${key}/`,
+        consent,
+      }),
+    }),
+    env,
+    "/_au/gate/session",
+  );
+}
+
+test("a verified Google email signs the viewer in and returns them to the gate", async () => {
   const { env, raw } = setup();
   const { res, workos } = await signIn(env, verifiedAlice);
   assert.equal(res.status, 302);
   assert.equal(res.headers.get("Location"), "/go/g-abc123/report.html?tab=2");
   const setCookie = res.headers.get("Set-Cookie") || "";
-  const session = await verifyViewerSession(
-    cookieValue(setCookie, "au_art_g") || "",
-    env,
-  );
-  assert.equal(session?.email, "alice@gmail.com");
-  assert.equal(session?.verified, true);
-  assert.ok(cookieValue(setCookie, "au_vid"), "viewer identity is set");
+  // Signed in, but the gate itself is passed by the click that follows.
+  assert.equal(cookieValue(setCookie, "au_art_g"), null);
+  const identity = cookieValue(setCookie, "au_vid");
+  assert.ok(identity, "viewer identity is set");
   assert.match(setCookie, /au_gstate=;/);
   const exchange = workos.calls.find((c) =>
     c.url.includes("/user_management/authenticate"),
   );
   assert.equal(exchange?.body.client_secret, "sk_test");
   assert.equal(exchange?.body.grant_type, "authorization_code");
+
+  const cookie = `au_vid=${encodeURIComponent(identity || "")}`;
+  const page = await gatePage(env, "g-abc123", { Cookie: cookie });
+  assert.match(page, /Continue as alice@gmail\.com/);
+  const passed = await continueAs(env, "g-abc123", cookie, consentFrom(page));
+  assert.equal(passed.status, 302);
+  const session = await verifyViewerSession(
+    cookieValue(passed.headers.get("Set-Cookie") || "", "au_art_g") || "",
+    env,
+  );
+  assert.equal(session?.email, "alice@gmail.com");
+  assert.equal(session?.verified, true);
   const view = raw
     .prepare("SELECT email, verified FROM views WHERE artifact_id = 'art_g'")
     .get() as { email: string; verified: number };
@@ -242,11 +282,48 @@ test("Google sign-in also works on plain email access", async () => {
   const { env } = setup("email");
   const { res } = await signIn(env, verifiedAlice);
   assert.equal(res.status, 302);
+  const cookie = `au_vid=${encodeURIComponent(
+    cookieValue(res.headers.get("Set-Cookie") || "", "au_vid") || "",
+  )}`;
+  const page = await gatePage(env, "g-abc123", { Cookie: cookie });
+  const passed = await continueAs(env, "g-abc123", cookie, consentFrom(page));
   const session = await verifyViewerSession(
-    cookieValue(res.headers.get("Set-Cookie") || "", "au_art_g") || "",
+    cookieValue(passed.headers.get("Set-Cookie") || "", "au_art_g") || "",
     env,
   );
   assert.equal(session?.verified, true);
+});
+
+test("a forged Continue as never passes the gate", async () => {
+  const { env } = setup();
+  const alice = (
+    await viewerIdentityCookie(env, "alice@gmail.com", "user_01ALICE")
+  ).split(";")[0];
+  const mallory = (
+    await viewerIdentityCookie(env, "mallory@evil.com", "user_01MALLORY")
+  ).split(";")[0];
+  // A script on another artifact can fake the Referer (history.pushState)
+  // and the navigation (form.submit()), but not the token: none at all,
+  // one rendered for someone else's browser, or one for another artifact.
+  const forMallory = consentFrom(
+    await gatePage(env, "g2-abc123", { Cookie: mallory }),
+  );
+  const otherArtifact = consentFrom(
+    await gatePage(env, "g-abc123", { Cookie: alice }),
+  );
+  for (const consent of ["", forMallory, otherArtifact, "garbage.token"])
+    assert.equal(
+      (await continueAs(env, "g2-abc123", alice, consent)).status,
+      403,
+    );
+  // A background fetch() of the gate page carries neither the address nor
+  // a token.
+  const fetched = await gatePage(env, "g2-abc123", {
+    Cookie: alice,
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Dest": "empty",
+  });
+  assert.equal(consentFrom(fetched), "");
 });
 
 test("a workspace member of several orgs still completes a gate sign-in", async () => {
@@ -362,22 +439,8 @@ test("Continue as with a Google identity mints a verified session and renews the
   const identity = (
     await viewerIdentityCookie(env, "alice@gmail.com", "user_01ALICE")
   ).split(";")[0];
-  const res = await handleGateRoute(
-    new Request(`${ORIGIN}/_au/gate/session`, {
-      method: "POST",
-      headers: navigationHeaders({
-        "Content-Type": "application/x-www-form-urlencoded",
-        Referer: `${ORIGIN}/go/g2-abc123/`,
-        Cookie: identity,
-      }),
-      body: new URLSearchParams({
-        artifact_key: "g2-abc123",
-        redirect_to: "/go/g2-abc123/",
-      }),
-    }),
-    env,
-    "/_au/gate/session",
-  );
+  const page = await gatePage(env, "g2-abc123", { Cookie: identity });
+  const res = await continueAs(env, "g2-abc123", identity, consentFrom(page));
   assert.equal(res.status, 302);
   const setCookie = res.headers.get("Set-Cookie") || "";
   const session = await verifyViewerSession(
@@ -441,4 +504,32 @@ test("sign out forgets the Google identity", async () => {
     res.headers.get("Set-Cookie") || "",
     /au_vid=; Path=\/; Max-Age=0/,
   );
+});
+
+test("gate state cookies and consent tokens never work as viewer sessions", async () => {
+  const { env } = setup("email");
+  const started = await start(env);
+  const state = cookieValue(
+    started.headers.get("Set-Cookie") || "",
+    "au_gstate",
+  );
+  const identity = (
+    await viewerIdentityCookie(env, "alice@gmail.com", "user_01ALICE")
+  ).split(";")[0];
+  const consent = consentFrom(
+    await gatePage(env, "g-abc123", { Cookie: identity }),
+  );
+  for (const token of [state || "", consent]) {
+    assert.ok(token, "the payload exists");
+    // Both name art_g and are signed with the session secret.
+    assert.equal(await verifyViewerSession(token, env), null);
+    const res = await handleComments(
+      new Request(`${ORIGIN}/_au/comments?artifact_key=g-abc123`, {
+        headers: { Authorization: `Bearer ${token}` },
+      }),
+      env,
+      "/_au/comments",
+    );
+    assert.equal(res.status, 401);
+  }
 });
