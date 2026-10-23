@@ -53,7 +53,11 @@ export function viewerAudience(
     : null;
   if (session.verified || session.link_id)
     return { kind: "viewer", key: session.email, email: session.email, viewId };
-  return { kind: "viewer", key: `view:${viewId ?? 0}`, email: null, viewId };
+  // Every gate session has a view id; without one, own nothing rather than
+  // share a key with other sessions that lack it.
+  const key =
+    viewId !== null ? `view:${viewId}` : `view:none:${crypto.randomUUID()}`;
+  return { kind: "viewer", key, email: null, viewId };
 }
 
 // The thread-root fields visibility is decided on.

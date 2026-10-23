@@ -1,3 +1,4 @@
+import { gateConsentToken } from "../src/viewer-identity.ts";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
@@ -636,6 +637,13 @@ test("a gate pass tags the row with the viewer's kind and how it got in", async 
       body: new URLSearchParams({
         artifact_key: "gate-demo-abc123",
         redirect_to: ARTIFACT_PATH,
+        consent: await gateConsentToken(
+          consented.env,
+          "art_gate",
+          decodeURIComponent(
+            String(headers.get("Cookie")).replace(/^au_pub=/, ""),
+          ),
+        ),
       }),
     }),
     consented.env,

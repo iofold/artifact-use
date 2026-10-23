@@ -1,3 +1,4 @@
+import { gateConsentToken } from "../src/viewer-identity.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { signPayload } from "../src/auth.ts";
@@ -281,11 +282,12 @@ test("a nonlisted workspace member's real SSO viewer session cannot reach the up
     name: "Member",
     exp: nowSec() + 600,
   };
+  const pub = await signPayload(publisher, env);
   const gate = await handleGateRoute(
     new Request(`${ORIGIN}/_au/gate/session`, {
       method: "POST",
       headers: {
-        Cookie: `au_pub=${encodeURIComponent(await signPayload(publisher, env))}`,
+        Cookie: `au_pub=${encodeURIComponent(pub)}`,
         Accept: "application/json",
         Referer: `${ORIGIN}${ARTIFACT_PATH}`,
         "Sec-Fetch-Mode": "navigate",
@@ -294,6 +296,7 @@ test("a nonlisted workspace member's real SSO viewer session cannot reach the up
       body: new URLSearchParams({
         artifact_key: artifact.url_key,
         redirect_to: ARTIFACT_PATH,
+        consent: await gateConsentToken(env, artifact.id, pub),
       }),
     }),
     env,

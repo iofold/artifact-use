@@ -1,3 +1,4 @@
+import { gateConsentToken } from "../src/viewer-identity.ts";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { signPayload, verifyPayload } from "../src/auth.ts";
@@ -122,12 +123,25 @@ function browserGet(url: string, cookie?: string): Request {
   const headers = new Headers({
     Accept: "text/html,application/xhtml+xml",
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Dest": "document",
   });
   if (cookie) headers.set("Cookie", cookie);
   return new Request(url, { headers });
 }
 
-function consentPost(
+// The consent token the gate page would have rendered for this cookie.
+async function consentFor(cookie: string | null): Promise<string> {
+  if (!cookie) return "";
+  const raw = decodeURIComponent(cookie.replace(/^au_pub=/, ""));
+  return gateConsentToken(
+    { SESSION_SECRET: "signed-in-gate-secret" } as unknown as Env,
+    "art_gate",
+    raw,
+  );
+}
+
+async function consentPost(
   cookie: string | null,
   options: {
     accept?: string;
@@ -135,8 +149,10 @@ function consentPost(
     mode?: string;
     dest?: string;
     artifactKey?: string;
+    // Override the consent token (null: send none).
+    consent?: string | null;
   } = {},
-): Request {
+): Promise<Request> {
   const headers = new Headers({
     Accept: options.accept || "application/json",
     "CF-Connecting-IP": "203.0.113.9",
@@ -152,6 +168,10 @@ function consentPost(
     body: new URLSearchParams({
       artifact_key: options.artifactKey || "gate-demo-abc123",
       redirect_to: ARTIFACT_PATH,
+      consent:
+        options.consent === null
+          ? ""
+          : (options.consent ?? (await consentFor(cookie))),
     }),
   });
 }
@@ -249,7 +269,7 @@ test("anonymous viewers get the unchanged email gate", async () => {
 test("gate/session mints a verified session for a member", async () => {
   const { env, state } = gateState(gateArtifact("verified_email"));
   const response = await handleGateRoute(
-    consentPost(await publisherCookie(env)),
+    await consentPost(await publisherCookie(env)),
     env,
     "/_au/gate/session",
   );
@@ -264,7 +284,7 @@ test("gate/session mints a verified session for a member", async () => {
 test("gate/session redirects browser form submits back to the artifact", async () => {
   const { env } = gateState(gateArtifact("email"));
   const response = await handleGateRoute(
-    consentPost(await publisherCookie(env), { accept: "text/html" }),
+    await consentPost(await publisherCookie(env), { accept: "text/html" }),
     env,
     "/_au/gate/session",
   );
@@ -287,7 +307,7 @@ test("gate/session enforces the allowlist for non-members but not members", asyn
       sub: member ? "user_member" : "user_visitor",
     });
     const response = await handleGateRoute(
-      consentPost(cookie),
+      await consentPost(cookie),
       env,
       "/_au/gate/session",
     );
@@ -308,7 +328,7 @@ test("gate/session rejects requests that are not a consent click", async () => {
   for (const [index, options] of cases.entries()) {
     const { env, state } = gateState(gateArtifact("verified_email"));
     const response = await handleGateRoute(
-      consentPost(await publisherCookie(env), options),
+      await consentPost(await publisherCookie(env), options),
       env,
       "/_au/gate/session",
     );
@@ -321,7 +341,7 @@ test("gate/session rejects requests that are not a consent click", async () => {
 test("gate/session without a signed-in session is a 401", async () => {
   const { env } = gateState(gateArtifact("verified_email"));
   const response = await handleGateRoute(
-    consentPost(null),
+    await consentPost(null),
     env,
     "/_au/gate/session",
   );
@@ -332,7 +352,7 @@ test("gate/session without a signed-in session is a 401", async () => {
 test("gate/session rejects public artifacts and honors the IP session cap", async () => {
   const publicState = gateState(gateArtifact("public"));
   const publicResponse = await handleGateRoute(
-    consentPost(await publisherCookie(publicState.env)),
+    await consentPost(await publisherCookie(publicState.env)),
     publicState.env,
     "/_au/gate/session",
   );
@@ -343,7 +363,7 @@ test("gate/session rejects public artifacts and honors the IP session cap", asyn
     rateCount: (bucket) => (bucket.startsWith("gate:email:ip:hour:") ? 61 : 1),
   });
   const limitedResponse = await handleGateRoute(
-    consentPost(await publisherCookie(limited.env)),
+    await consentPost(await publisherCookie(limited.env)),
     limited.env,
     "/_au/gate/session",
   );
@@ -456,4 +476,28 @@ test("a referer outside the artifact blocks the cookie comment identity", async 
   );
   assert.equal(response.status, 401);
   assert.equal(state.commentWrites.length, 0);
+});
+
+test("gate/session refuses a publisher consent without this page's token", async () => {
+  const { env, state } = gateState(gateArtifact("verified_email"));
+  const cookie = await publisherCookie(env, {
+    orgId: "org_other",
+    email: "visitor@example.com",
+    sub: "user_visitor",
+  });
+  // A same-origin script can fake the Referer and a navigation; it cannot
+  // produce the token the real gate page rendered for this browser.
+  for (const consent of [
+    null,
+    "forged",
+    await consentFor(await publisherCookie(env)),
+  ]) {
+    const response = await handleGateRoute(
+      await consentPost(cookie, { consent }),
+      env,
+      "/_au/gate/session",
+    );
+    assert.equal(response.status, 403);
+  }
+  assert.equal(state.viewWrites.length, 0);
 });

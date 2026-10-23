@@ -8,10 +8,19 @@
 //
 // Staying signed in: a site-wide viewer identity cookie (au_vid) remembers
 // the Google-verified email, so later gates offer a one-click "Continue as".
-// It never grants workspace membership and never passes a gate silently.
-// Every artifact shares this origin, so the address is only rendered on
-// top-level page loads (see topLevelNavigation) — a script on another
-// artifact can't fetch a gate page and read it.
+// It never grants workspace membership and never passes a gate by itself:
+// coming back from Google lands on the gate with "Continue as", and that
+// click is the consent.
+//
+// Every artifact shares this origin and runs untrusted script, which can
+// fetch() other pages and even make its own URL look like another artifact's
+// (history.pushState) before submitting a form. So:
+//   - a signed-in address is rendered only on top-level page loads
+//     (topLevelNavigation), which gate pages answer with COOP and
+//     X-Frame-Options so no other page can read them;
+//   - the "Continue as" form carries a consent token bound to the signed-in
+//     cookie and the artifact (gateConsentToken), which a script elsewhere
+//     can neither read nor compute.
 import { readCookie, signPayload, verifyPayload } from "./auth";
 import type { Env } from "./types";
 import { normalizeEmail, nowSec } from "./util";
@@ -151,15 +160,72 @@ export async function readGoogleState(
   return state;
 }
 
-// True unless the browser says this request is not a top-level page load
-// (fetch(), an iframe, an image...). Browsers without Fetch Metadata send
-// neither header and pass, matching the gate's consent check.
+// A top-level page load, as the browser reports it. Fails closed: a browser
+// without Fetch Metadata never sees "Continue as" and uses Google or the
+// email form instead.
 export function topLevelNavigation(request: Request): boolean {
-  const mode = request.headers.get("Sec-Fetch-Mode");
-  if (mode && mode !== "navigate") return false;
-  const dest = request.headers.get("Sec-Fetch-Dest");
-  if (dest && dest !== "document") return false;
-  return true;
+  return (
+    request.headers.get("Sec-Fetch-Mode") === "navigate" &&
+    request.headers.get("Sec-Fetch-Dest") === "document"
+  );
+}
+
+export const GATE_CONSENT_SEC = 30 * 60;
+
+interface GateConsent {
+  typ: "gate_consent";
+  artifact_id: string;
+  // Hash of the signed-in cookie (au_pub or au_vid) the form was shown to.
+  b: string;
+  exp: number;
+}
+
+async function cookieBinding(raw: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`gate-consent:${raw}`),
+  );
+  return [...new Uint8Array(digest)]
+    .slice(0, 16)
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export async function gateConsentToken(
+  env: Env,
+  artifactId: string,
+  signedInRaw: string,
+): Promise<string> {
+  const consent: GateConsent = {
+    typ: "gate_consent",
+    artifact_id: artifactId,
+    b: await cookieBinding(signedInRaw),
+    exp: nowSec() + GATE_CONSENT_SEC,
+  };
+  return signPayload(consent, env);
+}
+
+export async function gateConsentValid(
+  env: Env,
+  token: string,
+  artifactId: string,
+  signedInRaw: string,
+): Promise<boolean> {
+  if (!token || !signedInRaw) return false;
+  let consent: GateConsent | null = null;
+  try {
+    consent = await verifyPayload<GateConsent>(token, env);
+  } catch {
+    return false;
+  }
+  return (
+    !!consent &&
+    consent.typ === "gate_consent" &&
+    consent.artifact_id === artifactId &&
+    !!consent.exp &&
+    consent.exp >= nowSec() &&
+    consent.b === (await cookieBinding(signedInRaw))
+  );
 }
 
 export type GoogleSignInResult =
