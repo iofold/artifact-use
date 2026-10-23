@@ -5,6 +5,12 @@ import type {
   FeedbackMode,
   ViewerSession,
 } from "./types";
+import {
+  fallbackName,
+  rememberWorkosUser,
+  resolveAuthorNames,
+  workosUserEmail,
+} from "./profiles";
 import { nowSec, publicArtifactPath } from "./util";
 import { enqueueCommentEvent, type CommentEvent } from "./webhooks";
 
@@ -139,6 +145,10 @@ export interface CommentAuthor {
   creator?: boolean;
   // Visibility of the caller; absent means the workspace (creator routes).
   audience?: CommentAudience;
+  // A workspace credential's WorkOS user id and, when the credential carries
+  // it, the user's email: lets the comment resolve to a person's name.
+  userId?: string;
+  userEmail?: string | null;
 }
 
 export interface CommentFilters {
@@ -165,6 +175,12 @@ export interface ApiComment {
   resolved_by: string | null;
   author_kind: AuthorKind;
   agent_label: string | null;
+  // Who wrote it, for display: the name they set, else their email's local
+  // part ("Guest" for share-link sessions).
+  author_name: string;
+  // "workspace" when the publishing workspace wrote it. Names are free text,
+  // so this, not the name, says a comment is the team's.
+  author_role: "workspace" | "viewer";
   // True when the thread was written while the artifact was private: only
   // its author and the workspace can see it.
   private: boolean;
@@ -200,10 +216,11 @@ interface CommentRow {
   agent_label: string | null;
   view_id?: number | null;
   private_to?: string | null;
+  author_role?: string | null;
 }
 
 const ROW_COLUMNS =
-  "c.id, c.parent_comment_id, c.email, c.body, c.target_json, c.page_path, c.version_id, c.created_at, c.resolved_at, c.resolved_by, c.author_kind, c.agent_label, c.view_id, c.private_to";
+  "c.id, c.parent_comment_id, c.email, c.body, c.target_json, c.page_path, c.version_id, c.created_at, c.resolved_at, c.resolved_by, c.author_kind, c.agent_label, c.view_id, c.private_to, c.author_role";
 
 export async function listComments(
   env: Env,
@@ -256,7 +273,11 @@ export async function listComments(
     .bind(...binds)
     .all<CommentRow>();
   const results = rows.results || [];
-  const page = results.slice(0, limit).map(apiComment);
+  const page = await withAuthorNames(
+    env,
+    artifact,
+    results.slice(0, limit).map(apiComment),
+  );
   const hasMore = results.length > limit;
   return {
     comments: page,
@@ -420,6 +441,8 @@ export function creatorCommentAuthor(creator: Creator): CommentAuthor {
     label: creatorAgentLabel(creator),
     creator: true,
     audience: WORKSPACE_AUDIENCE,
+    userId: creator.sub,
+    userEmail: creator.email || null,
   };
 }
 
@@ -477,13 +500,14 @@ export async function createComment(
     : privateToForNewThread(artifact, audience);
   const kind: AuthorKind = author.kind === "agent" ? "agent" : "human";
   const label = kind === "agent" ? cleanStr(author.label, 80) : null;
+  const authorRole = audience.kind === "workspace" ? "workspace" : null;
   const createdAt = nowSec();
   let inserted;
   try {
     inserted = await env.DB.prepare(
       `INSERT INTO comments
-     (artifact_id, view_id, email, body, target_json, page_path, version_id, parent_comment_id, client_ref, created_at, author_kind, agent_label, private_to)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (artifact_id, view_id, email, body, target_json, page_path, version_id, parent_comment_id, client_ref, created_at, author_kind, agent_label, private_to, author_role)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         artifact.id,
@@ -499,6 +523,7 @@ export async function createComment(
         kind,
         label,
         privateTo,
+        authorRole,
       )
       .run();
   } catch (e) {
@@ -513,7 +538,10 @@ export async function createComment(
           ? await commentById(env, artifact.id, existing.parent_comment_id)
           : existing;
         if (root && threadVisibleTo(artifact, audience, root))
-          return { ok: true, comment: apiComment(existing) };
+          return {
+            ok: true,
+            comment: await withAuthorName(env, artifact, apiComment(existing)),
+          };
         return {
           ok: false,
           status: 409,
@@ -524,22 +552,38 @@ export async function createComment(
     }
     throw e;
   }
-  const comment = apiComment({
-    id: Number(inserted.meta.last_row_id),
-    parent_comment_id: parent?.id || null,
-    email: author.email,
-    body: text,
-    target_json: targetJson,
-    page_path: pagePath,
-    version_id: versionId,
-    created_at: createdAt,
-    resolved_at: null,
-    resolved_by: null,
-    author_kind: kind,
-    agent_label: label,
-    view_id: author.viewId,
-    private_to: privateTo,
-  });
+  // A workspace credential's comment is stored under its user id; keep the
+  // id -> email map current so the comment shows the person's name.
+  if (author.userId) {
+    try {
+      if (author.userEmail)
+        await rememberWorkosUser(env, author.userId, author.userEmail);
+      else await workosUserEmail(env, author.userId);
+    } catch {
+      // Cosmetic: the comment is written either way.
+    }
+  }
+  const comment = await withAuthorName(
+    env,
+    artifact,
+    apiComment({
+      id: Number(inserted.meta.last_row_id),
+      parent_comment_id: parent?.id || null,
+      email: author.email,
+      body: text,
+      target_json: targetJson,
+      page_path: pagePath,
+      version_id: versionId,
+      created_at: createdAt,
+      resolved_at: null,
+      resolved_by: null,
+      author_kind: kind,
+      agent_label: label,
+      view_id: author.viewId,
+      private_to: privateTo,
+      author_role: authorRole,
+    }),
+  );
   await emitCommentEvent(
     env,
     artifact,
@@ -573,11 +617,15 @@ export async function resolveComment(
     .run();
   const row = await commentById(env, artifact.id, id);
   if (row) {
-    const comment = apiComment({
-      ...row,
-      resolved_at: resolvedAt,
-      resolved_by: resolvedBy,
-    });
+    const comment = await withAuthorName(
+      env,
+      artifact,
+      apiComment({
+        ...row,
+        resolved_at: resolvedAt,
+        resolved_by: resolvedBy,
+      }),
+    );
     await emitCommentEvent(
       env,
       artifact,
@@ -628,7 +676,7 @@ async function emitCommentEvent(
       artifact,
       event,
       comment,
-      root ? apiComment(root) : comment,
+      root ? await withAuthorName(env, artifact, apiComment(root)) : comment,
     );
   } catch {
     // Webhooks are best-effort; the comment is already written.
@@ -693,10 +741,45 @@ function apiComment(row: CommentRow): ApiComment {
     resolved_by: row.resolved_by,
     author_kind: row.author_kind === "agent" ? "agent" : "human",
     agent_label: row.agent_label || null,
+    // Provisional until withAuthorNames reads the names people set.
+    author_name: fallbackName(row.email),
+    author_role: row.author_role === "workspace" ? "workspace" : "viewer",
     private: !!row.private_to,
     target: parseTarget(row.target_json),
     target_json: row.target_json,
   };
+}
+
+async function withAuthorName(
+  env: Env,
+  artifact: Pick<Artifact, "org_id">,
+  comment: ApiComment,
+): Promise<ApiComment> {
+  return (await withAuthorNames(env, artifact, [comment]))[0] ?? comment;
+}
+
+// Fill author_name from the names people set (and WorkOS user ids' emails).
+export async function withAuthorNames(
+  env: Env,
+  artifact: Pick<Artifact, "org_id">,
+  comments: ApiComment[],
+): Promise<ApiComment[]> {
+  if (!comments.length) return comments;
+  let names: Map<string, string>;
+  try {
+    names = await resolveAuthorNames(
+      env,
+      artifact,
+      comments.map((c) => c.email),
+    );
+  } catch {
+    // Names are cosmetic; the fallback already reads well.
+    return comments;
+  }
+  return comments.map((c) => ({
+    ...c,
+    author_name: names.get(c.email) || c.author_name,
+  }));
 }
 
 function parseTarget(targetJson: string | null): unknown {

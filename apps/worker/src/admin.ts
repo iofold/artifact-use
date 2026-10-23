@@ -55,6 +55,13 @@ import {
   shareLinkJson,
 } from "./links";
 import { normalizeArtifactDescription } from "./preview";
+import {
+  fallbackName,
+  getDisplayName,
+  normalizeDisplayName,
+  setDisplayName,
+  workosUserEmail,
+} from "./profiles";
 import { normalizeUpstreamUrl, upstreamSummary } from "./upstream";
 import {
   diffVersions,
@@ -89,12 +96,40 @@ export async function handleAdminApi(
   const creator = creatorOrResponse;
 
   try {
-    if (request.method === "GET" && path === "/api/v1/me") {
+    if (
+      (request.method === "GET" || request.method === "PATCH") &&
+      path === "/api/v1/me"
+    ) {
+      // The credential's person, for display names: the token's own email
+      // claim, else what WorkOS says about its user.
+      const email =
+        creator.email || (await workosUserEmail(env, creator.sub)) || null;
+      if (request.method === "PATCH") {
+        const body = (await request.json().catch(() => ({}))) as Record<
+          string,
+          unknown
+        >;
+        if (!("display_name" in body))
+          return error(400, "display_name_required", "send display_name");
+        const parsed = normalizeDisplayName(body.display_name);
+        if (!parsed.ok)
+          return error(400, "invalid_display_name", parsed.message);
+        if (!email)
+          return error(
+            409,
+            "email_unknown",
+            "this credential's user has no known email to name",
+          );
+        await setDisplayName(env, email, parsed.name);
+      }
       return json({
         creator: {
           sub: creator.sub,
           org_id: creator.orgId,
           email: creator.email,
+          display_name: email
+            ? (await getDisplayName(env, email)) || fallbackName(email)
+            : null,
           permissions: [...creator.permissions],
           token_scope: creator.tokenScope || null,
           workspace_selected: Boolean(creator.workspaceSelected),
