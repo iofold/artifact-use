@@ -7,13 +7,15 @@ Notable changes to Artifact Use are documented here.
 - Continue with Google on artifact gates (`GATE_GOOGLE_SIGNIN`, off by
   default): `email`, `verified_email` and `allowlist` gates offer Google sign-in
   through WorkOS (provider `GoogleOAuth`).
-  - An address Google reports as verified signs the browser in for 30 days,
-    renewed on use; anything else falls back to the code with the address
-    prefilled.
-  - Back on the gate, one "Continue as" click passes it with the same
-    allowlist, rate limit and verified session as a code, and every later
-    gate is that same click. "Not you? Sign out" or `/logout` clears the
-    sign-in.
+  - The gate shows the email form first, then an "or" divider, then the
+    Google button.
+  - An address Google reports as verified passes the gate like a code (same
+    allowlist, rate limit and verified session) and lands on the page; share
+    link attribution is kept. Anything else falls back to the code with the
+    address prefilled.
+  - The browser stays signed in for 30 days, renewed on use, so every other
+    gate is one "Continue as" click. "Not you? Sign out" or `/logout` clears
+    the sign-in.
   - No workspace is created for the viewer.
 - "Continue as" on gates (publishers and Google viewers alike) now needs a
   consent token that only that artifact's gate page, loaded top-level in
