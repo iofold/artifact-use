@@ -105,6 +105,22 @@ https://artifacts.example.com/callback
 https://artifacts.example.com/admin
 ```
 
+Optional: "Continue with Google" on artifact gates. Viewers sign in with
+Google instead of waiting for an email code, and stay signed in across
+artifacts for 30 days. It goes through the same WorkOS environment (Google
+must be enabled under Authentication) and never creates a workspace for the
+viewer. To turn it on:
+
+1. Add this redirect URL in WorkOS:
+
+   ```text
+   https://artifacts.example.com/_au/gate/google/callback
+   ```
+
+2. Set `GATE_GOOGLE_SIGNIN = "true"`.
+
+Viewers become WorkOS users the first time they sign in this way.
+
 Configure the OAuth/MCP audience to match your Worker route:
 
 ```text

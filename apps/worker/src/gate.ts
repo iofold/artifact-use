@@ -28,6 +28,19 @@ import { getPublisherSessionAuth } from "./publisher";
 import { type ViewSource, classifyViewer } from "./views";
 import { resolveWorkspaceOrg } from "./workspaces";
 import {
+  GOOGLE_CALLBACK_PATH,
+  GOOGLE_START_PATH,
+  authenticateGoogleCode,
+  expireGoogleStateCookie,
+  expireViewerIdentityCookie,
+  googleAuthorizeUrl,
+  googleGateEnabled,
+  googleStateCookie,
+  readGoogleState,
+  readViewerIdentity,
+  viewerIdentityCookie,
+} from "./viewer-identity";
+import {
   type RateLimitResult,
   clearRateLimit,
   hashRateKey,
@@ -75,22 +88,47 @@ export async function getViewerSession(
 // workspace (directly or via the multi-workspace snapshot) decides HOW: members
 // pass silently, everyone else gets a one-click consent so merely opening a
 // link never discloses an email the viewer didn't agree to share.
+//
+// A viewer who signed in with Google on an earlier gate carries a viewer
+// identity instead (viewer-identity.ts): never a member, always the
+// one-click consent.
 export async function signedInViewer(
   request: Request,
   env: Env,
   artifact: Artifact,
-): Promise<{ email: string; member: boolean } | null> {
+): Promise<{
+  email: string;
+  member: boolean;
+  source: "publisher" | "identity";
+} | null> {
   const auth = await getPublisherSessionAuth(request, env);
   const email = normalizeEmail(auth?.session.email || "");
-  if (!auth || !validEmail(email)) return null;
-  if (auth.session.orgId === artifact.org_id) return { email, member: true };
-  try {
-    await resolveWorkspaceOrg(env, auth.session.sub, artifact.org_id);
-    return { email, member: true };
-  } catch {
-    return { email, member: false };
+  if (auth && validEmail(email)) {
+    const source = "publisher" as const;
+    if (auth.session.orgId === artifact.org_id)
+      return { email, member: true, source };
+    try {
+      await resolveWorkspaceOrg(env, auth.session.sub, artifact.org_id);
+      return { email, member: true, source };
+    } catch {
+      return { email, member: false, source };
+    }
   }
+  const identity = await readViewerIdentity(request, env);
+  if (identity && validEmail(identity.email))
+    return { email: identity.email, member: false, source: "identity" };
+  return null;
 }
+
+export interface GateOptions {
+  // Offer "Continue with Google" (googleGateEnabled).
+  google?: boolean;
+  // The "Continue as" email comes from a Google viewer identity, which can
+  // be signed out of here.
+  identity?: boolean;
+}
+
+const GOOGLE_G = `<svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>`;
 
 export function renderGate(
   artifact: Artifact,
@@ -99,6 +137,7 @@ export function renderGate(
   shareLinkId = "",
   sessionEmail = "",
   notice = "",
+  options: GateOptions = {},
 ): Response {
   const verified = requiresVerified(artifact.gate_level);
   const action = verified ? "/_au/gate/start" : "/_au/gate/email";
@@ -116,11 +155,31 @@ export function renderGate(
   ${hidden}
   <button type="submit">Continue as ${escapeHtml(sessionEmail)}</button>
 </form>`
-    : `<p class="muted">Enter your email to continue.</p>`;
+    : options.google
+      ? `<p class="muted">Continue with Google, or use your email.</p>`
+      : `<p class="muted">Enter your email to continue.</p>`;
+  // Google is offered whenever nobody is signed in, and still lets a
+  // signed-in viewer switch accounts.
+  const google = options.google
+    ? `<form method="post" action="${GOOGLE_START_PATH}">
+  ${hidden}
+  <button type="submit" data-busy-label="Opening Google…" style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#fff;color:#1f1f1f;border:1px solid #747775;font-weight:600">${GOOGLE_G}<span>Continue with Google</span></button>
+</form>
+<p class="muted" style="margin:18px 0 0;text-align:center">or ${verified ? "get a code by email" : "use your email"}</p>`
+    : "";
+  const signOut =
+    canContinueAs && options.identity
+      ? `<form method="post" action="/_au/gate/signout">
+  ${hidden}
+  <button type="submit" style="margin-top:8px;padding:0;background:none;color:#126b6f;font-weight:600;text-decoration:underline">Not you? Sign out</button>
+</form>`
+      : "";
   return htmlPage(
     artifact.title,
     `<h1>${escapeHtml(artifact.title)}</h1>
 ${continueAs}
+${signOut}
+${google}
 ${notice ? `<p class="error">${escapeHtml(notice)}</p>` : ""}
 <form method="post" action="${action}">
   ${hidden}
@@ -238,6 +297,7 @@ export async function handleGateRoute(
               shareLinkId || "",
               "",
               message,
+              { google: googleGateEnabled(env) },
             )
           : error(400, "invalid_email_domain", message);
       }
@@ -300,7 +360,7 @@ export async function handleGateRoute(
       );
       if (!sessionLimit.allowed)
         return rateLimitedResponse(sessionLimit, request, artifact.title);
-      return issueViewerSession(
+      const passed = await issueViewerSession(
         request,
         env,
         artifact,
@@ -309,6 +369,40 @@ export async function handleGateRoute(
         String(form.get("share_link_id") || "") || null,
         safeArtifactRedirect(env, artifact, request, form.get("redirect_to")),
       );
+      // Using a Google viewer identity keeps it alive for another 30 days.
+      if (viewer.source === "identity") {
+        const identity = await readViewerIdentity(request, env);
+        if (identity)
+          passed.headers.append(
+            "Set-Cookie",
+            await viewerIdentityCookie(env, identity.email, identity.sub),
+          );
+      }
+      return passed;
+    }
+
+    if (request.method === "POST" && path === GOOGLE_START_PATH)
+      return startGoogleSignIn(request, env);
+
+    if (request.method === "GET" && path === GOOGLE_CALLBACK_PATH)
+      return finishGoogleSignIn(request, env);
+
+    // Forget the Google viewer identity on this browser. Artifact sessions
+    // already issued keep working until they expire, like a code's would.
+    if (request.method === "POST" && path === "/_au/gate/signout") {
+      const form = await request.formData();
+      const artifact = await formArtifact(env, form);
+      const back = artifact
+        ? safeArtifactRedirect(env, artifact, request, form.get("redirect_to"))
+        : "/";
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: back,
+          "Set-Cookie": expireViewerIdentityCookie(),
+          "Cache-Control": "private, no-store",
+        },
+      });
     }
 
     if (request.method === "POST" && path === "/_au/gate/start") {
@@ -577,6 +671,167 @@ export async function handleGateRoute(
     );
   }
   return error(404, "not_found", "gate route not found");
+}
+
+// "Continue with Google": a deliberate click on the artifact's own gate page
+// (same consent rule as "Continue as"), then WorkOS straight to Google.
+async function startGoogleSignIn(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const form = await request.formData();
+  const artifact = await formArtifact(env, form);
+  if (!artifact) return error(404, "artifact_not_found", "artifact not found");
+  const unavailable = unavailableArtifactResponse(request, artifact);
+  if (unavailable) return unavailable;
+  if (!googleGateEnabled(env))
+    return error(404, "google_sign_in_disabled", "Google sign-in is off");
+  if (artifact.gate_level === "public")
+    return error(400, "gate_not_required", "this artifact is not gated");
+  if (!consentRequestOk(request, env, artifact))
+    return error(
+      403,
+      "consent_required",
+      "continue from the artifact's own gate page",
+    );
+  const ipHash = await hashRateKey(requestIp(request));
+  const limit = await rateLimit(
+    env,
+    `gate:google:ip:hour:${ipHash}`,
+    60,
+    60 * 60,
+  );
+  if (!limit.allowed)
+    return rateLimitedResponse(limit, request, artifact.title);
+  const state = randomId("gst");
+  const headers = new Headers({
+    Location: googleAuthorizeUrl(env, state),
+    "Cache-Control": "private, no-store",
+  });
+  headers.append(
+    "Set-Cookie",
+    await googleStateCookie(env, {
+      state,
+      artifact_id: artifact.id,
+      redirect_to: safeArtifactRedirect(
+        env,
+        artifact,
+        request,
+        form.get("redirect_to"),
+      ),
+      share_link_id: String(form.get("share_link_id") || "") || null,
+    }),
+  );
+  return new Response(null, { status: 302, headers });
+}
+
+// Back from WorkOS/Google: the email Google reports as verified passes the
+// gate like a code would (same allowlist, same rate limit, same session),
+// and becomes the viewer identity that later gates offer as "Continue as".
+async function finishGoogleSignIn(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  const url = new URL(request.url);
+  const saved = await readGoogleState(request, env);
+  const clear = expireGoogleStateCookie();
+  const withClear = (response: Response) => {
+    response.headers.append("Set-Cookie", clear);
+    return response;
+  };
+  if (!saved)
+    return withClear(
+      htmlPage(
+        "Sign-in expired",
+        `<h1>That sign-in expired</h1>
+<p class="muted">Google sign-in links work once and for ten minutes. Go back to the page you were opening and choose Continue with Google again.</p>`,
+      ),
+    );
+  const artifact = await getArtifactById(env, saved.artifact_id);
+  if (!artifact) return error(404, "artifact_not_found", "artifact not found");
+  const unavailable = unavailableArtifactResponse(request, artifact);
+  if (unavailable) return unavailable;
+  const retry = (notice: string, prefill = "") =>
+    withClear(
+      renderGate(
+        artifact,
+        saved.redirect_to,
+        prefill,
+        saved.share_link_id || "",
+        "",
+        notice,
+        { google: googleGateEnabled(env) },
+      ),
+    );
+  const code = url.searchParams.get("code") || "";
+  if (url.searchParams.get("state") !== saved.state || !code)
+    return retry(
+      "Google sign-in didn't finish. Try again, or use your email below.",
+    );
+  const result = await authenticateGoogleCode(request, env, code);
+  if (result.kind === "failed")
+    return retry(
+      "Google sign-in didn't finish. Try again, or use your email below.",
+    );
+  if (result.kind === "unverified")
+    return retry(
+      "Google couldn't confirm this email address. Use your email below instead.",
+      result.email || "",
+    );
+  const redirectTo = safeArtifactRedirect(
+    env,
+    artifact,
+    request,
+    saved.redirect_to,
+  );
+  const identity = await viewerIdentityCookie(env, result.email, result.sub);
+  // The artifact went public while the viewer was at Google: nothing to pass.
+  if (artifact.gate_level === "public") {
+    const response = new Response(null, {
+      status: 302,
+      headers: { Location: redirectTo, "Cache-Control": "private, no-store" },
+    });
+    response.headers.append("Set-Cookie", identity);
+    return withClear(response);
+  }
+  // Members of the artifact's workspace pass an allowlist, as with
+  // "Continue as"; everyone else must be on it.
+  if (
+    artifact.gate_level === "allowlist" &&
+    !isAllowed(artifact, result.email)
+  ) {
+    let member = false;
+    try {
+      await resolveWorkspaceOrg(env, result.sub, artifact.org_id);
+      member = true;
+    } catch {
+      member = false;
+    }
+    if (!member)
+      return retry(`${result.email} is not allowed for this artifact.`);
+  }
+  const ipHash = await hashRateKey(requestIp(request));
+  const sessionLimit = await rateLimit(
+    env,
+    `gate:email:ip:hour:${ipHash}`,
+    60,
+    60 * 60,
+  );
+  if (!sessionLimit.allowed)
+    return withClear(
+      rateLimitedResponse(sessionLimit, request, artifact.title),
+    );
+  const passed = await issueViewerSession(
+    request,
+    env,
+    artifact,
+    result.email,
+    true,
+    saved.share_link_id,
+    redirectTo,
+  );
+  passed.headers.append("Set-Cookie", identity);
+  return withClear(passed);
 }
 
 async function consumeVerified(

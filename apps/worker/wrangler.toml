@@ -169,6 +169,10 @@ DEFAULT_FILE_LIMIT_BYTES = "78643200"
 DEFAULT_FILE_COUNT_LIMIT = "200"
 HTTP_MCP_INLINE_FILE_LIMIT_BYTES = "2097152"
 ALLOW_DEBUG_CODES = "false"
+# Optional: "true" adds "Continue with Google" to email gates, through WorkOS
+# (needs WORKOS_CLIENT_ID/WORKOS_API_KEY, Google enabled in AuthKit, and
+# <SITE_BASE_URL>/_au/gate/google/callback as a WorkOS redirect URI).
+GATE_GOOGLE_SIGNIN = "false"
 ARTIFACT_USE_SUPER_ADMIN_USER_IDS = ""
 # Optional: URL of a published docs artifact; "Read the docs" and the landing
 # Docs link target it. Empty falls back to the GitHub repository.

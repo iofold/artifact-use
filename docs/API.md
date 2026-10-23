@@ -355,6 +355,22 @@ Gate levels (`gate_level` on publish and on `PATCH`):
   the inbox, so every view is attributable.
 - `allowlist`: `verified_email` restricted to listed addresses and domains.
 
+When the deployment enables it (`GATE_GOOGLE_SIGNIN`), browsers on `email`,
+`verified_email` and `allowlist` gates can also choose **Continue with
+Google**:
+
+- WorkOS sends the viewer straight to Google. An address Google reports as
+  verified passes the gate exactly like an email code: same allowlist, same
+  rate limit, same 30-day verified session. Otherwise the viewer falls back
+  to the code, with the address prefilled.
+- The browser then keeps a 30-day viewer identity, renewed on use, so later
+  gates offer a one-click "Continue as". That address is shown only on
+  top-level page loads, never to a `fetch()`.
+- "Not you? Sign out" on the gate (`POST /_au/gate/signout`) or `/logout`
+  forgets the identity.
+- It is browser-only: agents keep the code, share links and "Hand to your
+  agent".
+
 `PATCH` also accepts `access_preset` as a friendlier alias for the same four
 levels: `open`, `email`, `client` (= `verified_email`), `restricted`
 (= `allowlist`). No other levels exist.
