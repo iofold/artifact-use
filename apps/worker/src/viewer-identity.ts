@@ -170,7 +170,9 @@ export function topLevelNavigation(request: Request): boolean {
   );
 }
 
-export const GATE_CONSENT_SEC = 30 * 60;
+// Long enough for a gate page left open; the token is useless to anyone
+// without this browser's signed-in cookie.
+export const GATE_CONSENT_SEC = 12 * 60 * 60;
 
 interface GateConsent {
   typ: "gate_consent";
