@@ -212,6 +212,22 @@ test("start refuses anything but a click on the artifact's own gate page", async
   assert.equal((await start(off)).status, 404);
 });
 
+test("a malformed start or callback answers 400, not a server error", async () => {
+  const { env } = setup();
+  const bare = await handleGateRoute(
+    new Request(`${ORIGIN}/_au/gate/google/start`, { method: "POST" }),
+    env,
+    "/_au/gate/google/start",
+  );
+  assert.equal(bare.status, 400);
+  const signout = await handleGateRoute(
+    new Request(`${ORIGIN}/_au/gate/signout`, { method: "POST" }),
+    env,
+    "/_au/gate/signout",
+  );
+  assert.equal(signout.status, 400);
+});
+
 // The consent token a top-level load of the gate page rendered.
 function consentFrom(html: string): string {
   return /name="consent" value="([^"]*)"/.exec(html)?.[1] || "";

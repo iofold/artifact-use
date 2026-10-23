@@ -429,10 +429,10 @@ export async function handleGateRoute(
     }
 
     if (request.method === "POST" && path === GOOGLE_START_PATH)
-      return startGoogleSignIn(request, env);
+      return await startGoogleSignIn(request, env);
 
     if (request.method === "GET" && path === GOOGLE_CALLBACK_PATH)
-      return finishGoogleSignIn(request, env);
+      return await finishGoogleSignIn(request, env);
 
     // Forget the Google viewer identity on this browser. Artifact sessions
     // already issued keep working until they expire, like a code's would.
