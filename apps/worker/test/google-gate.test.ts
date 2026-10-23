@@ -311,11 +311,13 @@ test("a forged Continue as never passes the gate", async () => {
   const otherArtifact = consentFrom(
     await gatePage(env, "g-abc123", { Cookie: alice }),
   );
-  for (const consent of ["", forMallory, otherArtifact, "garbage.token"])
-    assert.equal(
-      (await continueAs(env, "g2-abc123", alice, consent)).status,
-      403,
-    );
+  for (const consent of ["", forMallory, otherArtifact, "garbage.token"]) {
+    const res = await continueAs(env, "g2-abc123", alice, consent);
+    // Back to the gate, unpassed.
+    assert.equal(res.status, 303);
+    assert.equal(res.headers.get("Location"), "/go/g2-abc123/");
+    assert.equal(res.headers.get("Set-Cookie"), null);
+  }
   // A background fetch() of the gate page carries neither the address nor
   // a token.
   const fetched = await gatePage(env, "g2-abc123", {

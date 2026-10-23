@@ -365,11 +365,26 @@ export async function handleGateRoute(
           viewer.raw,
         ))
       )
-        return error(
-          403,
-          "consent_required",
-          "continue from the artifact's own gate page",
-        );
+        // A browser gets the gate again, with a fresh token, instead of an
+        // error: a stale page and a forged submit both end there, unpassed.
+        return wantsHtml(request)
+          ? new Response(null, {
+              status: 303,
+              headers: {
+                Location: safeArtifactRedirect(
+                  env,
+                  artifact,
+                  request,
+                  form.get("redirect_to"),
+                ),
+                "Cache-Control": "private, no-store",
+              },
+            })
+          : error(
+              403,
+              "consent_required",
+              "continue from the artifact's own gate page",
+            );
       if (!viewer.member && !isAllowed(artifact, viewer.email))
         return wantsHtml(request)
           ? htmlPage(
