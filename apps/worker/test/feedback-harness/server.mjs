@@ -550,6 +550,8 @@ const server = http.createServer(async (req, res) => {
       JSON.stringify({
         role: publisher ? "publisher" : "viewer",
         agent,
+        // AU_FEEDBACK=private shows the private-feedback notice line.
+        feedback: process.env.AU_FEEDBACK === "private" ? "private" : "shared",
         ...(publisher ? { admin_url: "/admin?artifact=claims-demo" } : {}),
       }),
     );
