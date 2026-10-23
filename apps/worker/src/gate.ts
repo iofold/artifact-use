@@ -130,6 +130,9 @@ export interface GateOptions {
 
 const GOOGLE_G = `<svg aria-hidden="true" width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>`;
 
+// With "Continue as" on the page, the email form is the alternative path.
+const SECONDARY_BUTTON = ` style="background:#fff;color:#126b6f;border:1px solid #126b6f"`;
+
 export function renderGate(
   artifact: Artifact,
   redirectTo: string,
@@ -150,23 +153,24 @@ export function renderGate(
   <input type="hidden" name="redirect_to" value="${escapeHtml(redirectTo)}">
   <input type="hidden" name="share_link_id" value="${escapeHtml(shareLinkId)}">`;
   const continueAs = canContinueAs
-    ? `<p class="muted">You're signed in — continue with one click, or use a different email below.</p>
+    ? `<p class="muted">You're signed in — continue with one click.</p>
 <form method="post" action="/_au/gate/session">
   ${hidden}
   <button type="submit">Continue as ${escapeHtml(sessionEmail)}</button>
 </form>`
     : options.google
-      ? `<p class="muted">Continue with Google, or use your email.</p>`
+      ? `<p class="muted">Sign in with Google or your email.</p>`
       : `<p class="muted">Enter your email to continue.</p>`;
-  // Google is offered whenever nobody is signed in, and still lets a
-  // signed-in viewer switch accounts.
-  const google = options.google
-    ? `<form method="post" action="${GOOGLE_START_PATH}">
+  // Google is offered while nobody is signed in; a signed-in viewer keeps
+  // one primary action ("Continue as") and switches accounts by signing out.
+  const google =
+    options.google && !canContinueAs
+      ? `<form method="post" action="${GOOGLE_START_PATH}">
   ${hidden}
   <button type="submit" data-busy-label="Opening Google…" style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#fff;color:#1f1f1f;border:1px solid #747775;font-weight:600">${GOOGLE_G}<span>Continue with Google</span></button>
 </form>
-<p class="muted" style="margin:18px 0 0;text-align:center">or ${verified ? "get a code by email" : "use your email"}</p>`
-    : "";
+<p class="muted" style="margin:16px 0 0;text-align:center">or ${verified ? "get a code by email" : "use your email"}</p>`
+      : "";
   const signOut =
     canContinueAs && options.identity
       ? `<form method="post" action="/_au/gate/signout">
@@ -181,11 +185,11 @@ ${continueAs}
 ${signOut}
 ${google}
 ${notice ? `<p class="error">${escapeHtml(notice)}</p>` : ""}
-<form method="post" action="${action}">
+<form method="post" action="${action}"${canContinueAs ? ' style="margin-top:28px"' : ""}>
   ${hidden}
-  <label>Email</label>
-  <input name="email" type="email" autocomplete="email" value="${escapeHtml(prefillEmail || (canContinueAs ? sessionEmail : ""))}" required>
-  <button type="submit" data-busy-label="${verified ? "Sending code…" : "Continuing…"}">${verified ? "Send code" : "Continue"}</button>
+  <label>${canContinueAs ? "Or use a different email" : "Email"}</label>
+  <input name="email" type="email" autocomplete="email" value="${escapeHtml(prefillEmail)}" required>
+  <button type="submit" data-busy-label="${verified ? "Sending code…" : "Continuing…"}"${canContinueAs ? SECONDARY_BUTTON : ""}>${verified ? "Send code" : "Continue"}</button>
 </form>`,
   );
 }

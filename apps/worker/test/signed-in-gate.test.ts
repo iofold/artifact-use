@@ -228,7 +228,8 @@ test("a signed-in non-member sees one-click consent, not a silent pass", async (
   assert.equal(response.status, 200);
   const body = await response.text();
   assert.match(body, /Continue as visitor@example\.com/);
-  assert.match(body, /value="visitor@example\.com"/);
+  // The email form is the "different email" path, so it starts empty.
+  assert.doesNotMatch(body, /value="visitor@example\.com"/);
   assert.equal(state.viewWrites.length, 0);
 });
 
