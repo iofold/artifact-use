@@ -21,6 +21,7 @@ import {
   handleAgentToken,
   handleArtifactContext,
   handleComments,
+  handleProfile,
   servePublic,
   handleVersions,
 } from "./serve";
@@ -224,6 +225,7 @@ async function dispatch(
     if (path === "/_au/artifact-context")
       return handleArtifactContext(request, env);
     if (path === "/_au/agent-token") return handleAgentToken(request, env);
+    if (path === "/_au/profile") return handleProfile(request, env);
     // Artifact files are read-only; the reserved `_api/` upstream proxy under
     // an artifact accepts the write methods its backend does.
     if (

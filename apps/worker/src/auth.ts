@@ -302,7 +302,7 @@ async function provisionCreatorOrg(
   }
 }
 
-function isWorkosUserId(value: string): boolean {
+export function isWorkosUserId(value: string): boolean {
   return /^user_[A-Za-z0-9]+$/.test(value);
 }
 

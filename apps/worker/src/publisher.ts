@@ -1,5 +1,12 @@
 import { feedbackMode } from "./comments";
 import { expireViewerIdentityCookie } from "./viewer-identity";
+import {
+  fallbackName,
+  getDisplayName,
+  normalizeDisplayName,
+  rememberWorkosUser,
+  setDisplayName,
+} from "./profiles";
 import type {
   Artifact,
   Creator,
@@ -1173,6 +1180,19 @@ export async function handleAdminUiApi(
       links: promoted.links,
     });
   }
+  // The signed-in member's display name (shown on their comments).
+  if (path === "/admin/api/profile" && request.method === "POST") {
+    if (!session.email)
+      return error(409, "email_unknown", "this account has no email to name");
+    const body = (await request.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
+    const parsed = normalizeDisplayName(body.display_name);
+    if (!parsed.ok) return error(400, "invalid_display_name", parsed.message);
+    await setDisplayName(env, session.email, parsed.name);
+    return json({ me: await profileJson(env, session.email) });
+  }
   if (path === "/admin/api/connect" && request.method === "GET") {
     const code = new URL(request.url).searchParams.get("code") || "";
     return adminConnectJson(env, session, code);
@@ -1437,6 +1457,18 @@ function siteJson(env: Env): Record<string, string> {
   };
 }
 
+// display_name is what comments show: the name set, else the email prefix.
+async function profileJson(
+  env: Env,
+  email: string,
+): Promise<{ display_name: string; display_name_set: boolean }> {
+  const chosen = await getDisplayName(env, email);
+  return {
+    display_name: chosen || fallbackName(email),
+    display_name_set: !!chosen,
+  };
+}
+
 async function adminOverviewJson(
   env: Env,
   session: PublisherSession,
@@ -1504,6 +1536,7 @@ async function adminOverviewJson(
       name: session.name,
       superAdmin: isSuperAdmin(session, env),
       teamAdmin: isTeamAdmin(session),
+      ...(session.email ? await profileJson(env, session.email) : {}),
     },
     site: siteJson(env),
     // views / viewers / views7d count every row (kept for compatibility);
@@ -2135,6 +2168,9 @@ async function finishAuth(request: Request, env: Env): Promise<Response> {
   } else if (await isOwnedPublisherOrganization(env, authOrgId, userId)) {
     await migratePublisherDataToOrg(env, fallbackOrgIds, authOrgId, userId);
   }
+  // Comments this user writes with a workspace credential are stored by user
+  // id; this lets them show the user's name.
+  await rememberWorkosUser(env, userId, email);
   const session: PublisherSession = {
     typ: "publisher",
     sub: userId,

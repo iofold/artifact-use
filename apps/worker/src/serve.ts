@@ -65,7 +65,18 @@ import {
   isLinkPreviewRequest,
   renderArtifactPreviewDocument,
 } from "./preview";
-import { commentWriteRateLimit, rateLimitedResponse } from "./rl";
+import {
+  fallbackName,
+  getDisplayName,
+  normalizeDisplayName,
+  setDisplayName,
+} from "./profiles";
+import {
+  commentWriteRateLimit,
+  hashRateKey,
+  rateLimit,
+  rateLimitedResponse,
+} from "./rl";
 import { UPSTREAM_SEGMENT, proxyUpstream } from "./upstream";
 import { recordPublicView } from "./views";
 import { FEEDBACK_WIDGET_JS } from "./widget/feedback.generated";
@@ -948,6 +959,88 @@ async function commentIdentity(
       viewId: null,
       audience: WORKSPACE_AUDIENCE,
     };
+  return null;
+}
+
+// The widget's "Commenting as <name>" line and the form that changes it.
+// Only an identity that proved its email may name it: a verified or
+// recipient-link session, or a signed-in workspace member. A typed email on
+// a plain email gate, a shared password/open link and a delegated agent can
+// read their name but not set it.
+export async function handleProfile(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  if (request.method !== "GET" && request.method !== "POST")
+    return error(405, "method_not_allowed", "GET or POST only");
+  let body: Record<string, unknown> = {};
+  if (request.method === "POST") {
+    try {
+      body = (await request.json()) as Record<string, unknown>;
+    } catch {
+      return error(400, "invalid_json", "send a JSON body");
+    }
+  }
+  const key =
+    request.method === "POST"
+      ? String(body.artifact_key || "")
+      : new URL(request.url).searchParams.get("artifact_key") || "";
+  const artifact = await getArtifactByUrlKey(env, key);
+  if (!artifact) return error(404, "artifact_not_found", "artifact not found");
+  const unavailable = unavailableArtifactResponse(request, artifact);
+  if (unavailable) return unavailable;
+  const who = await profileIdentity(request, env, artifact);
+  if (!who)
+    return error(401, "identity_required", "pass the artifact's gate first");
+  if (request.method === "POST") {
+    if (!who.editable)
+      return error(
+        403,
+        "name_requires_verification",
+        "only a verified email can set a display name",
+      );
+    const parsed = normalizeDisplayName(body.display_name);
+    if (!parsed.ok) return error(400, "invalid_display_name", parsed.message);
+    const limit = await rateLimit(
+      env,
+      `profile:name:${await hashRateKey(who.editable)}`,
+      20,
+      60 * 60,
+    );
+    if (!limit.allowed) return rateLimitedResponse(limit);
+    await setDisplayName(env, who.editable, parsed.name);
+  }
+  const defaultName = fallbackName(who.author);
+  const custom = who.author.includes("@")
+    ? await getDisplayName(env, who.author)
+    : null;
+  return json(
+    {
+      name: custom || defaultName,
+      default_name: defaultName,
+      custom: !!custom,
+      can_edit: !!who.editable,
+    },
+    { headers: { "Cache-Control": "private, no-store" } },
+  );
+}
+
+async function profileIdentity(
+  request: Request,
+  env: Env,
+  artifact: Artifact,
+): Promise<{ author: string; editable: string | null } | null> {
+  const session = await gatePassingSession(request, env, artifact);
+  if (session) {
+    const proven =
+      (session.verified || !!session.link_id) &&
+      !session.agent &&
+      !session.email.startsWith("link:");
+    return { author: session.email, editable: proven ? session.email : null };
+  }
+  const signedIn = await signedInViewer(request, env, artifact);
+  if (signedIn?.member && !refererOutsideArtifact(request, env, artifact))
+    return { author: signedIn.email, editable: signedIn.email };
   return null;
 }
 
