@@ -1,4 +1,5 @@
 import { feedbackMode } from "./comments";
+import { expireViewerIdentityCookie } from "./viewer-identity";
 import type {
   Artifact,
   Creator,
@@ -963,6 +964,8 @@ export async function handlePublisherAuth(
     headers.append("Set-Cookie", expireCookie(INVITE_COOKIE));
     headers.append("Set-Cookie", expireCookie(LOOP_COOKIE));
     headers.append("Set-Cookie", expireAdminCsrfCookie());
+    // Signing out signs out of the Google viewer identity on gates too.
+    headers.append("Set-Cookie", expireViewerIdentityCookie());
     return redirect(
       session?.sessionId ? workosLogoutUrl(session.sessionId) : "/",
       headers,

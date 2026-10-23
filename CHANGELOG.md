@@ -4,6 +4,20 @@ Notable changes to Artifact Use are documented here.
 
 ## Unreleased
 
+- Continue with Google on artifact gates (`GATE_GOOGLE_SIGNIN`, off by
+  default): `email`, `verified_email` and `allowlist` gates offer Google sign-in
+  through WorkOS (provider `GoogleOAuth`).
+  - An address Google reports as verified passes like an email code, with
+    the same allowlist, rate limit and 30-day verified session. Anything else
+    falls back to the code with the address prefilled.
+  - No workspace is created for the viewer.
+  - A 30-day site-wide viewer identity, renewed on use, turns later gates
+    into a one-click "Continue as". "Not you? Sign out" or `/logout` clears
+    it.
+  - Gate pages now show any signed-in address, including a publisher's, only
+    on top-level page loads, so a script on another artifact cannot read it
+    with `fetch()`.
+
 - Private feedback: an artifact can be set to `feedback: "private"` (REST
   `PATCH`, MCP and stdio `artifact_manage set_access`, CLI `gate`, and a
   Feedback select in the admin sidesheet). Each viewer then sees only the

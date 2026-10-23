@@ -9,6 +9,7 @@ import type {
 import { abuseMailto } from "./abuse";
 import { getCreator, requirePermission, signViewerSession } from "./auth";
 import { resolveWorkspaceOrg } from "./workspaces";
+import { googleGateEnabled, topLevelNavigation } from "./viewer-identity";
 import {
   ANONYMOUS_AUDIENCE,
   type CommentAuthor,
@@ -279,12 +280,20 @@ export async function servePublic(
         const keep = new URLSearchParams(url.search);
         keep.delete("v");
         keep.delete("au_sso");
+        // Every artifact shares this origin: only a top-level page load may
+        // show the signed-in address, never a fetch() from another artifact.
+        const showSignedIn = !!signedIn && topLevelNavigation(request);
         const gate = renderGate(
           artifact,
           keep.size ? `${path}?${keep}` : path,
           "",
           "",
-          signedIn?.email || "",
+          showSignedIn ? signedIn.email : "",
+          "",
+          {
+            google: googleGateEnabled(env),
+            identity: showSignedIn && signedIn.source === "identity",
+          },
         );
         return gatePage(request, env, artifact, gate);
       }

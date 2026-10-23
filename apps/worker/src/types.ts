@@ -36,6 +36,10 @@ export interface Env {
   DEFAULT_FILE_COUNT_LIMIT?: string;
   HTTP_MCP_INLINE_FILE_LIMIT_BYTES?: string;
   ALLOW_DEBUG_CODES?: string;
+  // "true" adds "Continue with Google" (via WorkOS) to email gates. Needs
+  // WORKOS_CLIENT_ID/WORKOS_API_KEY and <SITE_BASE_URL>/_au/gate/google/callback
+  // registered as a WorkOS redirect URI.
+  GATE_GOOGLE_SIGNIN?: string;
   SESSION_SECRET: string;
   DEV_AUTH_TOKEN?: string;
   DEV_AUTH_USER_ID?: string;
