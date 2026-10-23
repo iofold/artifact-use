@@ -8,6 +8,9 @@ export type Me = {
   name: string | null;
   superAdmin: boolean;
   teamAdmin: boolean;
+  // What your comments show: the name you set, else your email's prefix.
+  display_name?: string;
+  display_name_set?: boolean;
 };
 
 export type Site = {
@@ -125,6 +128,7 @@ export type CreatedShareLink = ShareLink & { passcode?: string; note: string };
 export type Comment = {
   id: number;
   email: string;
+  author_name?: string;
   body: string;
   created_at: number;
   resolved_at: number | null;
@@ -464,6 +468,11 @@ export const api = {
   events: () => getJson<AgentEvents>("/admin/api/events"),
   workspaceContext: () =>
     getJson<WorkspaceContext>("/admin/api/workspace-context"),
+  setDisplayName: (displayName: string) =>
+    postJson<{ me: { display_name: string; display_name_set: boolean } }>(
+      "/admin/api/profile",
+      { display_name: displayName },
+    ),
   renameWorkspace: (name: string) =>
     postJson<{ org_id: string; org_name: string; org_slug: string }>(
       "/admin/api/workspace/rename",
