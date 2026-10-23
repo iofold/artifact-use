@@ -153,8 +153,29 @@ PATCH /_au/comments
 
 `GET` returns `{comments, count, has_more, next_since}`. Each comment carries
 `parent_comment_id` (replies), `resolved` / `resolved_at` / `resolved_by`,
-`author_kind` (`human` or `agent`), `agent_label`, and `target` (parsed) next
-to `target_json`. `status` is `open`, `resolved` or `all`; replies follow
+`author_kind` (`human` or `agent`), `agent_label`, `author_name`,
+`author_role`, and `target` (parsed) next to `target_json`.
+
+`author_name` is the name the author set, else the local part of their email
+(`alice` for `alice@acme.com`; `Guest` for password/open share-link sessions).
+Comments written with a workspace credential resolve through its user's
+email, or show the workspace name when that is unknown. `author_role` is
+`workspace` when the publishing workspace wrote the comment and `viewer`
+otherwise; names are free text, so use the role, not the name, to tell the
+team's comments apart. The widget shows a "Team" tag on them.
+
+```http
+GET /_au/profile?artifact_key=<key>
+POST /_au/profile   {"artifact_key": "<key>", "display_name": "Alice Chen"}
+```
+
+`/_au/profile` answers the caller's `{name, default_name, custom, can_edit}`
+(the widget's "Commenting as" line). Only an identity that proved its email
+can set a name: a verified or recipient-link session, or a signed-in
+workspace member. A typed email on an `email` gate, a password or open link,
+and a delegated agent session get `403 name_requires_verification`. Names are
+at most 60 characters, never contain `@`, and lose invisible formatting
+characters; an empty name clears it. `status` is `open`, `resolved` or `all`; replies follow
 their root for every status filter. Every comment reaches the publishing
 agent, so there is no separate "sent" queue (the legacy `status=sent` value
 is read as `open`).
@@ -295,6 +316,7 @@ object for a root comment); both use the comment shape above.
 
 ```http
 GET /api/v1/me
+PATCH /api/v1/me            {"display_name": "Yash Gupta"}
 GET /api/v1/workspaces
 GET /api/v1/tokens
 POST /api/v1/tokens
@@ -315,6 +337,10 @@ POST /api/v1/webhooks
 GET /api/v1/webhooks
 DELETE /api/v1/webhooks/{id}
 ```
+
+`/api/v1/me` returns the credential's `display_name` (what its comments show)
+and `PATCH` sets it; `409 email_unknown` when the credential's user has no
+known email.
 
 Viewer-side routes live under `/_au/` on the artifact host: the gate
 (`/_au/gate/email`, `/_au/gate/start`, `/_au/gate/verify`, `/_au/gate/link`;
