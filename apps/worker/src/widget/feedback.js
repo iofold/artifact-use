@@ -154,6 +154,7 @@
     '<label class="au-check"><input type="checkbox" data-pins> Pins</label></div>' +
     "</div>" +
     '<div class="au-presence" data-presence hidden></div>' +
+    '<div class="au-privacy" data-privacy hidden></div>' +
     '<div class="au-versions" data-versions hidden></div>' +
     '<div class="au-loadbar" data-loadbar></div>' +
     '<div class="au-list" data-list></div>' +
@@ -1782,6 +1783,21 @@
       })
       .catch(function () {});
   }
+  // Private feedback: one passive line, no controls. Viewers learn who sees
+  // their comments; publishers that each viewer sees only their own threads.
+  function renderPrivacy(j) {
+    var box = $("[data-privacy]");
+    if (!box) return;
+    if (!j || j.feedback !== "private") {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    box.textContent =
+      j.role === "publisher"
+        ? "Private feedback: each viewer sees only their own threads."
+        : "Private feedback: only you and the publisher see your comments.";
+  }
   function loadContext() {
     if (contextLoaded) return;
     contextLoaded = true;
@@ -1793,6 +1809,7 @@
       })
       .then(function (j) {
         renderPresence(j && j.agent ? j.agent : null);
+        renderPrivacy(j);
         if (!j || j.role !== "publisher" || !j.admin_url) return;
         loadVersions();
         var tools = panel.querySelector(".au-tools");
@@ -2422,6 +2439,8 @@
       ".au-version-note{flex-basis:100%;color:#1f2a27;font-size:12px;font-weight:600;line-height:1.35;overflow-wrap:anywhere}",
       ".au-version-detail{flex-basis:100%;color:#5c6b66;font-size:11px}",
       ".au-presence.is-watching{color:#0f6b3f}",
+      ".au-privacy{flex:0 0 auto;display:flex;align-items:center;gap:7px;padding:6px 12px;font-size:11px;font-weight:600;color:#3d4f6b;background:#f5f7fb;border-bottom:1px solid #eef2f1}",
+      ".au-privacy::before{content:'';width:8px;height:8px;border-radius:2px;background:#6b7fa3;flex:0 0 8px}",
       ".au-presence.is-watching::before{background:#22a35f;box-shadow:0 0 0 3px rgba(34,163,95,.18)}",
       ".au-item.is-pending{background:#fbfdfc}",
       "@keyframes au-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}",

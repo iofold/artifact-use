@@ -302,7 +302,8 @@ plus `dir` and `dry_run` on `artifact_publish`.
 - Both publish tools take `base_version_id` (your last `version_id`) and
   `change_note` (one line on what this publish changed); see section 16.
 - `artifact_manage`: `list` (returns `url_key` and `open_comments` per
-  artifact), `stats`, `set_access` (`gate_level`, `allowlist`), `set_preview`
+  artifact), `stats`, `set_access` (`gate_level`, `allowlist`, `feedback`:
+  `shared` or `private`; section 5), `set_preview`
   (`title`, `description`), `set_upstream` (`upstream_url`, optional write-only
   `upstream_secret`; omit `upstream_url` to remove), `share_link` (`kind`:
   `recipient` default, `password`, or `open`; `label`, `recipient_email`,
@@ -441,6 +442,23 @@ Bodies longer than 2,000 characters are truncated to 2,000 without an error,
 so split a long reply into several posts. Viewer-side agents (delegated or
 self-served via the gate) use the same shapes on `/_au/comments` with
 `artifact_key` in the query or body; see section 14.
+
+### Private feedback
+
+To share one artifact with several customers without any of them seeing
+another's feedback, set `artifact_manage` `set_access` with
+`feedback: "private"` (REST: `PATCH {"feedback": "private"}`).
+
+- Each viewer then sees only the threads they started, plus your replies in
+  them.
+- You and the rest of the workspace see every thread, each marked
+  `private: true`.
+- Threads you start while private are internal (no viewer sees them), so
+  reply inside a customer's thread to reach that customer.
+- Switching back to `shared` never reveals threads written while private.
+- **The page itself is still shared.** When you act on one customer's
+  feedback, do not put their name, company or quotes into the page, its
+  title, or a reply in someone else's thread.
 
 ## 6. HTML artifact quality
 
@@ -723,7 +741,9 @@ Reading a gated artifact as an agent (no browser needed):
   the returned `next_since` back as `since`);
   `POST {artifact_key, body, parent_id?, page_path?, target?, client_ref?}`
   comments or replies and returns the created id;
-  `PATCH {artifact_key, id, resolved}` resolves or reopens.
+  `PATCH {artifact_key, id, resolved}` resolves or reopens. When the artifact
+  has private feedback (`feedback.visibility` in `_au/index.json`), you see
+  only your own threads and the publisher's replies in them.
 - Publishers close the loop with their own token: the `artifact_comments` MCP
   tool (subscribe a webhook, or list with `wait: 25` and work through
   `status: "open"`), CLI `artifact-use comments`, or

@@ -1,5 +1,6 @@
 import type {
   Artifact,
+  FeedbackMode,
   ArtifactUpstream,
   ArtifactFile,
   ArtifactVersion,
@@ -517,6 +518,22 @@ export async function updateArtifactAccess(
       now,
       artifact.id,
     )
+    .run();
+  return (await getArtifactById(env, artifact.id)) as Artifact;
+}
+
+// Private feedback on or off. Only new threads follow the new mode: threads
+// written while private stay private (comments.private_to).
+export async function updateArtifactFeedback(
+  env: Env,
+  artifact: Artifact,
+  mode: FeedbackMode,
+): Promise<Artifact> {
+  const now = Math.max(nowSec(), Number(artifact.updated_at || 0) + 1);
+  await env.DB.prepare(
+    "UPDATE artifacts SET feedback_mode = ?, updated_at = ? WHERE id = ?",
+  )
+    .bind(mode, now, artifact.id)
     .run();
   return (await getArtifactById(env, artifact.id)) as Artifact;
 }

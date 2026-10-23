@@ -64,7 +64,7 @@ test("help, --help, -h and no arguments print the human-readable usage", async (
     );
     assert.match(
       result.stdout,
-      /^ {2}gate\s+artifact, gate_level {2}\[allowlist, title\]$/m,
+      /^ {2}gate\s+artifact {2}\[gate_level, allowlist, title, feedback\]$/m,
     );
     assert.match(
       result.stdout,
@@ -133,8 +133,7 @@ test("unknown commands keep the JSON error envelope and exit 1", async () => {
 test("real commands still answer in JSON", async () => {
   const result = await run("schema", "gate");
   assert.equal(result.code, 0);
-  assert.deepEqual(JSON.parse(result.stdout).required, [
-    "artifact",
-    "gate_level",
-  ]);
+  const schema = JSON.parse(result.stdout);
+  assert.deepEqual(schema.required, ["artifact"]);
+  assert.deepEqual(schema.properties.feedback.enum, ["shared", "private"]);
 });

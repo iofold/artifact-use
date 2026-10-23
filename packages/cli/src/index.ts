@@ -70,7 +70,7 @@ const SCHEMAS = {
   },
   gate: {
     type: "object",
-    required: ["artifact", "gate_level"],
+    required: ["artifact"],
     properties: {
       artifact: {
         type: "string",
@@ -82,6 +82,12 @@ const SCHEMAS = {
       },
       allowlist: { type: "object" },
       title: { type: "string" },
+      feedback: {
+        type: "string",
+        enum: ["shared", "private"],
+        description:
+          "private: each viewer sees only their own comment threads; your workspace sees all.",
+      },
     },
   },
   share: {
@@ -175,7 +181,7 @@ const SUMMARIES: Record<string, string> = {
     "Publish a local folder; --dry-run prints the manifest without uploading.",
   list: "List the workspace's artifacts.",
   stats: "View counts and gate statistics for an artifact.",
-  gate: "Change who can open an artifact (gate level and allowlist).",
+  gate: "Change who can open an artifact (gate level and allowlist) and whether viewers see each other's feedback.",
   preview: "Set the public title and link-preview description.",
   share:
     "Create a share link: for one recipient, behind a passcode, or open to anyone with the URL.",
@@ -253,6 +259,7 @@ async function main(): Promise<void> {
           gate_level: input.gate_level,
           allowlist: input.allowlist,
           title: input.title,
+          feedback: input.feedback,
         },
       ),
     );

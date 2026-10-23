@@ -10,16 +10,20 @@ import { abuseMailto } from "./abuse";
 import { getCreator, requirePermission, signViewerSession } from "./auth";
 import { resolveWorkspaceOrg } from "./workspaces";
 import {
+  ANONYMOUS_AUDIENCE,
   type CommentAuthor,
+  WORKSPACE_AUDIENCE,
   agentPresence,
   clampWait,
   createComment,
   creatorCommentAuthor,
+  feedbackMode,
   listComments,
   positiveInteger,
   reanchorComment,
   resolveComment,
   touchArtifactWatch,
+  viewerAudience,
   waitForComments,
 } from "./comments";
 import {
@@ -645,7 +649,10 @@ export async function handleArtifactContext(
   // Agent presence is page-level, not identity-level: every viewer may know
   // whether the publishing agent has checked this artifact recently.
   const agent = await agentPresence(env, artifact.id);
-  const viewer = () => json({ role: "viewer", agent });
+  // Page-level like presence: the widget tells viewers their feedback is
+  // private, and publishers that each viewer sees only their own threads.
+  const feedback = feedbackMode(artifact);
+  const viewer = () => json({ role: "viewer", agent, feedback });
   const auth = await getPublisherSessionAuth(request, env);
   if (!auth || auth.session.orgId !== artifact.org_id) return viewer();
   // Defense-in-depth: an artifact page may only ask about itself, so hostile
@@ -655,6 +662,7 @@ export async function handleArtifactContext(
     role: "publisher",
     admin_url: `/admin?open=${encodeURIComponent(artifact.id)}`,
     agent,
+    feedback,
   });
 }
 
@@ -737,6 +745,7 @@ export async function handleComments(
       since: Number(url.searchParams.get("since")) || null,
       pagePath: url.searchParams.get("page_path"),
       limit: Number(url.searchParams.get("limit")) || null,
+      audience: author?.audience ?? ANONYMOUS_AUDIENCE,
     };
     const wait = clampWait(url.searchParams.get("wait"));
     return json(
@@ -798,7 +807,13 @@ export async function handleComments(
       return json({ ok: true, comment: { id }, ignored: ["sent_to_agent"] });
     }
     if (body.target !== undefined) {
-      const reanchored = await reanchorComment(env, artifact, id, body.target);
+      const reanchored = await reanchorComment(
+        env,
+        artifact,
+        id,
+        body.target,
+        author.audience ?? ANONYMOUS_AUDIENCE,
+      );
       if (reanchored === null)
         return error(404, "comment_not_found", "comment not found");
       if (reanchored === "invalid_target")
@@ -811,6 +826,7 @@ export async function handleComments(
       id,
       body.resolved !== false,
       author.email,
+      author.audience ?? ANONYMOUS_AUDIENCE,
     );
     if (!updated) return error(404, "comment_not_found", "comment not found");
     return json({ ok: true, comment: updated });
@@ -879,6 +895,11 @@ async function commentIdentity(
 ): Promise<CommentAuthor | null> {
   const session = await gatePassingSession(request, env, artifact);
   if (session) {
+    // A member who came through the gate still carries their viewer cookie;
+    // visibility follows the workspace membership, not the attribution.
+    const audience = (await workspaceSignedIn(request, env, artifact))
+      ? WORKSPACE_AUDIENCE
+      : viewerAudience(session);
     // A delegated "Hand to your agent" session writes as an agent under the
     // viewer's email; a plain gate session is the human viewer.
     return session.agent
@@ -887,8 +908,9 @@ async function commentIdentity(
           viewId: session.view_id,
           kind: "agent",
           label: session.agent,
+          audience,
         }
-      : { email: session.email, viewId: session.view_id };
+      : { email: session.email, viewId: session.view_id, audience };
   }
   const creator = await creatorForArtifact(
     request,
@@ -905,8 +927,23 @@ async function commentIdentity(
   // public artifact attribute comments to a visitor who never consented.
   const signedIn = await signedInViewer(request, env, artifact);
   if (signedIn?.member && !refererOutsideArtifact(request, env, artifact))
-    return { email: signedIn.email, viewId: null };
+    return {
+      email: signedIn.email,
+      viewId: null,
+      audience: WORKSPACE_AUDIENCE,
+    };
   return null;
+}
+
+// A signed-in member of the artifact's workspace (directly or through the
+// multi-workspace snapshot), asking from this artifact's own pages.
+async function workspaceSignedIn(
+  request: Request,
+  env: Env,
+  artifact: Artifact,
+): Promise<boolean> {
+  const signedIn = await signedInViewer(request, env, artifact);
+  return !!signedIn?.member && !refererOutsideArtifact(request, env, artifact);
 }
 
 // Machine-readable 401 for the comments route: unlike gateJson this is
@@ -1061,6 +1098,10 @@ function artifactDescriptor(
     read: "GET each file's `url` with header 'Authorization: Bearer <token>'. HTML is fine to read directly; no browser needed.",
     feedback: {
       endpoint: `${site}/_au/comments`,
+      visibility:
+        feedbackMode(artifact) === "private"
+          ? "private: you see only the threads you started and the publisher's replies in them; other viewers never see yours. The publishing workspace sees every thread."
+          : "shared: every viewer sees every thread",
       auth: "same bearer as reads; the publishing workspace's own token (au_creator_.../MCP OAuth) also works",
       list: `GET ${site}/_au/comments?artifact_key=${artifact.url_key}&status=open|resolved|all&since=<unix>&page_path=<path>&wait=<1..25> -> threaded comments (parent_comment_id links replies to roots); wait long-polls for a comment newer than since and returns next_since to carry`,
       post: {
@@ -1161,6 +1202,12 @@ export async function handleAgentToken(
     `3. GET  ${site}/_au/comments?artifact_key=${artifact.url_key}&status=open   -> read the comment threads`,
     `4. POST ${site}/_au/comments  {artifact_key:"${artifact.url_key}", body, parent_id?, target?}   -> comment or reply; returns the comment id`,
     `5. PATCH ${site}/_au/comments  {artifact_key:"${artifact.url_key}", id, resolved:true}   -> resolve a thread once addressed`,
+    ...(feedbackMode(artifact) === "private"
+      ? [
+          ``,
+          `Feedback on this artifact is private: you see only the threads you (and the person who handed you this) started, plus the publisher's replies. Other viewers never see them.`,
+        ]
+      : []),
     ``,
     `Recurring/richer access -> connect the MCP at ${site}/mcp, or publish your own there (sign in once).`,
   ].join("\n");

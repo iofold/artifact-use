@@ -512,6 +512,7 @@ async function callTool(
           ...postJson({
             gate_level: args.gate_level,
             allowlist: args.allowlist,
+            feedback: args.feedback,
           }),
           method: "PATCH",
         },

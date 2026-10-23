@@ -177,6 +177,37 @@ the comment that was already created. `PATCH /_au/comments` accepts
 (re-anchor). A `sent_to_agent` field from older clients is accepted and
 ignored.
 
+### Private feedback
+
+With `feedback: "private"`, one artifact can go to several customers without
+any of them seeing another's feedback:
+
+- A viewer's `GET` (and long-poll) returns only threads they started, with
+  every reply in them, including the workspace's. The widget's badge, pins
+  and counts follow.
+- The publishing workspace (signed-in members, creator tokens, MCP) sees
+  every thread. Comments written while private carry `private: true`.
+- Threads the workspace starts while private are internal: no viewer sees
+  them.
+- Replying to, resolving, reopening or re-anchoring a thread you cannot see
+  answers `404 comment_not_found`, the same as a missing one. A `client_ref`
+  that belongs to someone else's comment answers `409 client_ref_conflict`.
+- Who counts as "the same viewer":
+  - A verified identity (email code, Google, a signed-in "Continue as") or a
+    share-link identity (`recipient_email`, or `link:{id}`): everyone who
+    opens one password or open link shares that link's threads.
+  - An unverified email typed on plain `email` access: that session only,
+    since anyone can type an address.
+- The mode is read when comments are written and listed. Threads written
+  while private stay private after switching back to `shared`. Switching to
+  `private` hides other viewers' earlier threads, while each viewer keeps
+  their own.
+- Anonymous readers of a `public` artifact see no threads while it is
+  private.
+
+`GET /_au/artifact-context` returns `feedback: "shared" | "private"`, and the
+`_au/index.json` descriptor states the mode in `feedback.visibility`.
+
 The publisher endpoint `/api/v1/artifacts/{artifact_key}/comments` speaks the
 same shapes (`GET` with the same filters including `wait`; `POST` with `body`,
 `parent_id`, `page_path`, `target`, `client_ref`; `PATCH` with `id`,
@@ -327,6 +358,11 @@ Gate levels (`gate_level` on publish and on `PATCH`):
 `PATCH` also accepts `access_preset` as a friendlier alias for the same four
 levels: `open`, `email`, `client` (= `verified_email`), `restricted`
 (= `allowlist`). No other levels exist.
+
+`PATCH` also takes `feedback`: `shared` (the default; every viewer sees every
+comment thread) or `private` (each viewer sees only their own threads; see
+[Private feedback](#private-feedback)). Anything else is
+`400 invalid_feedback`. The artifact carries the mode as `feedback_mode`.
 
 Every artifact URL is unlisted: responses carry `X-Robots-Tag: noindex,
 nofollow`, so only people holding the URL (or a share link) can find it.

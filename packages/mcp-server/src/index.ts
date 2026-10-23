@@ -92,6 +92,7 @@ async function manageArtifact(
     return api(conf, "PATCH", `/api/v1/artifacts/${artifactRef}`, {
       gate_level: args.gate_level,
       allowlist: args.allowlist,
+      feedback: args.feedback,
     });
   if (action === "set_preview")
     return api(conf, "PATCH", `/api/v1/artifacts/${artifactRef}`, {
