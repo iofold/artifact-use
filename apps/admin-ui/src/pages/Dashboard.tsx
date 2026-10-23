@@ -8,6 +8,7 @@ import {
   type ArtifactVersion,
   type CreatedShareLink,
   type DailyRow,
+  type Me,
   type Overview,
   type RecentView,
   type ShareLink,
@@ -24,6 +25,79 @@ import {
   formatBytes,
   formatNumber,
 } from "../ui";
+
+// The name your comments show viewers: the one you set, else your email's
+// prefix. Shared with the widget's "Commenting as" line.
+function CommentName({ me }: { me: Me }) {
+  const queryClient = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const save = useMutation({
+    mutationFn: () => api.setDisplayName(value.trim()),
+    onSuccess: () => {
+      setEditing(false);
+      void queryClient.invalidateQueries({ queryKey: ["overview"] });
+    },
+  });
+  if (!me.email || !me.display_name) return null;
+  const prefix = me.email.split("@")[0] || "";
+  if (!editing)
+    return (
+      <p className="muted comment-name">
+        Comments show you as <strong>{me.display_name}</strong> ·{" "}
+        <button
+          type="button"
+          className="text-button"
+          onClick={() => {
+            setValue(me.display_name_set ? me.display_name || "" : "");
+            setEditing(true);
+          }}
+        >
+          Change
+        </button>
+      </p>
+    );
+  return (
+    <form
+      className="comment-name-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        save.mutate();
+      }}
+    >
+      <label htmlFor="comment-name">Your name on comments</label>
+      <div>
+        <input
+          id="comment-name"
+          value={value}
+          placeholder={prefix}
+          maxLength={60}
+          autoFocus
+          onChange={(event) => setValue(event.target.value)}
+        />
+        <button
+          type="submit"
+          className="button small"
+          disabled={save.isPending}
+        >
+          {save.isPending ? "Saving…" : "Save"}
+        </button>
+        <button
+          type="button"
+          className="button small ghost"
+          onClick={() => setEditing(false)}
+        >
+          Cancel
+        </button>
+      </div>
+      <p className="mini">
+        {save.isError
+          ? "Names are up to 60 characters and can't contain @."
+          : `Leave it empty to show ${prefix}.`}
+      </p>
+    </form>
+  );
+}
 
 // The four gate levels, described by what they mean for the person opening
 // the link. `verified_email` is the "share with a client" preset: a one-time
@@ -184,6 +258,7 @@ export default function Dashboard() {
           <p className="muted">
             {data.me.email || data.me.name || data.me.sub}
           </p>
+          <CommentName me={data.me} />
         </div>
         {hasArtifacts ? <Metrics data={data} /> : null}
       </section>
@@ -1247,7 +1322,9 @@ function ArtifactSheet({
               {detail.comments.slice(0, 8).map((comment) => (
                 <li key={comment.id}>
                   <span>
-                    <strong>{comment.email}</strong>
+                    <strong title={comment.email}>
+                      {comment.author_name || comment.email}
+                    </strong>
                     <small>{comment.body}</small>
                   </span>
                   <time>

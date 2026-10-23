@@ -1084,11 +1084,15 @@ code {
   letter-spacing: 0.1em;
   color: var(--muted);
 }
+/* Open artifact on the left; Access, then Feedback, stacked on the right. */
 .sheet-actions {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
   align-items: stretch;
-  flex-wrap: wrap;
+}
+.sheet-actions > .access-control + .access-control {
+  grid-column: 2;
 }
 .sheet-actions .access {
   flex: 1;
@@ -1777,6 +1781,10 @@ code {
   }
   .sheet-actions {
     gap: 12px;
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sheet-actions > .access-control + .access-control {
+    grid-column: auto;
   }
   .sheet-actions > .button,
   .sheet-actions .access select,
@@ -2092,4 +2100,46 @@ code {
 }
 .sheet-body h3 .viz-toggle {
   margin-left: 8px;
+}
+
+/* "Comments show you as …" under the dashboard headline. */
+.headline .comment-name {
+  margin-top: 4px;
+}
+.text-button {
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.text-button:hover {
+  background: none;
+}
+.comment-name-form {
+  margin-top: 8px;
+  display: grid;
+  gap: 6px;
+  max-width: 460px;
+}
+.comment-name-form label {
+  font-size: 13px;
+  font-weight: 600;
+}
+.comment-name-form > div {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.comment-name-form input {
+  flex: 1;
+  min-width: 0;
+}
+.comment-name-form .mini {
+  margin: 0;
 }

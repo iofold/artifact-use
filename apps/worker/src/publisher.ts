@@ -5,6 +5,7 @@ import {
   getDisplayName,
   normalizeDisplayName,
   rememberWorkosUser,
+  resolveAuthorNames,
   setDisplayName,
 } from "./profiles";
 import type {
@@ -1096,6 +1097,11 @@ export async function handleAdminUiApi(
     if (!artifact)
       return error(404, "artifact_not_found", "artifact not found");
     const detail = await artifactDetailData(env, session.orgId, id);
+    const names = await resolveAuthorNames(
+      env,
+      { org_id: session.orgId },
+      detail.comments.map((comment) => comment.email),
+    ).catch(() => new Map<string, string>());
     return json({
       shares: detail.shares.map((link) =>
         shareLinkJson(env, artifact.url_key, link),
@@ -1106,6 +1112,7 @@ export async function handleAdminUiApi(
         .map((comment) => ({
           id: comment.id,
           email: comment.email,
+          author_name: names.get(comment.email) || fallbackName(comment.email),
           body: comment.body,
           created_at: comment.created_at,
           resolved_at: comment.resolved_at || null,
