@@ -4,6 +4,25 @@ Notable changes to Artifact Use are documented here.
 
 ## Unreleased
 
+- Private feedback: an artifact can be set to `feedback: "private"` (REST
+  `PATCH`, MCP and stdio `artifact_manage set_access`, CLI `gate`, and a
+  Feedback select in the admin sidesheet). Each viewer then sees only the
+  threads they started plus the workspace's replies; the workspace sees
+  every thread. The rules are enforced in the comments query, so the widget,
+  badge, pins, long-poll and agent API all follow.
+  - Replying to, resolving or re-anchoring another viewer's thread answers
+    `404`; replaying another viewer's `client_ref` answers `409`.
+  - Threads the workspace starts while private are internal.
+  - Threads written while private stay private after switching back.
+  - Verified and share-link viewers are matched by identity; unverified
+    typed emails only within their own session.
+  - Comments carry `private`, `/_au/artifact-context` returns `feedback`, and
+    the widget shows one notice line. Migration 0019.
+- The comments and "Hand to your agent" routes now apply the page's own
+  session checks: a revoked or expired share link's session can no longer
+  read or post comments, and verified gates refuse unverified sessions there
+  too.
+
 - Daily feedback digest: an optional second cron (`0 14 * * *`) emails the
   operator the last 24 hours of reviewer comments across chosen workspaces,
   grouped by artifact with each thread's state, plus threads from the previous

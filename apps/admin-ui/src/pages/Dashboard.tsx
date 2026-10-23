@@ -932,6 +932,15 @@ function ArtifactSheet({
     onSettled: invalidate,
   });
   const [gate, setGate] = useState(artifact.gate_level);
+  const feedbackMutation = useMutation({
+    mutationFn: (feedback: string) =>
+      postForm("/admin/artifact/feedback", {
+        artifact_key: artifact.url_key,
+        feedback,
+      }),
+    onSettled: invalidate,
+  });
+  const feedback = artifact.feedback_mode === "private" ? "private" : "shared";
   const [preview, setPreview] = useState({
     title: artifact.title,
     description: artifact.description || "",
@@ -1067,6 +1076,26 @@ function ArtifactSheet({
                 >
                   {gateMutation.isPending ? "Saving…" : "Update"}
                 </button>
+              </div>
+            </div>
+            <div className="access-control">
+              <label htmlFor={`artifact-feedback-${artifact.id}`}>
+                Feedback
+              </label>
+              <div className="access">
+                <select
+                  id={`artifact-feedback-${artifact.id}`}
+                  value={feedback}
+                  disabled={feedbackMutation.isPending}
+                  onChange={(e) => feedbackMutation.mutate(e.target.value)}
+                >
+                  <option value="shared">
+                    Shared — viewers see each other's comments
+                  </option>
+                  <option value="private">
+                    Private — each viewer sees only their own
+                  </option>
+                </select>
               </div>
             </div>
           </div>

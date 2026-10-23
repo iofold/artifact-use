@@ -1,3 +1,4 @@
+import { feedbackMode } from "./comments";
 import type {
   Artifact,
   Creator,
@@ -52,6 +53,7 @@ import {
   migratePublisherDataToOrg,
   moveArtifactToOrg,
   updateArtifactAccess,
+  updateArtifactFeedback,
   updateArtifactPreview,
 } from "./db";
 import { createShareLinkFromInput } from "./admin";
@@ -1020,6 +1022,8 @@ export async function handlePublisherAdmin(
     return updateAccess(request, env, session);
   if (path === "/admin/artifact/preview" && request.method === "POST")
     return updatePreview(request, env, session);
+  if (path === "/admin/artifact/feedback" && request.method === "POST")
+    return updateFeedback(request, env, session);
   if (path === "/admin/artifact/delete" && request.method === "POST")
     return deleteArtifactAction(request, env, session);
   if (path === "/admin/artifact/share-link" && request.method === "POST")
@@ -1531,6 +1535,7 @@ async function adminOverviewJson(
       title: artifact.title,
       description: artifact.description,
       gate_level: artifact.gate_level,
+      feedback_mode: feedbackMode(artifact),
       status: artifact.status,
       org_suspended: Boolean(artifact.org_suspended),
       path: publicArtifactPath(env, artifact.url_key),
@@ -2689,6 +2694,23 @@ async function updateAccess(
     gateLevel,
     parseAllowlist(form.get("allowlist_lines")),
   );
+  return redirect(`/admin?open=${encodeURIComponent(artifact.id)}`);
+}
+
+// Private feedback on or off (see comments.ts): each viewer then sees only
+// their own threads, the workspace every thread.
+async function updateFeedback(
+  request: Request,
+  env: Env,
+  session: PublisherSession,
+): Promise<Response> {
+  const form = await request.formData();
+  const mode = String(form.get("feedback") || "");
+  if (mode !== "shared" && mode !== "private")
+    return error(400, "invalid_feedback", "feedback must be shared or private");
+  const artifact = await publisherArtifact(env, session, form);
+  if (!artifact) return error(404, "artifact_not_found", "artifact not found");
+  await updateArtifactFeedback(env, artifact, mode);
   return redirect(`/admin?open=${encodeURIComponent(artifact.id)}`);
 }
 

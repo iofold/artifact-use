@@ -1,4 +1,5 @@
 export type GateLevel = "public" | "email" | "verified_email" | "allowlist";
+export type FeedbackMode = "shared" | "private";
 
 export interface Env {
   DB: D1Database;
@@ -80,6 +81,9 @@ export interface Artifact {
   description: string | null;
   gate_level: GateLevel;
   allowlist_json: string | null;
+  // 'private': each viewer sees only their own threads (comments.ts).
+  // Optional so rows read through older projections behave as 'shared'.
+  feedback_mode?: FeedbackMode | string | null;
   current_version_id: string | null;
   created_by: string;
   created_at: number;

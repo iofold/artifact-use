@@ -100,7 +100,7 @@ or `npx plugins add iofold/artifact-use`.
 - `artifact_publish`: publish a single `html` string or small inline `files` (2 MiB per file); pass public-safe `description` copy when available. `artifact` is a slug or an existing `url_key`.
 - `artifact_upload_session`: create a 6-hour direct upload token for shell/curl uploads; pass `file_count` and `package_bytes` for an immediate `413` before uploading.
 - Both publish tools take `base_version_id` (your last `version_id`; a `version_conflict` means someone published in between) and `change_note` (one line, at most 280 characters, on what this publish changed).
-- `artifact_manage`: `list`, `stats`, `set_access`, `set_preview`, `set_upstream`, `share_link` (`kind`: `recipient`, `password`, `open`), `share_links`, `revoke_link`, `versions`, `promote` (`version_id`; rollback = promote an older version), `diff` (`from_version`, `to_version`), `move` (`to_workspace`), `delete` (`confirm: true`), `workspaces`.
+- `artifact_manage`: `list`, `stats`, `set_access` (`gate_level`, `allowlist`, `feedback`: `private` = each viewer sees only their own comment threads), `set_preview`, `set_upstream`, `share_link` (`kind`: `recipient`, `password`, `open`), `share_links`, `revoke_link`, `versions`, `promote` (`version_id`; rollback = promote an older version), `diff` (`from_version`, `to_version`), `move` (`to_workspace`), `delete` (`confirm: true`), `workspaces`.
 - `artifact_comments`: `list` (`status`, `since`, `wait` up to 25 s), `post` (reply with `parent_id`), `resolve`, `reopen`, `subscribe` (webhook `url`), `unsubscribe` (`webhook_id`), `webhooks`.
 
 Tool failures return `isError: true` with `structuredContent.error = {code, message, status}` using the HTTP API's error codes.

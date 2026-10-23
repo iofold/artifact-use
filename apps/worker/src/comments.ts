@@ -1,4 +1,10 @@
-import type { Artifact, Creator, Env } from "./types";
+import type {
+  Artifact,
+  Creator,
+  Env,
+  FeedbackMode,
+  ViewerSession,
+} from "./types";
 import { nowSec, publicArtifactPath } from "./util";
 import { enqueueCommentEvent, type CommentEvent } from "./webhooks";
 
@@ -8,6 +14,113 @@ import { enqueueCommentEvent, type CommentEvent } from "./webhooks";
 // speak the same row shape so an agent can switch surfaces without relearning.
 
 export type AuthorKind = "human" | "agent";
+
+// Who is asking, for visibility. The publishing workspace (members, creator
+// tokens, MCP) sees every thread. A viewer is keyed by a verified identity
+// (email or link:<id>) or, for an unverified typed email, by its session,
+// since anyone can type an address. Anonymous readers exist only on public
+// artifacts.
+export type CommentAudience =
+  | { kind: "workspace" }
+  | {
+      kind: "viewer";
+      // Matches comments.private_to on threads this viewer started.
+      key: string;
+      // Matches threads they started before the artifact went private:
+      // by email when verified, by session (view id) otherwise.
+      email: string | null;
+      viewId: number | null;
+    }
+  | { kind: "anonymous" };
+
+export const WORKSPACE_AUDIENCE: CommentAudience = { kind: "workspace" };
+export const ANONYMOUS_AUDIENCE: CommentAudience = { kind: "anonymous" };
+
+export function feedbackMode(
+  artifact: Pick<Artifact, "feedback_mode">,
+): FeedbackMode {
+  return artifact.feedback_mode === "private" ? "private" : "shared";
+}
+
+// A viewer session's audience. Verified sessions (email code, Google, a
+// signed-in "Continue as") and share-link sessions are trusted for their
+// identity; a typed, unverified email only for the session it was typed in.
+export function viewerAudience(
+  session: Pick<ViewerSession, "email" | "verified" | "view_id" | "link_id">,
+): CommentAudience {
+  const viewId = Number.isSafeInteger(Number(session.view_id))
+    ? Number(session.view_id)
+    : null;
+  if (session.verified || session.link_id)
+    return { kind: "viewer", key: session.email, email: session.email, viewId };
+  return { kind: "viewer", key: `view:${viewId ?? 0}`, email: null, viewId };
+}
+
+// The thread-root fields visibility is decided on.
+interface ThreadRootFields {
+  private_to?: string | null;
+  email?: string | null;
+  view_id?: number | null;
+}
+
+// Can this audience see the thread with this root? The SQL twin is
+// visibilitySql; keep the two in step.
+export function threadVisibleTo(
+  artifact: Pick<Artifact, "feedback_mode">,
+  audience: CommentAudience,
+  root: ThreadRootFields,
+): boolean {
+  if (audience.kind === "workspace") return true;
+  const privateTo = root.private_to ?? null;
+  if (privateTo !== null)
+    return audience.kind === "viewer" && privateTo === audience.key;
+  if (feedbackMode(artifact) === "shared") return true;
+  if (audience.kind !== "viewer") return false;
+  if (audience.email !== null) return root.email === audience.email;
+  return audience.viewId !== null && root.view_id === audience.viewId;
+}
+
+// Thread-root column: replies are judged by their root.
+function rootCol(column: string): string {
+  return `(CASE WHEN c.parent_comment_id IS NULL THEN c.${column} ELSE root.${column} END)`;
+}
+
+function visibilitySql(
+  artifact: Pick<Artifact, "feedback_mode">,
+  audience: CommentAudience,
+): { sql: string | null; binds: unknown[] } {
+  if (audience.kind === "workspace") return { sql: null, binds: [] };
+  const privateTo = rootCol("private_to");
+  const shared = feedbackMode(artifact) === "shared";
+  if (audience.kind === "anonymous")
+    return shared
+      ? { sql: `${privateTo} IS NULL`, binds: [] }
+      : { sql: "0", binds: [] };
+  if (shared)
+    return {
+      sql: `(${privateTo} IS NULL OR ${privateTo} = ?)`,
+      binds: [audience.key],
+    };
+  if (audience.email !== null)
+    return {
+      sql: `(${privateTo} = ? OR (${privateTo} IS NULL AND ${rootCol("email")} = ?))`,
+      binds: [audience.key, audience.email],
+    };
+  return {
+    sql: `(${privateTo} = ? OR (${privateTo} IS NULL AND ${rootCol("view_id")} = ?))`,
+    binds: [audience.key, audience.viewId ?? -1],
+  };
+}
+
+// What a new root records in comments.private_to.
+function privateToForNewThread(
+  artifact: Pick<Artifact, "feedback_mode">,
+  audience: CommentAudience,
+): string | null {
+  if (feedbackMode(artifact) !== "private") return null;
+  if (audience.kind === "viewer") return audience.key;
+  return "workspace";
+}
 
 export interface CommentAuthor {
   email: string;
@@ -20,6 +133,8 @@ export interface CommentAuthor {
   // A creator credential of the publishing workspace (token, OAuth, dev): the
   // publishing agent. Its reads count as "an agent is watching".
   creator?: boolean;
+  // Visibility of the caller; absent means the workspace (creator routes).
+  audience?: CommentAudience;
 }
 
 export interface CommentFilters {
@@ -27,6 +142,8 @@ export interface CommentFilters {
   since?: number | null; // created_at strictly after this unix timestamp
   pagePath?: string | null;
   limit?: number | null; // default 200, max 500
+  // Absent means the workspace: every thread. The viewer route always sets it.
+  audience?: CommentAudience;
 }
 
 // Raw row plus agent conveniences: `resolved` as a boolean and `target` as a
@@ -44,6 +161,9 @@ export interface ApiComment {
   resolved_by: string | null;
   author_kind: AuthorKind;
   agent_label: string | null;
+  // True when the thread was written while the artifact was private: only
+  // its author and the workspace can see it.
+  private: boolean;
   target: unknown;
   target_json: string | null;
 }
@@ -74,10 +194,12 @@ interface CommentRow {
   resolved_by: string | null;
   author_kind: string | null;
   agent_label: string | null;
+  view_id?: number | null;
+  private_to?: string | null;
 }
 
 const ROW_COLUMNS =
-  "c.id, c.parent_comment_id, c.email, c.body, c.target_json, c.page_path, c.version_id, c.created_at, c.resolved_at, c.resolved_by, c.author_kind, c.agent_label";
+  "c.id, c.parent_comment_id, c.email, c.body, c.target_json, c.page_path, c.version_id, c.created_at, c.resolved_at, c.resolved_by, c.author_kind, c.agent_label, c.view_id, c.private_to";
 
 export async function listComments(
   env: Env,
@@ -106,6 +228,15 @@ export async function listComments(
   if (filters.pagePath) {
     where.push("c.page_path = ?");
     binds.push(normalizePagePath(env, artifact, filters.pagePath, false));
+  }
+  // Last, so earlier placeholders keep their positions.
+  const visible = visibilitySql(
+    artifact,
+    filters.audience ?? WORKSPACE_AUDIENCE,
+  );
+  if (visible.sql) {
+    where.push(visible.sql);
+    binds.push(...visible.binds);
   }
   const limit = clampLimit(filters.limit);
   const rows = await env.DB.prepare(
@@ -284,6 +415,7 @@ export function creatorCommentAuthor(creator: Creator): CommentAuthor {
     kind: "agent",
     label: creatorAgentLabel(creator),
     creator: true,
+    audience: WORKSPACE_AUDIENCE,
   };
 }
 
@@ -310,10 +442,14 @@ export async function createComment(
       code: "body_required",
       message: "comment body required",
     };
+  const audience = author.audience ?? WORKSPACE_AUDIENCE;
   const parentId = positiveInteger(input.parent_id);
-  const parent = parentId
+  const found = parentId
     ? await commentParent(env, artifact.id, parentId)
     : null;
+  // A thread this caller cannot see answers exactly like a missing one.
+  const parent =
+    found && threadVisibleTo(artifact, audience, found.root) ? found : null;
   if (parentId && !parent)
     return {
       ok: false,
@@ -331,6 +467,10 @@ export async function createComment(
   const versionId =
     cleanStr(input.version_id, 64) || artifact.current_version_id || null;
   const clientRef = cleanStr(input.client_ref, 64) || null;
+  // Replies follow their root; a new root records who may see it.
+  const privateTo = parent
+    ? (parent.root.private_to ?? null)
+    : privateToForNewThread(artifact, audience);
   const kind: AuthorKind = author.kind === "agent" ? "agent" : "human";
   const label = kind === "agent" ? cleanStr(author.label, 80) : null;
   const createdAt = nowSec();
@@ -338,8 +478,8 @@ export async function createComment(
   try {
     inserted = await env.DB.prepare(
       `INSERT INTO comments
-     (artifact_id, view_id, email, body, target_json, page_path, version_id, parent_comment_id, client_ref, created_at, author_kind, agent_label)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (artifact_id, view_id, email, body, target_json, page_path, version_id, parent_comment_id, client_ref, created_at, author_kind, agent_label, private_to)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         artifact.id,
@@ -354,6 +494,7 @@ export async function createComment(
         createdAt,
         kind,
         label,
+        privateTo,
       )
       .run();
   } catch (e) {
@@ -361,7 +502,21 @@ export async function createComment(
     // unique index; return the already-created comment instead.
     if (clientRef && String(e).includes("UNIQUE")) {
       const existing = await commentByClientRef(env, artifact.id, clientRef);
-      if (existing) return { ok: true, comment: apiComment(existing) };
+      if (existing) {
+        // Only the caller's own retry gets the comment back; someone else's
+        // ref must not become a way to read another viewer's comment.
+        const root = existing.parent_comment_id
+          ? await commentById(env, artifact.id, existing.parent_comment_id)
+          : existing;
+        if (root && threadVisibleTo(artifact, audience, root))
+          return { ok: true, comment: apiComment(existing) };
+        return {
+          ok: false,
+          status: 409,
+          code: "client_ref_conflict",
+          message: "client_ref is already in use; send a new one",
+        };
+      }
     }
     throw e;
   }
@@ -378,6 +533,8 @@ export async function createComment(
     resolved_by: null,
     author_kind: kind,
     agent_label: label,
+    view_id: author.viewId,
+    private_to: privateTo,
   });
   await emitCommentEvent(
     env,
@@ -395,13 +552,14 @@ export async function resolveComment(
   id: number,
   resolved: boolean,
   byEmail: string,
+  audience: CommentAudience = WORKSPACE_AUDIENCE,
 ): Promise<{
   id: number;
   resolved: boolean;
   resolved_at: number | null;
   resolved_by: string | null;
 } | null> {
-  if (!(await commentExists(env, artifact.id, id))) return null;
+  if (!(await visibleComment(env, artifact, id, audience))) return null;
   const resolvedAt = resolved ? nowSec() : null;
   const resolvedBy = resolved ? byEmail : null;
   await env.DB.prepare(
@@ -433,8 +591,9 @@ export async function reanchorComment(
   artifact: Artifact,
   id: number,
   target: unknown,
+  audience: CommentAudience = WORKSPACE_AUDIENCE,
 ): Promise<{ id: number; target_json: string } | "invalid_target" | null> {
-  if (!(await commentExists(env, artifact.id, id))) return null;
+  if (!(await visibleComment(env, artifact, id, audience))) return null;
   const targetJson = commentTargetJson(target);
   if (!targetJson) return "invalid_target";
   const pagePath = normalizePagePath(env, artifact, targetPath(targetJson));
@@ -499,17 +658,21 @@ async function commentById(
   return row && Number.isFinite(Number(row.id)) ? row : null;
 }
 
-async function commentExists(
+// The comment, if it exists and its thread is visible to this audience. A
+// thread the caller cannot see answers exactly like a missing one.
+async function visibleComment(
   env: Env,
-  artifactId: string,
+  artifact: Artifact,
   id: number,
-): Promise<boolean> {
-  const row = await env.DB.prepare(
-    "SELECT id FROM comments WHERE id = ? AND artifact_id = ? AND deleted_at IS NULL",
-  )
-    .bind(id, artifactId)
-    .first<{ id: number }>();
-  return !!row;
+  audience: CommentAudience,
+): Promise<CommentRow | null> {
+  const row = await commentById(env, artifact.id, id);
+  if (!row) return null;
+  const root = row.parent_comment_id
+    ? await commentById(env, artifact.id, row.parent_comment_id)
+    : row;
+  if (!root) return null;
+  return threadVisibleTo(artifact, audience, root) ? row : null;
 }
 
 function apiComment(row: CommentRow): ApiComment {
@@ -526,6 +689,7 @@ function apiComment(row: CommentRow): ApiComment {
     resolved_by: row.resolved_by,
     author_kind: row.author_kind === "agent" ? "agent" : "human",
     agent_label: row.agent_label || null,
+    private: !!row.private_to,
     target: parseTarget(row.target_json),
     target_json: row.target_json,
   };
@@ -546,34 +710,29 @@ function clampLimit(value: number | null | undefined): number {
   return Math.min(Math.floor(n), 500);
 }
 
+// The thread a reply joins: always the root (threads are one level deep),
+// with the fields visibility is decided on. A reply to a reply attaches to
+// that reply's root but keeps the nearer element target.
 async function commentParent(
   env: Env,
   artifactId: string,
   parentId: number,
-): Promise<{ id: number; target_json: string | null } | null> {
-  const row = await env.DB.prepare(
-    `SELECT id, parent_comment_id, target_json
-     FROM comments
-     WHERE id = ? AND artifact_id = ? AND deleted_at IS NULL`,
-  )
-    .bind(parentId, artifactId)
-    .first<{
-      id: number;
-      parent_comment_id: number | null;
-      target_json: string | null;
-    }>();
+): Promise<{
+  id: number;
+  target_json: string | null;
+  root: ThreadRootFields;
+} | null> {
+  const row = await commentById(env, artifactId, parentId);
   if (!row) return null;
   if (!row.parent_comment_id)
-    return { id: row.id, target_json: row.target_json };
-  const root = await env.DB.prepare(
-    `SELECT id, target_json
-     FROM comments
-     WHERE id = ? AND artifact_id = ? AND deleted_at IS NULL`,
-  )
-    .bind(row.parent_comment_id, artifactId)
-    .first<{ id: number; target_json: string | null }>();
+    return { id: row.id, target_json: row.target_json, root: row };
+  const root = await commentById(env, artifactId, row.parent_comment_id);
   if (!root) return null;
-  return { id: root.id, target_json: row.target_json || root.target_json };
+  return {
+    id: root.id,
+    target_json: row.target_json || root.target_json,
+    root,
+  };
 }
 
 export function positiveInteger(value: unknown): number | null {

@@ -76,6 +76,7 @@ test("publishers of the artifact's org get the admin deep link", async () => {
     role: "publisher",
     admin_url: "/admin?open=art_ctx",
     agent: noAgent,
+    feedback: "shared",
   });
   assert.match(String(res.headers.get("Cache-Control")), /no-store/);
 });
@@ -89,7 +90,11 @@ test("everyone else gets the identical minimal viewer response", async () => {
   const anonymous = await handleArtifactContext(contextRequest(), env);
   const otherBody = await otherOrg.text();
   assert.equal(otherBody, await anonymous.text());
-  assert.deepEqual(JSON.parse(otherBody), { role: "viewer", agent: noAgent });
+  assert.deepEqual(JSON.parse(otherBody), {
+    role: "viewer",
+    agent: noAgent,
+    feedback: "shared",
+  });
 });
 
 test("viewers learn whether the publishing agent checked the page recently", async () => {
@@ -141,6 +146,7 @@ test("a page can only ask about the artifact it is serving", async () => {
   assert.deepEqual(await foreignPage.json(), {
     role: "viewer",
     agent: noAgent,
+    feedback: "shared",
   });
   const ownPage = await handleArtifactContext(
     contextRequest(
@@ -158,7 +164,8 @@ test("the response never carries capability or identity fields", async () => {
     contextRequest(await publisherCookie(env, "org_ctx")),
     env,
   );
-  const raw = await res.text();
+  // The feedback mode's value "shared" is page-level and expected.
+  const raw = (await res.text()).replace('"feedback":"shared"', "");
   for (const needle of ["share", "token", "email", "stats", "allowlist"])
     assert.ok(!raw.includes(needle), `response leaks "${needle}"`);
 });

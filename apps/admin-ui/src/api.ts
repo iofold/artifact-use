@@ -24,6 +24,8 @@ export type ArtifactRow = {
   title: string;
   description: string | null;
   gate_level: string;
+  // "private": each viewer sees only their own comment threads.
+  feedback_mode?: "shared" | "private";
   status: "active" | "suspended";
   org_suspended: boolean;
   path: string;

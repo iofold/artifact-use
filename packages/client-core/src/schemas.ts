@@ -154,6 +154,12 @@ export const artifactManageTool: ToolSchema = {
       },
       workspace: workspaceProperty,
       gate_level: { type: "string", enum: [...GATE_LEVELS] },
+      feedback: {
+        type: "string",
+        enum: ["shared", "private"],
+        description:
+          "set_access: private = each viewer sees only their own comment threads; your workspace sees all.",
+      },
       title: {
         type: "string",
         description: "set_preview: the public artifact title.",

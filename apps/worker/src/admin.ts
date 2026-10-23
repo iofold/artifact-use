@@ -37,6 +37,7 @@ import {
   revokeShareLink,
   setArtifactUpstream,
   updateArtifactAccess,
+  updateArtifactFeedback,
   updateArtifactPreview,
 } from "./db";
 import { validEmail } from "./gate";
@@ -241,8 +242,20 @@ export async function handleAdminApi(
         gate_level?: GateLevel;
         access_preset?: unknown;
         allowlist?: unknown;
+        feedback?: unknown;
         upstream?: { base_url?: unknown; secret?: unknown } | null;
       };
+      // Private feedback: each viewer sees only their own threads.
+      if (
+        body.feedback !== undefined &&
+        body.feedback !== "shared" &&
+        body.feedback !== "private"
+      )
+        return error(
+          400,
+          "invalid_feedback",
+          "feedback must be shared or private",
+        );
       // `access_preset` is a friendlier spelling of the same four levels:
       // open, email, client (= verified_email), restricted (= allowlist).
       if (
@@ -280,6 +293,11 @@ export async function handleAdminApi(
           allowlistJson,
         );
       }
+      if (
+        body.feedback !== undefined &&
+        body.feedback !== updated.feedback_mode
+      )
+        updated = await updateArtifactFeedback(env, updated, body.feedback);
       if (body.title !== undefined || body.description !== undefined) {
         updated = await updateArtifactPreview(
           env,
