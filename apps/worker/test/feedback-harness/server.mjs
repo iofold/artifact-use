@@ -420,6 +420,19 @@ const comments = [
   },
 ];
 
+// Display names: the viewer's own, and what the server would resolve for
+// everyone else (email prefix; the workspace's agent resolves to a person).
+// AU_NAME_EDIT=0 plays an unverified viewer who cannot change it.
+let myName = null;
+const authorName = (email) =>
+  email === "you@example.com"
+    ? myName || "you"
+    : email === "user_01AGENT"
+      ? "Sam Rivera"
+      : email.split("@")[0];
+const authorRole = (email) =>
+  email === "user_01AGENT" ? "workspace" : "viewer";
+
 const send = (res, status, type, body) => {
   res.writeHead(status, { "Content-Type": type });
   res.end(body);
@@ -466,6 +479,8 @@ const server = http.createServer(async (req, res) => {
         version_id: c.version_id ?? tjVer(c) ?? null,
         author_kind: c.author_kind ?? "human",
         agent_label: c.agent_label ?? null,
+        author_name: authorName(c.email),
+        author_role: authorRole(c.email),
       }));
       const newest = out.reduce((m, c) => Math.max(m, c.created_at), 0);
       return send(
@@ -499,6 +514,8 @@ const server = http.createServer(async (req, res) => {
         agent_label: null,
       };
       comments.push(created);
+      created.author_name = authorName(created.email);
+      created.author_role = "viewer";
       return send(
         res,
         200,
@@ -528,6 +545,41 @@ const server = http.createServer(async (req, res) => {
       }
       return send(res, 200, "application/json", JSON.stringify({ ok: true }));
     }
+  }
+
+  if (p === "/_au/profile") {
+    if (req.method === "POST") {
+      let raw = "";
+      for await (const c of req) raw += c;
+      const b = raw ? JSON.parse(raw) : {};
+      const name = String(b.display_name || "")
+        .replace(/\s+/g, " ")
+        .trim();
+      if (name.includes("@"))
+        return send(
+          res,
+          400,
+          "application/json",
+          JSON.stringify({
+            error: {
+              code: "invalid_display_name",
+              message: "display_name cannot contain @",
+            },
+          }),
+        );
+      myName = name || null;
+    }
+    return send(
+      res,
+      200,
+      "application/json",
+      JSON.stringify({
+        name: myName || "you",
+        default_name: "you",
+        custom: !!myName,
+        can_edit: process.env.AU_NAME_EDIT !== "0",
+      }),
+    );
   }
 
   // Role probe + agent presence (AU_AGENT=0 -> no agent has ever looked).

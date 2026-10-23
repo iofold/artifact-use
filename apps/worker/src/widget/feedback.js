@@ -166,6 +166,7 @@
     '<div class="au-composer-actions au-main-actions"><button class="au-send" data-send aria-keyshortcuts="Control+Enter Meta+Enter" title="Post comment (Ctrl+Enter or ⌘+Enter)">Post comment</button>' +
     '<button class="au-action" data-select aria-pressed="false">⌖ Select element</button>' +
     '<button class="au-link" data-cancel-new>Cancel</button></div>' +
+    '<div class="au-as" data-as hidden></div>' +
     '<div class="au-emailgate" data-emailgate>' +
     '<p class="au-emailgate-copy">Add your email to post (one time — it attributes your comments).</p>' +
     '<input type="email" class="au-emailinput" data-email placeholder="you@example.com" autocomplete="email">' +
@@ -661,7 +662,104 @@
     if (open !== false) {
       closeReplyBoxes();
       focusBody();
+      if (!me) loadMe();
     }
+  }
+
+  // ---- display name ----
+  // "Commenting as <name>": the name the viewer set, else their email's
+  // prefix. "Change" shows only for identities that proved their email.
+  var me = null;
+  function loadMe() {
+    return fetch(
+      "/_au/profile?artifact_key=" + encodeURIComponent(artifactKey),
+      { cache: "no-store" },
+    )
+      .then(function (r) {
+        return r.ok ? r.json() : null;
+      })
+      .then(function (j) {
+        me = j;
+        renderAs();
+      })
+      .catch(function () {});
+  }
+  function renderAs() {
+    var box = $("[data-as]");
+    box.innerHTML = "";
+    $("[data-composer]").classList.remove("is-naming");
+    if (!me || !me.name) {
+      box.hidden = true;
+      return;
+    }
+    box.hidden = false;
+    box.appendChild(document.createTextNode("Commenting as "));
+    box.appendChild(el("strong", "au-as-name", me.name));
+    if (!me.can_edit) return;
+    var change = el("button", "au-link au-as-change", "Change");
+    change.type = "button";
+    change.onclick = editName;
+    box.appendChild(el("span", "au-dot", "·"));
+    box.appendChild(change);
+  }
+  function editName() {
+    var box = $("[data-as]");
+    box.innerHTML = "";
+    // One set of actions at a time: the composer's wait for the name.
+    $("[data-composer]").classList.add("is-naming");
+    var row = el("div", "au-as-edit"),
+      input = el("input", "au-nameinput"),
+      save = el("button", "au-send", "Save"),
+      cancel = el("button", "au-link", "Cancel"),
+      note = el("div", "au-as-note");
+    input.type = "text";
+    input.maxLength = 60;
+    input.value = me.custom ? me.name : "";
+    input.placeholder = me.default_name;
+    input.setAttribute("aria-label", "Your name on comments");
+    save.type = "button";
+    cancel.type = "button";
+    note.textContent = "Leave it empty to show " + me.default_name + ".";
+    save.onclick = function () {
+      withBusy(save, "Saving…", async function () {
+        var r = await fetch("/_au/profile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            artifact_key: artifactKey,
+            display_name: input.value,
+          }),
+        });
+        var j = await r.json().catch(function () {
+          return {};
+        });
+        if (!r.ok) {
+          note.textContent =
+            (j.error && j.error.message) || "Couldn't save your name.";
+          note.classList.add("is-error");
+          return;
+        }
+        me = j;
+        renderAs();
+        load();
+      });
+    };
+    cancel.onclick = renderAs;
+    input.onkeydown = function (e) {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        save.click();
+      } else if (e.key === "Escape") {
+        e.stopPropagation();
+        renderAs();
+      }
+    };
+    row.appendChild(input);
+    row.appendChild(save);
+    row.appendChild(cancel);
+    box.appendChild(row);
+    box.appendChild(note);
+    input.focus();
   }
   function closeReplyBoxes() {
     panel.querySelectorAll(".au-replybox.is-open").forEach(function (box) {
@@ -926,7 +1024,17 @@
     var described = t && !isReply ? describeTarget(t) : "";
     if (described) meta.appendChild(el("span", "au-target-label", described));
     if (meta.childNodes.length) meta.appendChild(el("span", "au-dot", "·"));
-    meta.appendChild(el("span", "au-email", c.email || "Unknown viewer"));
+    var who = el(
+      "span",
+      "au-email",
+      c.author_name || c.email || "Unknown viewer",
+    );
+    // Publishers see the address behind a name on hover.
+    if (viewerRole === "publisher" && c.email && c.email !== who.textContent)
+      who.title = c.email;
+    meta.appendChild(who);
+    if (c.author_role === "workspace")
+      meta.appendChild(el("span", "au-chip au-chip-team", "Team"));
     // Honest authorship: comments written with a creator token or a
     // delegated agent token say so.
     if (c.author_kind === "agent")
@@ -1421,6 +1529,7 @@
           try {
             localStorage.setItem("au_email", email);
           } catch (e) {}
+          loadMe();
           done(true);
         } catch (e) {
           submit.disabled = false;
@@ -1743,6 +1852,7 @@
   // The same probe carries agent presence, re-read on every open and every
   // minute while open so "2 min ago" stays honest.
   var contextLoaded = false;
+  var viewerRole = "viewer";
   var presenceTimer = null;
   function agoLabel(ts) {
     var s = Math.max(0, Math.floor(Date.now() / 1000) - Number(ts || 0));
@@ -1810,6 +1920,7 @@
       .then(function (j) {
         renderPresence(j && j.agent ? j.agent : null);
         renderPrivacy(j);
+        if (j && j.role) viewerRole = j.role;
         if (!j || j.role !== "publisher" || !j.admin_url) return;
         loadVersions();
         var tools = panel.querySelector(".au-tools");
@@ -2397,6 +2508,7 @@
       // composer control hides so no second button row competes.
       ".au-composer.is-email .au-selectbar,.au-composer.is-email .au-targetrow,.au-composer.is-email .au-main-actions{display:none}",
       ".au-composer.is-email .au-text[data-body]{opacity:.55;min-height:44px}",
+      ".au-composer.is-email .au-as{display:none}",
       ".au-emailinput{width:100%;border:1px solid #c9d5d1;border-radius:6px;padding:9px 10px;font:inherit;height:40px}",
       ".au-abusebox{display:none;flex:0 0 auto;border-top:1px solid #eef2f1;padding:10px 12px;background:#fffdf4;gap:6px}",
       ".au-abusebox.is-on{display:grid}",
@@ -2423,6 +2535,15 @@
       ".au-anchor-missing{background:#fdeaea;color:#a3271f}",
       ".au-anchor-hidden{background:#eef1f0;color:#5a6c66}",
       ".au-chip-agent{background:#e9e6fb;color:#4b3aa6}",
+      ".au-chip-team{background:#dff1ec;color:#0f5c4f}",
+      ".au-as{font-size:12px;color:#5c6b66;display:flex;flex-wrap:wrap;gap:4px 6px;align-items:center;min-width:0}",
+      ".au-as[hidden]{display:none}",
+      ".au-as-name{color:#1b2429;font-weight:700;overflow-wrap:anywhere}",
+      ".au-as-edit{display:flex;gap:10px;align-items:center;width:100%;min-width:0}",
+      ".au-composer.is-naming .au-main-actions{display:none}",
+      ".au-nameinput{flex:1;min-width:0;border:1px solid #c9d5d1;border-radius:6px;padding:7px 9px;font:inherit;font-size:13px;height:34px}",
+      ".au-as-note{width:100%;font-size:12px;color:#5c6b66}",
+      ".au-as-note.is-error{color:#9e2f2f}",
       ".au-presence{flex:0 0 auto;display:flex;align-items:center;gap:7px;padding:6px 12px;font-size:11px;font-weight:600;color:#5c6b66;background:#fafcfb;border-bottom:1px solid #eef2f1}",
       ".au-presence::before{content:'';width:8px;height:8px;border-radius:50%;background:#b8c4bf;flex:0 0 8px}",
       ".au-versions{flex:0 0 auto;border-bottom:1px solid #eef2f1;background:#fafcfb}",
