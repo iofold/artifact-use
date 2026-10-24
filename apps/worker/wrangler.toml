@@ -42,6 +42,11 @@ zone_name = "example.com"
 pattern = "artifacts.example.com/go*"
 zone_name = "example.com"
 
+# Configure wildcard DNS and a wildcard TLS certificate for this suffix.
+[[routes]]
+pattern = "*.pages.example.com/*"
+zone_name = "example.com"
+
 [[routes]]
 pattern = "artifacts.example.com/mcp*"
 zone_name = "example.com"
@@ -149,6 +154,7 @@ allowed_sender_addresses = ["artifacts@example.com"]
 [vars]
 SITE_BASE_URL = "https://artifacts.example.com"
 ARTIFACT_PUBLIC_PATH_PREFIX = "/go"
+ARTIFACT_HOST_SUFFIX = "pages.example.com"
 WORKOS_AUTHKIT_URL = "https://your-authkit-domain.example"
 WORKOS_AUDIENCE = "https://artifacts.example.com/mcp"
 WORKOS_ISSUER = "https://your-authkit-domain.example"

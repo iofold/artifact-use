@@ -1,54 +1,62 @@
-// Run via agent-browser eval --stdin after opening the loopback fixture's
-// /__audit/publisher URL. Only synthetic data is returned; tokens are redacted.
+// Run on the synthetic attacker's isolated host, via agent-browser eval --stdin.
 (async () => {
-  const ordinary = await fetch("/_au/comments?artifact_key=victim-abcdef");
-  const suppressed = await fetch("/_au/comments?artifact_key=victim-abcdef", {
+  async function probe(url, init = {}) {
+    try {
+      const response = await fetch(url, init);
+      const body = await response.text();
+      return {
+        status: response.status,
+        secret:
+          body.includes("PRIVATE_OTHER_CUSTOMER_COMMENT") ||
+          body.includes("PRIVATE_FILE_BYTES"),
+        token: /"token":"/.test(body),
+      };
+    } catch {
+      return { blocked: true };
+    }
+  }
+  const main = "http://localhost:18849";
+  const foreign = await probe("/_au/comments?artifact_key=victim-abcdef", {
     referrerPolicy: "no-referrer",
   });
-  const comments = await suppressed.json();
-  const file = await fetch("/go/victim-abcdef/private.txt", {
+  const trusted = await probe(
+    `${main}/_au/comments?artifact_key=victim-abcdef`,
+    { credentials: "include", referrerPolicy: "no-referrer" },
+  );
+  const file = await probe(`${main}/go/victim-abcdef/private.txt`, {
+    credentials: "include",
     headers: { Accept: "text/html" },
   });
-  const bytes = await file.text();
-  const delegated = await fetch("/_au/agent-token", {
+  const otherHost = await probe(
+    "http://a-victim.localhost:18849/go/victim-abcdef/private.txt",
+    { credentials: "include" },
+  );
+  const delegation = await probe("/_au/agent-token", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ artifact_key: "victim-abcdef" }),
   });
-  const grant = await delegated.json();
-  await fetch("/admin");
-  history.replaceState(null, "", "/admin");
-  const csrf = decodeURIComponent(
-    document.cookie
-      .split("; ")
-      .find((c) => c.startsWith("au_admin_csrf="))
-      ?.slice("au_admin_csrf=".length) || "",
-  );
-  const admin = await fetch("/admin/api/overview", {
-    headers: { "X-CSRF-Token": csrf },
-  });
-  history.replaceState(null, "", "/go/attacker-abcdef/");
+  const own = await probe("/go/attacker-abcdef/private.txt");
+  localStorage.setItem("isolation-test", "attacker");
   const result = {
-    ordinaryComments: ordinary.status,
-    suppressedRefererComments: suppressed.status,
-    privateOtherCustomerCommentRead: JSON.stringify(comments).includes(
-      "PRIVATE_OTHER_CUSTOMER_COMMENT",
-    ),
-    protectedFileStatus: file.status,
-    protectedFileRead: bytes.includes("PRIVATE_FILE_BYTES"),
-    delegatedTokenStatus: delegated.status,
-    delegatedTokenExposed: typeof grant.token === "string",
-    adminStatus: admin.status,
-    adminCsrfExposed: !!csrf,
+    origin: location.origin,
+    foreign,
+    trusted,
+    file,
+    otherHost,
+    delegation,
+    ownFileStatus: own.status,
+    storageWorks: localStorage.getItem("isolation-test") === "attacker",
   };
   if (
-    !result.privateOtherCustomerCommentRead ||
-    !result.protectedFileRead ||
-    !result.delegatedTokenExposed
-  ) {
-    throw new Error(
-      `Original isolation failure did not reproduce: ${JSON.stringify(result)}`,
-    );
-  }
+    foreign.status !== 404 ||
+    delegation.status !== 404 ||
+    !trusted.blocked ||
+    !file.blocked ||
+    !otherHost.blocked ||
+    own.status !== 200 ||
+    !result.storageWorks
+  )
+    throw new Error(JSON.stringify(result));
   return result;
 })();

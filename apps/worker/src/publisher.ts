@@ -66,6 +66,7 @@ import {
   updateArtifactPreview,
 } from "./db";
 import { createShareLinkFromInput } from "./admin";
+import { isTrustedOrigin } from "./origins";
 import { type ShareLink, UNLISTED_NOTE, shareLinkJson } from "./links";
 import { promoteVersion, versionHistory } from "./versions";
 import { moderateArtifact, moderateOrganization } from "./moderation";
@@ -3054,6 +3055,7 @@ export async function getPublisherSessionAuth(
   request: Request,
   env: Env,
 ): Promise<{ raw: string; session: PublisherSession } | null> {
+  if (!isTrustedOrigin(request, env)) return null;
   const raw = readCookie(request, SESSION_COOKIE);
   if (!raw) return null;
   const session = await verifyPayload<PublisherSession>(raw, env);

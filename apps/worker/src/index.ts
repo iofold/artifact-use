@@ -36,6 +36,7 @@ import { UPSTREAM_PATH } from "./upstream";
 import { handleWebhooksApi } from "./webhooks";
 import { isDigestCron, sendFeedbackDigest } from "./digest";
 import { error, json, secureSystemResponse, wantsHtml } from "./util";
+import { checkRequestOrigin, protectTrustedArtifactContent } from "./origins";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -68,6 +69,8 @@ export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
     const path = url.pathname;
+    const deniedOrigin = await checkRequestOrigin(request, env);
+    if (deniedOrigin) return deniedOrigin;
     const cors = corsHeaders(path);
     if (request.method === "OPTIONS") {
       const response = new Response(
@@ -76,13 +79,17 @@ export default {
       );
       return secureSystemResponse(path, response);
     }
-    const response = secureSystemResponse(
-      path,
-      await htmlErrorAdapter(
-        request,
-        env,
+    const response = protectTrustedArtifactContent(
+      request,
+      env,
+      secureSystemResponse(
         path,
-        await route(request, env, path),
+        await htmlErrorAdapter(
+          request,
+          env,
+          path,
+          await route(request, env, path),
+        ),
       ),
     );
     const headers = new Headers(response.headers);

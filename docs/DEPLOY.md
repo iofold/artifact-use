@@ -320,3 +320,27 @@ https://artifacts.example.com/go/{artifact-slug}-{six-character-code}/
 OAuth-capable MCP clients should be configured with the MCP URL and will receive
 a protected-resource challenge that starts WorkOS/AuthKit login. Non-OAuth
 clients can pass a WorkOS bearer token in the `Authorization` header.
+
+# Artifact browser isolation
+
+Before deploying the security update, apply migration `0021_artifact_isolation.sql`
+and configure `ARTIFACT_HOST_SUFFIX` plus a Worker route `*.<suffix>/*`.
+The suffix needs wildcard DNS and a TLS certificate covering `a-<id>.<suffix>`.
+For example, `pages.example.com` requires `*.pages.example.com`; a certificate
+covering only `*.example.com` does not cover these hosts. Deployment checks
+refuse a configuration without the suffix and wildcard route.
+
+Existing `/go/<key>/` links remain stable. Browsers authenticate on
+`SITE_BASE_URL`, then redirect to the artifact's own origin. A server-side,
+single-use handoff expires after 60 seconds and establishes a host-only viewer
+cookie. Google callbacks, publisher login, admin, REST and MCP remain on the
+trusted origin. Never set a parent-domain cookie for these hosts.
+
+Interactive HTML, relative assets, upstream requests, comments and localStorage
+work within each artifact's origin. Browser storage formerly on the shared
+origin is intentionally not copied into untrusted artifact pages. Agent bearer
+reads through the original URLs still return original content. Uploaded bytes
+served on the trusted origin carry a restrictive sandbox CSP, including when
+isolation configuration is missing; deploy only after wildcard DNS/TLS works
+to preserve browser interactivity. Verify sign-in, a protected file, comments,
+delegation and version history on the isolated origin before rollout.
