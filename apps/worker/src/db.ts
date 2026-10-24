@@ -770,12 +770,17 @@ export async function recordShareLinkOpen(
   env: Env,
   artifactId: string,
   id: string,
-): Promise<void> {
-  await env.DB.prepare(
-    "UPDATE share_links SET open_count = open_count + 1, last_opened_at = ? WHERE id = ? AND artifact_id = ?",
+): Promise<boolean> {
+  const now = nowSec();
+  const claimed = await env.DB.prepare(
+    `UPDATE share_links SET open_count = open_count + 1, last_opened_at = ?
+     WHERE id = ? AND artifact_id = ? AND revoked_at IS NULL
+       AND (expires_at IS NULL OR expires_at >= ?)
+       AND (max_opens IS NULL OR max_opens <= 0 OR open_count < max_opens)`,
   )
-    .bind(nowSec(), id, artifactId)
+    .bind(now, id, artifactId, now)
     .run();
+  return claimed.meta.changes === 1;
 }
 
 // The viewer's IP, hashed and truncated: enough to tell two visitors apart,

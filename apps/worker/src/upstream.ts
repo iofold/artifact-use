@@ -186,13 +186,44 @@ export async function proxyUpstream(
   const init: RequestInit = {
     method: request.method,
     headers,
-    redirect: "follow",
+    redirect: "manual",
     signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
   };
   if (body) init.body = body;
   let response: Response;
   try {
-    response = await fetch(target.toString(), init);
+    // Workers forward Authorization even across origins on automatic
+    // redirects. Follow only redirects on the configured backend's origin.
+    let next = target;
+    for (let hops = 0; ; hops++) {
+      response = await fetch(next.toString(), init);
+      if (![301, 302, 303, 307, 308].includes(response.status)) break;
+      const location = response.headers.get("Location");
+      const destination = location ? new URL(location, next) : null;
+      await response.body?.cancel();
+      if (
+        !destination ||
+        destination.origin !== target.origin ||
+        destination.username ||
+        destination.password ||
+        hops >= 4
+      )
+        return error(
+          502,
+          "unsafe_upstream_redirect",
+          "the upstream redirected outside its configured origin or exceeded the redirect limit",
+        );
+      if (
+        response.status === 303 ||
+        ((response.status === 301 || response.status === 302) &&
+          init.method === "POST")
+      ) {
+        init.method = request.method === "HEAD" ? "HEAD" : "GET";
+        delete init.body;
+        headers.delete("content-type");
+      }
+      next = destination;
+    }
   } catch (e) {
     // Say why: the operator debugging a 502 needs the runtime's reason
     // (DNS, TLS, connection refused), which never includes the secret.

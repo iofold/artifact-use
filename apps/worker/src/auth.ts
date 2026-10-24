@@ -144,12 +144,18 @@ async function applyWorkspace(
     const orgId = await resolveWorkspaceOrg(env, creator.sub, requested);
     return { ...creator, orgId, workspaceSelected: true };
   }
-  if (!requested) return creator;
+  if (!requested) {
+    if (env.WORKOS_API_KEY && !opts.laxWorkspace && !creator.raw.dev)
+      await resolveWorkspaceOrg(env, creator.sub, creator.orgId);
+    return creator;
+  }
   if (creator.tokenScope === "org") {
     const resolved = /^org_[A-Za-z0-9]+$/.test(requested)
       ? requested
       : await resolveWorkspaceOrg(env, creator.sub, requested);
     if (resolved !== creator.orgId) throw workspaceForbiddenError(requested);
+    if (env.WORKOS_API_KEY)
+      await resolveWorkspaceOrg(env, creator.sub, creator.orgId);
     return { ...creator, workspaceSelected: true };
   }
   // Dev identity without a WorkOS backend: trust the requested value so local

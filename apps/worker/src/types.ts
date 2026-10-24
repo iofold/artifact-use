@@ -159,6 +159,8 @@ export interface ViewerSession {
   // Set on sessions minted by "Hand to your agent": comments written with
   // them are attributed to an agent under this label.
   agent?: string | null;
+  // Workspace grant, revalidated against current membership on use.
+  workspace_user_id?: string;
 }
 
 export interface UploadSession {

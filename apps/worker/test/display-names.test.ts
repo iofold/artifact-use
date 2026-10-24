@@ -178,7 +178,11 @@ test("only an identity that proved its email can set a name", async () => {
   );
   const view = await profile(env, { bearer: impostor }, "GET");
   assert.equal(view.json.can_edit, false);
-  assert.equal(view.json.name, "Alice Chen");
+  assert.equal(
+    view.json.name,
+    "alice",
+    "an unverified claim cannot look up a global profile",
+  );
 
   // A shared password link is no one person; an agent acts for its viewer.
   seedShareLink(raw, { id: "lnk_pw", artifact_id: ART, kind: "password" });

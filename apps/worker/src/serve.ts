@@ -50,6 +50,7 @@ import {
 import {
   deadLinkResponse,
   getViewerSession,
+  isAllowed,
   issueViewerSession,
   mintViewerSession,
   renderGate,
@@ -184,11 +185,17 @@ export async function servePublic(
       artifact,
       await getViewerSession(request, env, artifact),
     );
+    if (isUpstream && session && !isAllowed(artifact, session.email))
+      return error(
+        403,
+        "email_not_allowed",
+        "this viewer is not allowed to access this artifact's backend",
+      );
     // Agents of the publishing workspace read what they published with the
     // token they already hold: no viewer session, no view row. Reads only,
     // and never the upstream proxy, which needs a viewer identity.
     const creatorRead =
-      !session &&
+      !sessionPassesGate(artifact, session) &&
       !isUpstream &&
       (request.method === "GET" || request.method === "HEAD") &&
       (await creatorForArtifact(request, env, artifact, "artifacts:read")) !==
@@ -245,6 +252,12 @@ export async function servePublic(
           access.link.id,
           true,
         );
+        if (!minted)
+          return error(
+            410,
+            "link_unavailable",
+            "this link is no longer available",
+          );
         session = minted.session;
         sessionCookie = minted.cookie;
       } else if (access.kind === "passcode") {
@@ -370,8 +383,9 @@ function sessionPassesGate(
   session: ViewerSession | null,
 ): session is ViewerSession {
   if (!session) return false;
-  if (!requiresVerified(artifact.gate_level)) return true;
-  return session.verified || Boolean(session.link_id);
+  if (session.link_id || session.workspace_user_id) return true;
+  if (requiresVerified(artifact.gate_level) && !session.verified) return false;
+  return isAllowed(artifact, session.email);
 }
 
 // The viewer session on the request, if it still opens this artifact today:
@@ -400,6 +414,17 @@ async function linkSessionStillValid(
   artifact: Artifact,
   session: ViewerSession | null,
 ): Promise<ViewerSession | null> {
+  if (session?.workspace_user_id && env.WORKOS_API_KEY) {
+    try {
+      await resolveWorkspaceOrg(
+        env,
+        session.workspace_user_id,
+        artifact.org_id,
+      );
+    } catch {
+      return null;
+    }
+  }
   if (!session?.link_id) return session;
   const link = await getShareLink(env, artifact.id, session.link_id);
   if (!link || link.revoked_at) return null;
@@ -907,6 +932,8 @@ async function creatorForArtifact(
     if (creator.tokenScope === "user" && !creator.workspaceSelected) {
       await resolveWorkspaceOrg(env, creator.sub, artifact.org_id);
     } else if (creator.orgId !== artifact.org_id) return null;
+    if (env.WORKOS_API_KEY && !creator.raw.dev)
+      await resolveWorkspaceOrg(env, creator.sub, artifact.org_id);
     requirePermission(creator, env, permission);
     return creator;
   } catch {
@@ -963,8 +990,9 @@ async function commentIdentity(
 }
 
 // The widget's "Commenting as <name>" line and the form that changes it.
-// Only an identity that proved its email may name it: a verified or
-// recipient-link session, or a signed-in workspace member. A typed email on
+// Only an identity that proved its email may name it: a verified
+// session or a signed-in workspace member. A recipient link is an artifact
+// access grant, not proof of ownership of its publisher-supplied email. A typed email on
 // a plain email gate, a shared password/open link and a delegated agent can
 // read their name but not set it.
 export async function handleProfile(
@@ -1011,9 +1039,10 @@ export async function handleProfile(
     await setDisplayName(env, who.editable, parsed.name);
   }
   const defaultName = fallbackName(who.author);
-  const custom = who.author.includes("@")
-    ? await getDisplayName(env, who.author)
-    : null;
+  const custom =
+    who.editable && who.author.includes("@")
+      ? await getDisplayName(env, who.author)
+      : null;
   return json(
     {
       name: custom || defaultName,
@@ -1033,9 +1062,7 @@ async function profileIdentity(
   const session = await gatePassingSession(request, env, artifact);
   if (session) {
     const proven =
-      (session.verified || !!session.link_id) &&
-      !session.agent &&
-      !session.email.startsWith("link:");
+      session.verified && !session.agent && !session.email.startsWith("link:");
     return { author: session.email, editable: proven ? session.email : null };
   }
   const signedIn = await signedInViewer(request, env, artifact);
@@ -1285,7 +1312,13 @@ export async function handleAgentToken(
   if (!sessionPassesGate(artifact, raw))
     return error(403, "verification_required", "verified session required");
   const session = raw;
-  const exp = nowSec() + 24 * 60 * 60; // 24h
+  if (session.agent)
+    return error(
+      403,
+      "delegation_forbidden",
+      "delegated sessions cannot mint further tokens",
+    );
+  const exp = Math.min(session.exp, nowSec() + 24 * 60 * 60);
   const token = await signViewerSession(
     {
       artifact_id: artifact.id,
@@ -1295,6 +1328,9 @@ export async function handleAgentToken(
       view_id: session.view_id,
       exp,
       ...(session.link_id ? { link_id: session.link_id } : {}),
+      ...(session.workspace_user_id
+        ? { workspace_user_id: session.workspace_user_id }
+        : {}),
       // Comments written with this token render as "via agent · delegated".
       agent: "delegated",
     },

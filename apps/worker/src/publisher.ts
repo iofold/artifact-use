@@ -3061,6 +3061,13 @@ export async function getPublisherSessionAuth(
   // ever verifying as a publisher session.
   if (!session || session.typ !== "publisher" || session.exp < nowSec())
     return null;
+  if (env.WORKOS_API_KEY) {
+    try {
+      await resolveWorkspaceOrg(env, session.sub, session.orgId);
+    } catch {
+      return null;
+    }
+  }
   return { raw, session };
 }
 
