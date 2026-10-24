@@ -59,6 +59,7 @@ import {
   normalizeEmail,
   nowSec,
   publicArtifactPath,
+  publicArtifactTitle,
   randomCode,
   randomId,
   requiresVerified,
@@ -209,8 +210,8 @@ export function renderGate(
 </form>`
       : "";
   return htmlPage(
-    artifact.title,
-    `<h1>${escapeHtml(artifact.title)}</h1>
+    publicArtifactTitle(artifact),
+    `<h1>${escapeHtml(publicArtifactTitle(artifact))}</h1>
 ${intro}
 ${notice ? `<p class="error" style="margin:16px 0 4px;padding:10px 12px;background:#fdf1f1;border-radius:6px">${escapeHtml(notice)}</p>` : ""}
 ${continueAs}
@@ -258,7 +259,7 @@ function otpSentResponse(
     ? `We sent a code to ${escapeHtml(email)} a few seconds ago. Use that one, or request a new code in ${retryAfter} seconds.`
     : "Use the link or enter the code we sent.";
   return htmlPage(
-    artifact.title,
+    publicArtifactTitle(artifact),
     `<h1>Check your email</h1>
 <p class="muted">${intro}</p>
 ${debug ? `<p class="muted">Debug code: <strong>${code}</strong></p>` : ""}
@@ -308,7 +309,11 @@ export async function handleGateRoute(
         60 * 60,
       );
       if (!emailLimit.allowed)
-        return rateLimitedResponse(emailLimit, request, artifact.title);
+        return rateLimitedResponse(
+          emailLimit,
+          request,
+          publicArtifactTitle(artifact),
+        );
       const shareLinkId = String(form.get("share_link_id") || "") || null;
       const redirectTo = safeArtifactRedirect(
         env,
@@ -402,7 +407,7 @@ export async function handleGateRoute(
       if (!viewer.member && !isAllowed(artifact, viewer.email))
         return wantsHtml(request)
           ? htmlPage(
-              artifact.title,
+              publicArtifactTitle(artifact),
               `<p class="error">This email is not allowed for this artifact.</p>`,
             )
           : error(
@@ -420,7 +425,11 @@ export async function handleGateRoute(
         60 * 60,
       );
       if (!sessionLimit.allowed)
-        return rateLimitedResponse(sessionLimit, request, artifact.title);
+        return rateLimitedResponse(
+          sessionLimit,
+          request,
+          publicArtifactTitle(artifact),
+        );
       const passed = await issueViewerSession(
         request,
         env,
@@ -485,7 +494,7 @@ export async function handleGateRoute(
       if (!isAllowed(artifact, email))
         return wantsHtml(request)
           ? htmlPage(
-              artifact.title,
+              publicArtifactTitle(artifact),
               `<p class="error">This email is not allowed for this artifact.</p>`,
             )
           : error(
@@ -535,7 +544,11 @@ export async function handleGateRoute(
       ] as const) {
         const result = await rateLimit(env, bucket, limit, windowSec);
         if (!result.allowed)
-          return rateLimitedResponse(result, request, artifact.title);
+          return rateLimitedResponse(
+            result,
+            request,
+            publicArtifactTitle(artifact),
+          );
       }
       await env.DB.prepare(
         `UPDATE viewer_tokens SET used_at = ?
@@ -604,7 +617,11 @@ export async function handleGateRoute(
       const identityBucket = `otp:verify:identity:15m:${artifact.id.slice(0, 80)}:${await hashRateKey(email)}`;
       const identityLimit = await rateLimit(env, identityBucket, 6, 15 * 60);
       if (!identityLimit.allowed)
-        return rateLimitedResponse(identityLimit, request, artifact.title);
+        return rateLimitedResponse(
+          identityLimit,
+          request,
+          publicArtifactTitle(artifact),
+        );
       const ipLimit = await rateLimit(
         env,
         `otp:verify:ip:10m:${await hashRateKey(requestIp(request))}`,
@@ -612,7 +629,11 @@ export async function handleGateRoute(
         10 * 60,
       );
       if (!ipLimit.allowed)
-        return rateLimitedResponse(ipLimit, request, artifact.title);
+        return rateLimitedResponse(
+          ipLimit,
+          request,
+          publicArtifactTitle(artifact),
+        );
       const row = await env.DB.prepare(
         "SELECT token FROM viewer_tokens WHERE artifact_id = ? AND email = ? AND code = ? AND used_at IS NULL AND expires_at >= ? ORDER BY created_at DESC LIMIT 1",
       )
@@ -621,7 +642,7 @@ export async function handleGateRoute(
       if (!row)
         return wantsHtml(request)
           ? htmlPage(
-              artifact.title,
+              publicArtifactTitle(artifact),
               `<p class="error">Invalid or expired code.</p>`,
             )
           : error(401, "invalid_code", "invalid or expired code");
@@ -702,7 +723,11 @@ export async function handleGateRoute(
           normalizePasscode(form.get("passcode")),
         );
         if (check.result === "limited")
-          return rateLimitedResponse(check.limit, request, artifact.title);
+          return rateLimitedResponse(
+            check.limit,
+            request,
+            publicArtifactTitle(artifact),
+          );
         if (check.result === "wrong")
           return wantsHtml(request)
             ? renderPasscodeGate(
@@ -763,7 +788,7 @@ async function startGoogleSignIn(
     60 * 60,
   );
   if (!limit.allowed)
-    return rateLimitedResponse(limit, request, artifact.title);
+    return rateLimitedResponse(limit, request, publicArtifactTitle(artifact));
   const state = randomId("gst");
   const headers = new Headers({
     Location: googleAuthorizeUrl(env, state),
@@ -860,7 +885,11 @@ async function finishGoogleSignIn(
     60 * 60,
   );
   if (!limit.allowed) {
-    const limited = rateLimitedResponse(limit, request, artifact.title);
+    const limited = rateLimitedResponse(
+      limit,
+      request,
+      publicArtifactTitle(artifact),
+    );
     limited.headers.append("Set-Cookie", identity);
     return withClear(limited);
   }
@@ -893,9 +922,14 @@ async function consumeVerified(
       "email_not_allowed",
       "this email is no longer allowed for this artifact",
     );
-  await env.DB.prepare("UPDATE viewer_tokens SET used_at = ? WHERE token = ?")
-    .bind(nowSec(), token)
+  const now = nowSec();
+  const consumed = await env.DB.prepare(
+    "UPDATE viewer_tokens SET used_at = ? WHERE token = ? AND used_at IS NULL AND expires_at >= ?",
+  )
+    .bind(now, token, now)
     .run();
+  if (!consumed.meta.changes)
+    return error(401, "invalid_code", "invalid or expired code");
   return issueViewerSession(
     request,
     env,
@@ -1068,7 +1102,7 @@ function emailDeliveryUnavailable(
       "verification email could not be sent; try again later",
     );
   const page = htmlPage(
-    artifact.title,
+    publicArtifactTitle(artifact),
     `<h1>Email temporarily unavailable</h1>
 <p class="error">No code was sent. Please try again later or ask the person who shared this artifact for help.</p>
 <p><a href="${escapeHtml(publicArtifactPath(env, artifact.url_key))}">Back to the artifact</a></p>`,
@@ -1352,8 +1386,8 @@ export function renderPasscodeGate(
   notice = "",
 ): Response {
   return htmlPage(
-    artifact.title,
-    `<h1>${escapeHtml(artifact.title)}</h1>
+    publicArtifactTitle(artifact),
+    `<h1>${escapeHtml(publicArtifactTitle(artifact))}</h1>
 <p class="muted">This link is protected. Enter the passcode you were given to continue.</p>
 ${notice ? `<p class="error">${escapeHtml(notice)}</p>` : ""}
 <form method="post" action="/_au/gate/link">
@@ -1391,7 +1425,7 @@ export function deadLinkResponse(
       { status: 410 },
     );
   const page = htmlPage(
-    artifact.title,
+    publicArtifactTitle(artifact),
     `<h1>This link no longer works</h1>
 <p class="error">${escapeHtml(copy)}</p>
 <p class="muted">Ask the person who shared it with you for a new link.</p>`,

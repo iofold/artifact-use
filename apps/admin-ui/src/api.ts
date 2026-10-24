@@ -279,7 +279,7 @@ export type AgentEvents = {
 export function adminCsrfToken(cookieHeader = document.cookie): string {
   for (const part of cookieHeader.split(";")) {
     const [name, ...value] = part.trim().split("=");
-    if (name !== "au_admin_csrf") continue;
+    if (name !== "__Host-au_admin_csrf") continue;
     try {
       return decodeURIComponent(value.join("="));
     } catch {

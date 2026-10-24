@@ -6,6 +6,7 @@ CREATE TABLE artifact_handoffs (
   artifact_id TEXT NOT NULL,
   session_token TEXT NOT NULL,
   expires_at INTEGER NOT NULL,
+  challenge_hash TEXT NOT NULL,
   FOREIGN KEY (artifact_id) REFERENCES artifacts(id) ON DELETE CASCADE
 );
 CREATE INDEX artifact_handoffs_expiry ON artifact_handoffs(expires_at);

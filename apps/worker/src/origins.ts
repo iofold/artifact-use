@@ -8,6 +8,9 @@ import {
   signViewerSession,
   verifyViewerSession,
   viewerCookieName,
+  readCookie,
+  signPayload,
+  verifyPayload,
 } from "./auth";
 import { error, nowSec, publicArtifactPath, randomId, sha256Hex } from "./util";
 
@@ -16,6 +19,36 @@ export function isTrustedOrigin(request: Request, env: Env): boolean {
     !env.SITE_BASE_URL ||
     new URL(request.url).origin === new URL(env.SITE_BASE_URL).origin
   );
+}
+
+// SameSite cookies can accompany sibling-origin form posts. Browser writes
+// need their own origin check; Origin-less agent HTTP calls remain supported.
+export function checkViewerMutation(request: Request): Response | null {
+  const path = new URL(request.url).pathname;
+  if (
+    !path.startsWith("/_au/") ||
+    ["GET", "HEAD", "OPTIONS"].includes(request.method)
+  )
+    return null;
+  const origin = request.headers.get("Origin");
+  const site = request.headers.get("Sec-Fetch-Site");
+  if (
+    (origin && origin !== new URL(request.url).origin) ||
+    (!origin && site && site !== "same-origin" && site !== "none")
+  )
+    return error(
+      403,
+      "origin_forbidden",
+      "continue from this artifact's own page",
+    );
+  if (
+    /^\/_au\/(comments|profile|agent-token)$/.test(path) &&
+    !/^application\/json(?:;|$)/i.test(
+      request.headers.get("Content-Type") || "",
+    )
+  )
+    return error(415, "json_required", "send an application/json body");
+  return null;
 }
 
 export function artifactOrigin(env: Env, artifact: Artifact): string | null {
@@ -116,23 +149,42 @@ export async function redirectToArtifactOrigin(
   destination.protocol = target.protocol;
   destination.searchParams.delete("au_sso");
   destination.searchParams.delete("__au_handoff");
+  const challenge = destination.searchParams.get("__au_challenge") || "";
+  destination.searchParams.delete("__au_challenge");
+  destination.searchParams.delete("__au_auth");
+  destination.searchParams.delete("__au_state");
   if (session) {
+    if (!/^[a-f0-9]{64}$/.test(challenge)) {
+      // Establish state on the destination host first. A transferable URL
+      // must never be able to replace another browser's comment identity.
+      destination.searchParams.set("__au_auth", "1");
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: destination.toString(),
+          "Cache-Control": "private, no-store",
+          "Referrer-Policy": "no-referrer",
+        },
+      });
+    }
     const code = randomId("hop");
     const now = nowSec();
     await env.DB.prepare("DELETE FROM artifact_handoffs WHERE expires_at < ?")
       .bind(now)
       .run();
     await env.DB.prepare(
-      "INSERT INTO artifact_handoffs (code_hash, artifact_id, session_token, expires_at) VALUES (?, ?, ?, ?)",
+      "INSERT INTO artifact_handoffs (code_hash, artifact_id, session_token, expires_at, challenge_hash) VALUES (?, ?, ?, ?, ?)",
     )
       .bind(
         await sha256Hex(code),
         artifact.id,
         await signViewerSession(session, env),
         Math.min(session.exp, now + 60),
+        challenge,
       )
       .run();
     destination.searchParams.set("__au_handoff", code);
+    destination.searchParams.set("__au_state", challenge);
   }
   return new Response(null, {
     status: 302,
@@ -150,14 +202,82 @@ export async function consumeArtifactHandoff(
   artifact: Artifact,
 ): Promise<Response | null> {
   const url = new URL(request.url);
+  if (
+    url.searchParams.get("__au_auth") === "1" &&
+    !isTrustedOrigin(request, env) &&
+    request.method === "GET"
+  ) {
+    const mode = request.headers.get("Sec-Fetch-Mode");
+    const dest = request.headers.get("Sec-Fetch-Dest");
+    if ((mode && mode !== "navigate") || (dest && dest !== "document"))
+      return error(
+        403,
+        "navigation_required",
+        "open the artifact in a browser tab",
+      );
+    const nonce = randomId("state");
+    const binding = await sha256Hex(nonce);
+    const state = await signPayload(
+      {
+        typ: "artifact_handoff_state",
+        artifact_id: artifact.id,
+        nonce,
+        exp: nowSec() + 120,
+      },
+      env,
+    );
+    const trusted = new URL(env.SITE_BASE_URL);
+    url.host = trusted.host;
+    url.protocol = trusted.protocol;
+    url.searchParams.delete("__au_auth");
+    url.searchParams.delete("__au_handoff");
+    url.searchParams.delete("__au_state");
+    url.searchParams.set("__au_challenge", binding);
+    return new Response(null, {
+      status: 303,
+      headers: {
+        Location: url.toString(),
+        "Set-Cookie": `__Host-au_handoff_${binding}=${encodeURIComponent(state)}; Path=/; Max-Age=120; Secure; HttpOnly; SameSite=Lax`,
+        "Cache-Control": "private, no-store",
+        "Referrer-Policy": "no-referrer",
+      },
+    });
+  }
   const code = url.searchParams.get("__au_handoff");
   if (!code) return null;
   if (isTrustedOrigin(request, env) || request.method !== "GET")
     return error(401, "invalid_handoff", "invalid or expired handoff");
-  const row = await env.DB.prepare(
-    "DELETE FROM artifact_handoffs WHERE code_hash = ? AND artifact_id = ? AND expires_at >= ? RETURNING session_token",
+  const binding = url.searchParams.get("__au_state") || "";
+  const raw = /^[a-f0-9]{64}$/.test(binding)
+    ? readCookie(request, `__Host-au_handoff_${binding}`)
+    : null;
+  const state = raw
+    ? await verifyPayload<{
+        typ: string;
+        artifact_id: string;
+        nonce: string;
+        exp: number;
+      }>(raw, env)
+    : null;
+  if (
+    !state ||
+    state.typ !== "artifact_handoff_state" ||
+    state.artifact_id !== artifact.id ||
+    state.exp < nowSec() ||
+    typeof state.nonce !== "string"
   )
-    .bind(await sha256Hex(code), artifact.id, nowSec())
+    return error(401, "invalid_handoff", "invalid or expired handoff");
+  if ((await sha256Hex(state.nonce)) !== binding)
+    return error(401, "invalid_handoff", "invalid or expired handoff");
+  const row = await env.DB.prepare(
+    "DELETE FROM artifact_handoffs WHERE code_hash = ? AND artifact_id = ? AND expires_at >= ? AND challenge_hash = ? RETURNING session_token",
+  )
+    .bind(
+      await sha256Hex(code),
+      artifact.id,
+      nowSec(),
+      await sha256Hex(state.nonce),
+    )
     .first<{ session_token: string }>();
   const session = row
     ? await verifyViewerSession(row.session_token, env)
@@ -165,16 +285,19 @@ export async function consumeArtifactHandoff(
   if (!row || !session || session.artifact_id !== artifact.id)
     return error(401, "invalid_handoff", "invalid or expired handoff");
   url.searchParams.delete("__au_handoff");
-  return new Response(null, {
-    status: 303,
-    headers: {
-      Location: url.toString(),
-      "Set-Cookie": setViewerCookie(
-        viewerCookieName(artifact.id),
-        row.session_token,
-      ),
-      "Cache-Control": "private, no-store",
-      "Referrer-Policy": "no-referrer",
-    },
+  url.searchParams.delete("__au_state");
+  const headers = new Headers({
+    Location: url.toString(),
+    "Set-Cookie": setViewerCookie(
+      viewerCookieName(artifact.id),
+      row.session_token,
+    ),
+    "Cache-Control": "private, no-store",
+    "Referrer-Policy": "no-referrer",
   });
+  headers.append(
+    "Set-Cookie",
+    `__Host-au_handoff_${binding}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax`,
+  );
+  return new Response(null, { status: 303, headers });
 }

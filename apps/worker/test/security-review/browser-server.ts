@@ -27,7 +27,7 @@ createServer(async (req, res) => {
     // Test-only login, representing credentials a victim already possesses.
     if (req.url === "/__audit/publisher" || req.url === "/__audit/viewer") {
       const cookie = req.url.endsWith("publisher")
-        ? `au_pub=${encodeURIComponent(await f.publisher())}; Path=/; Secure; HttpOnly; SameSite=Lax`
+        ? `__Host-au_pub=${encodeURIComponent(await f.publisher())}; Path=/; Secure; HttpOnly; SameSite=Lax`
         : setViewerCookie(viewerCookieName(victim.id), await f.viewer(victim));
       res.writeHead(302, {
         "Set-Cookie": cookie,

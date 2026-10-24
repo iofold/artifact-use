@@ -181,7 +181,7 @@ HTTP MCP cannot read local files by itself. Use one of these paths:
 
 Do not guess public URL keys. Publish with a lower-case artifact slug, then use the returned `url_key` for republishing, stats, access changes, and share links.
 
-Pass a concise `description` when publishing. It becomes public link-preview copy even for gated artifacts; HTML publishes derive it from page metadata or the first paragraph when omitted. Edit it later with:
+Pass a concise `description` when publishing. Public artifacts expose it in previews; protected artifacts use a generic preview; HTML publishes derive it from page metadata or the first paragraph when omitted. Edit it later with:
 
 ```json
 {

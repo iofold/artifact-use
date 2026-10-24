@@ -71,7 +71,7 @@ POST /api/v1/publish/html
 }
 ```
 
-The response includes `artifact.url_key` and `url`. Public URLs use `/go/{artifact-slug}-{six-character-code}/`. `artifact` is either a lower-case slug (a new artifact, or the same slug published earlier in this workspace) or an existing artifact's `url_key`; both republish the existing artifact in place, so passing a `url_key` never creates a duplicate. `gate_level` defaults to `email` on the first publish and is left unchanged on republish when omitted. `description` is public link-preview copy even when the artifact is gated; keep it free of confidential details. When it is omitted for HTML, Artifact Use derives up to 200 characters from authored description metadata or the first paragraph.
+The response includes `artifact.url_key` and `url`. Stable links use `/go/{readable-slug}-{128-bit-random-code}/`; existing six-character-code links remain valid. Browsers redirect to the artifact's isolated host. `artifact` is either a lower-case slug (a new artifact, or the same slug published earlier in this workspace) or an existing artifact's `url_key`; both republish the existing artifact in place, so passing a `url_key` never creates a duplicate. `gate_level` defaults to `email` on the first publish and is left unchanged on republish when omitted. Public artifacts show `description` in link previews; protected artifacts show a generic preview. When it is omitted for HTML, Artifact Use derives up to 200 characters from authored description metadata or the first paragraph.
 
 ## Publish Folder
 
@@ -154,7 +154,7 @@ PATCH /_au/comments
 `GET` returns `{comments, count, has_more, next_since}`. Each comment carries
 `parent_comment_id` (replies), `resolved` / `resolved_at` / `resolved_by`,
 `author_kind` (`human` or `agent`), `agent_label`, `author_name`,
-`author_role`, and `target` (parsed) next to `target_json`.
+`author_role`, `author_verified`, and `target` (parsed) next to `target_json`.
 
 `author_name` is the name the author set, else the local part of their email
 (`alice` for `alice@acme.com`; `Guest` for password/open share-link sessions).
@@ -172,7 +172,8 @@ POST /_au/profile   {"artifact_key": "<key>", "display_name": "Alice Chen"}
 `/_au/profile` answers the caller's `{name, default_name, custom, can_edit}`
 (the widget's "Commenting as" line). Only an identity that proved its email
 can set a name: a verified or recipient-link session, or a signed-in
-workspace member. A typed email on an `email` gate, a password or open link,
+workspace member. Viewer-session edits apply only within the current artifact;
+global profile edits require trusted admin or `/api/v1/me` authentication. A typed email on an `email` gate, a password or open link,
 and a delegated agent session get `403 name_requires_verification`. Names are
 at most 60 characters, never contain `@`, and lose invisible formatting
 characters; an empty name clears it. `status` is `open`, `resolved` or `all`; replies follow
@@ -367,7 +368,7 @@ PATCH /api/v1/artifacts/{artifact_key}
 }
 ```
 
-The title, description, generated thumbnail, and favicon are intentionally available to link-preview crawlers. Access gates continue to protect every artifact file.
+Public artifacts expose their title and description in previews. Protected artifacts expose a generic card without title, description, version, or file type. Current gate permissions protect every artifact file.
 
 Gate levels (`gate_level` on publish and on `PATCH`):
 
@@ -872,3 +873,26 @@ the reviewer-facing link — today the stable URL; the key is kept so a
 distinct review surface can replace it without changing callers.
 `GET /api/v1/artifacts` and `GET /api/v1/artifacts/{artifact_key}` carry the
 same object for the current version.
+
+## Browser isolation and revocation
+
+Browsers follow stable links to an artifact-specific host configured through
+`ARTIFACT_HOST_SUFFIX`. Trusted sign-in and Google callbacks return through a
+single-use, 60-second handoff bound to destination-browser state. Viewer routes
+on an artifact host accept only that artifact. `__Host-` cookies cannot be
+shared or shadowed through a parent domain. Browser mutations check Origin;
+viewer comment/profile/token writes require JSON. Origin-less agent HTTP calls
+remain supported.
+
+Allowlist changes and share-link revocation/expiry apply to existing file,
+comment, profile and delegated-token requests. Workspace membership caches last
+at most five minutes and expire closed on directory failure. Pending comment
+polls reauthorize before returning. Protected assets use `private, no-store`.
+
+Delegated tokens cannot mint replacements or outlive their source session. Link
+open limits are claimed atomically. Password attempts are limited to ten per
+link and IP and thirty across all IPs per fifteen minutes; successful opens do
+not consume the aggregate failure budget. Failed discovery is limited across
+artifact keys per IP. Read-only statistics omit share-link bearer IDs and URLs.
+Upstream redirects follow only the configured backend origin, with a bounded
+redirect count.

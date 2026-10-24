@@ -8,6 +8,164 @@ import { verifyViewerSession } from "../src/auth.ts";
 import { hashPasscode } from "../src/links.ts";
 import { proxyUpstream } from "../src/upstream.ts";
 
+test("an email verification code can be consumed only once under concurrent requests", async () => {
+  const f = fixture();
+  const a = f.artifact("art_otponce");
+  f.raw
+    .prepare(
+      "INSERT INTO viewer_tokens (token,artifact_id,email,code,expires_at,created_at) VALUES ('synthetic_once',?,'victim@example.com','123456',?,?)",
+    )
+    .run(a.id, nowSec() + 600, nowSec());
+  const responses = await Promise.all(
+    [1, 2].map(() => f.request("/_au/gate/verify?t=synthetic_once")),
+  );
+  const bodies = await Promise.all(
+    responses.map((r) => r.json().catch(() => ({}))),
+  );
+  assert.equal(bodies.filter((body) => body.token).length, 1);
+});
+
+test("tenant, artifact, descriptor and path boundaries still deny unrelated identities", async () => {
+  const f = fixture();
+  const a = f.artifact("art_boundary");
+  const other = f.artifact("art_other", "org_other");
+  assert.equal(
+    (
+      await f.request(`/api/v1/artifacts/${a.url_key}`, {
+        headers: bearer(await f.creator("org_other")),
+      })
+    ).status,
+    404,
+  );
+  assert.equal(
+    (
+      await f.request(`/go/${a.url_key}/private.txt`, {
+        headers: bearer(await f.viewer(other)),
+      })
+    ).status,
+    401,
+  );
+  assert.equal(
+    (await f.request(`/go/${a.url_key}/_au/index.json`)).status,
+    401,
+  );
+  assert.equal(
+    (
+      await f.request(`/go/${a.url_key}/%2e%2e%2fprivate.txt`, {
+        headers: bearer(await f.viewer(a)),
+      })
+    ).status,
+    404,
+  );
+});
+
+test("workspace viewer grants lose access when current membership ends", async () => {
+  const f = fixture();
+  f.env.WORKOS_API_KEY = "synthetic-unused-key";
+  const a = f.artifact("art_formermember");
+  f.raw
+    .prepare(
+      "INSERT INTO workspace_membership_sync (user_id,refreshed_at) VALUES ('user_AUDIT',?)",
+    )
+    .run(nowSec());
+  const token = await f.viewer(a, { workspace_user_id: "user_AUDIT" });
+  for (const path of [
+    `/go/${a.url_key}/private.txt`,
+    `/_au/comments?artifact_key=${a.url_key}`,
+    `/_au/profile?artifact_key=${a.url_key}`,
+  ])
+    assert.equal(
+      (await f.request(path, { headers: bearer(token) })).status,
+      401,
+      path,
+    );
+});
+
+test("upstream redirects stay within the backend origin and preserve normal redirect semantics", async () => {
+  for (const crossOrigin of [false, true]) {
+    const f = fixture();
+    const a = f.artifact("art_redirect");
+    f.raw
+      .prepare(
+        "INSERT INTO artifact_upstreams (artifact_id,base_url,secret,created_at,updated_at) VALUES (?,'https://backend.example','SYNTHETIC_SECRET',1,1)",
+      )
+      .run(a.id);
+    const session = (await verifyViewerSession(await f.viewer(a), f.env))!;
+    const original = globalThis.fetch;
+    const calls: Array<{
+      url: string;
+      method: string | undefined;
+      secret: string | null;
+    }> = [];
+    globalThis.fetch = async (url, init) => {
+      calls.push({
+        url: String(url),
+        method: init?.method,
+        secret: new Headers(init?.headers).get("Authorization"),
+      });
+      return calls.length === 1
+        ? new Response(null, {
+            status: 303,
+            headers: {
+              Location: crossOrigin
+                ? "https://another.example/collect"
+                : "/finished",
+            },
+          })
+        : new Response("OK");
+    };
+    try {
+      const response = await proxyUpstream(
+        new Request(`https://audit.example/go/${a.url_key}/_api/start`, {
+          method: "POST",
+          body: "synthetic",
+        }),
+        f.env,
+        a,
+        session,
+        ["start"],
+      );
+      assert.equal(response.status, crossOrigin ? 502 : 200);
+      assert.equal(calls.length, crossOrigin ? 1 : 2);
+      if (!crossOrigin) {
+        assert.equal(calls[1].url, "https://backend.example/finished");
+        assert.equal(calls[1].method, "GET");
+        assert.equal(calls[1].secret, "Bearer SYNTHETIC_SECRET");
+      }
+    } finally {
+      globalThis.fetch = original;
+    }
+  }
+});
+
+test("a pending comment poll cannot return data after access is revoked", async () => {
+  const f = fixture();
+  const a = f.artifact("art_poll");
+  const token = await f.viewer(a);
+  const pending = f.request(`/_au/comments?artifact_key=${a.url_key}&wait=1`, {
+    headers: bearer(token),
+  });
+  const timer = setTimeout(() => {
+    f.raw
+      .prepare(
+        "UPDATE artifacts SET allowlist_json='{\"emails\":[]}' WHERE id=?",
+      )
+      .run(a.id);
+    f.raw
+      .prepare(
+        "INSERT INTO comments (artifact_id,email,body,created_at,private_to) VALUES (?,'victim@example.com','AFTER_REVOCATION',?,'victim@example.com')",
+      )
+      .run(a.id, nowSec());
+  }, 50);
+  try {
+    const response = await pending;
+    assert.equal(response.status, 401);
+    assert.doesNotMatch(await response.text(), /AFTER_REVOCATION/);
+  } finally {
+    clearTimeout(timer);
+  }
+});
+
 test("recipient links cannot read or change a global verified profile", async () => {
   const f = fixture();
   const attacker = f.artifact("art_profile_attacker", "org_attacker");
@@ -75,6 +233,39 @@ test("recipient links cannot read or change a global verified profile", async ()
     { headers: bearer(await f.viewer(victim)) },
   );
   assert.match(await victimProfile.text(), /ORIGINAL_PRIVATE_NAME/);
+});
+
+test("verified viewer sessions can rename within an artifact but cannot change a global profile", async () => {
+  const f = fixture();
+  const a = f.artifact("art_verifiedprofile");
+  f.raw
+    .prepare(
+      "INSERT INTO profiles (email,display_name,updated_at) VALUES ('victim@example.com','GLOBAL_NAME',1)",
+    )
+    .run();
+  const response = await f.request("/_au/profile", {
+    method: "POST",
+    headers: {
+      ...bearer(await f.viewer(a)),
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      artifact_key: a.url_key,
+      display_name: "LOCAL_NAME",
+    }),
+  });
+  assert.equal(response.status, 200);
+  assert.match(await response.text(), /LOCAL_NAME/);
+  assert.equal(
+    (
+      f.raw
+        .prepare(
+          "SELECT display_name FROM profiles WHERE email='victim@example.com'",
+        )
+        .get() as { display_name: string }
+    ).display_name,
+    "GLOBAL_NAME",
+  );
 });
 
 test("read-only statistics omit share-link credentials", async () => {

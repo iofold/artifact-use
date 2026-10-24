@@ -21,7 +21,7 @@ Primary URLs:
 - OAuth protected-resource metadata: https://artifacts.iofold.com/.well-known/oauth-protected-resource
 - Full agent guide: https://artifacts.iofold.com/llms-full.txt
 - Mint or renew a creator token: https://artifacts.iofold.com/admin/connect
-- Public artifact URL shape: https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/
+- Public artifact URL shape: https://artifacts.iofold.com/go/{readable-slug}-{random-code}/
 
 Artifact Use never publishes unless you call a publish tool. Reading, listing,
 stats, and comments change nothing. Publish only when the user asks for a link,
@@ -275,8 +275,8 @@ Artifact Use publishes static artifacts to https://artifacts.iofold.com.
   files; `artifact_manage` for list, stats, access, preview copy, upstream,
   share links, versions, promote, diff, move, delete; `artifact_comments` for
   the review loop.
-- Titles and descriptions are public link-preview copy even on gated
-  artifacts. Default gate is `email`.
+- Public artifacts show titles and descriptions in previews; protected
+  artifacts use a generic card. Default gate is `email`.
 - Report the live URL, gate level, slug and `url_key`, checks run, and any
   error body.
 ```
@@ -340,9 +340,9 @@ Results and errors:
   `invalid_gate_level`, `too_many_files`, `package_too_large`,
   `file_too_large`, ...). Read the code before retrying; a `401 token_expired`
   is not fixed by retrying.
-- Titles and descriptions are public link-preview copy even when the artifact
-  is gated. Pass a concise `description` (or let HTML publishes derive one) and
-  never put secrets, recipient details, or confidential content in either.
+- Public artifacts show titles and descriptions in previews; protected
+  artifacts use a generic card. Pass a concise `description` or let HTML
+  publishes derive one. Never put credentials in published content.
 - Default gate is `email` (the viewer's word, checked for syntax and a real
   mail domain, never verified); use `verified_email` — the "share with a
   client" preset — when every view must be attributable, `allowlist` for
@@ -634,7 +634,7 @@ screenshots under `.tmp/html-artifact-qa/<slug>/` when useful.
 
 Report:
 
-- Live URL: `https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/`
+- Live URL: `https://artifacts.iofold.com/go/{readable-slug}-{random-code}/`
 - Gate level.
 - Artifact slug and `url_key` (the user needs the `url_key` to ask for a
   republish later).
@@ -786,9 +786,9 @@ email-gate identities.
 ## 16. Versions, rollback and diff
 
 Every completed publish is an immutable version. The stable URL
-(`https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/`)
+(`https://artifacts.iofold.com/go/{readable-slug}-{random-code}/`)
 serves the artifact's current version; each version also has its own
-address, `https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/_v/{version_id}/`,
+address, `https://artifacts.iofold.com/go/{readable-slug}-{random-code}/_v/{version_id}/`,
 for the publishing workspace only: your token and signed-in members of the
 workspace can open it, and everyone else is redirected to the stable URL, so
 viewers only ever see the latest version and an old link cannot leak what a

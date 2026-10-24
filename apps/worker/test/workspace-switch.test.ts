@@ -81,7 +81,7 @@ function switchRequest(
     "Sec-Fetch-Site": "same-origin",
     ...headers,
   });
-  if (raw) all.set("Cookie", `au_pub=${encodeURIComponent(raw)}`);
+  if (raw) all.set("Cookie", `__Host-au_pub=${encodeURIComponent(raw)}`);
   return new Request(
     `https://artifacts.example.com/admin/switch?org=${encodeURIComponent(org)}`,
     { headers: all },
@@ -94,9 +94,11 @@ async function mintedSession(
 ): Promise<PublisherSession | null> {
   const cookie = response.headers
     .getSetCookie()
-    .find((value) => value.startsWith("au_pub="));
+    .find((value) => value.startsWith("__Host-au_pub="));
   if (!cookie) return null;
-  const raw = decodeURIComponent(/^au_pub=([^;]+)/.exec(cookie)?.[1] || "");
+  const raw = decodeURIComponent(
+    /^__Host-au_pub=([^;]+)/.exec(cookie)?.[1] || "",
+  );
   return verifyPayload<PublisherSession>(raw, env);
 }
 
@@ -193,7 +195,7 @@ test("workspace-context advertises the in-place switch URL", async () => {
     new Request("https://artifacts.example.com/admin/api/workspace-context", {
       headers: {
         Accept: "application/json",
-        Cookie: `au_pub=${encodeURIComponent(raw)}; au_admin_csrf=${encodeURIComponent(csrf.token)}`,
+        Cookie: `__Host-au_pub=${encodeURIComponent(raw)}; __Host-au_admin_csrf=${encodeURIComponent(csrf.token)}`,
         "X-CSRF-Token": csrf.token,
       },
     }),

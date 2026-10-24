@@ -293,9 +293,11 @@ test("anonymous readers of a public artifact see nothing once it is private", as
 });
 
 test("the widget learns the mode from artifact-context", async () => {
-  const { env } = await setup();
+  const { env, alice } = await setup();
   const res = await handleArtifactContext(
-    new Request(`${ORIGIN}/_au/artifact-context?artifact_key=${KEY}`),
+    new Request(`${ORIGIN}/_au/artifact-context?artifact_key=${KEY}`, {
+      headers: { Authorization: `Bearer ${alice}` },
+    }),
     env,
   );
   const body = (await res.json()) as { role: string; feedback: string };

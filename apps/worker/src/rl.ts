@@ -6,6 +6,7 @@ import {
   nowSec,
   sha256Hex,
   wantsHtml,
+  artifactPathPrefix,
 } from "./util";
 
 const CLEANUP_INTERVAL_SEC = 60 * 60;
@@ -75,6 +76,45 @@ export async function clearRateLimit(
   )
     .bind(bucket.slice(0, 240), windowStart)
     .run();
+}
+
+// Count failed discovery across keys rather than successful asset loads. Once
+// exhausted, check before lookup so successful guesses cannot bypass the limit.
+// Deployment requires the isolation suffix; keyless test/dev setups stay local.
+export async function artifactDiscoveryLimit(
+  request: Request,
+  env: Env,
+  failed = false,
+): Promise<Response | null> {
+  if (!env.ARTIFACT_HOST_SUFFIX) return null;
+  const path = new URL(request.url).pathname;
+  if (
+    !path.startsWith(`${artifactPathPrefix(env)}/`) &&
+    !/^\/_au\/(comments|versions|artifact-context|agent-token|profile|preview\/|gate\/)/.test(
+      path,
+    )
+  )
+    return null;
+  const bucket = `discovery:ip:minute:${await hashRateKey(requestIp(request))}`;
+  if (failed) {
+    const result = await rateLimit(env, bucket, 60, 60);
+    return result.allowed ? null : rateLimitedResponse(result);
+  }
+  const now = nowSec();
+  const windowStart = Math.floor(now / 60) * 60;
+  const row = await env.DB.prepare(
+    "SELECT count FROM rate_counters WHERE bucket = ? AND window_start = ?",
+  )
+    .bind(bucket, windowStart)
+    .first<{ count: number }>();
+  if (!row || Number(row.count) < 60) return null;
+  return rateLimitedResponse({
+    allowed: false,
+    count: Number(row.count),
+    limit: 60,
+    windowStart,
+    retryAfter: Math.max(1, windowStart + 60 - now),
+  });
 }
 
 export function rateLimitedResponse(

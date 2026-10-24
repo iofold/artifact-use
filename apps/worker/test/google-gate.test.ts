@@ -136,7 +136,7 @@ async function callback(
     new Request(`${ORIGIN}/_au/gate/google/callback?${query}`, {
       headers: navigationHeaders(
         stateCookie
-          ? { Cookie: `au_gstate=${encodeURIComponent(stateCookie)}` }
+          ? { Cookie: `__Host-au_gstate=${encodeURIComponent(stateCookie)}` }
           : {},
       ),
     }),
@@ -154,7 +154,7 @@ async function signIn(
 ) {
   const started = await start(env, key, {}, shareLinkId);
   const setCookie = started.headers.get("Set-Cookie") || "";
-  const stateCookie = cookieValue(setCookie, "au_gstate");
+  const stateCookie = cookieValue(setCookie, "__Host-au_gstate");
   const state = new URL(started.headers.get("Location") || "").searchParams.get(
     "state",
   );
@@ -219,7 +219,7 @@ test("start sends the browser straight to Google through WorkOS", async () => {
   assert.ok(location.searchParams.get("state"));
   assert.match(
     res.headers.get("Set-Cookie") || "",
-    /au_gstate=.*Path=\/_au\/gate\/google;.*HttpOnly/,
+    /__Host-au_gstate=.*Path=\/;.*HttpOnly/,
   );
 });
 
@@ -288,7 +288,7 @@ async function continueAs(
 // The session the callback minted for art_g, if any.
 async function passedSession(env: Env, res: Response) {
   return verifyViewerSession(
-    cookieValue(res.headers.get("Set-Cookie") || "", "au_art_g") || "",
+    cookieValue(res.headers.get("Set-Cookie") || "", "__Host-au_art_g") || "",
     env,
   );
 }
@@ -302,9 +302,9 @@ test("a verified Google email goes straight to the page and stays signed in", as
   assert.equal(session?.email, "alice@gmail.com");
   assert.equal(session?.verified, true);
   const setCookie = res.headers.get("Set-Cookie") || "";
-  const identity = cookieValue(setCookie, "au_vid");
+  const identity = cookieValue(setCookie, "__Host-au_vid");
   assert.ok(identity, "viewer identity is set for later gates");
-  assert.match(setCookie, /au_gstate=;/);
+  assert.match(setCookie, /__Host-au_gstate=;/);
   const exchange = workos.calls.find((c) =>
     c.url.includes("/user_management/authenticate"),
   );
@@ -320,7 +320,7 @@ test("a verified Google email goes straight to the page and stays signed in", as
   assert.equal(view.source, "gate");
 
   // Another artifact is one click away, never silent.
-  const cookie = `au_vid=${encodeURIComponent(identity || "")}`;
+  const cookie = `__Host-au_vid=${encodeURIComponent(identity || "")}`;
   const other = await gatePage(env, "g2-abc123", { Cookie: cookie });
   assert.match(other, /Continue as alice@gmail\.com/);
 });
@@ -432,7 +432,7 @@ test("an address Google does not vouch for falls back to the email code", async 
     assert.match(html, /couldn(?:'|&#39;)t confirm this email address/);
     assert.match(html, /value="x@acme\.com"/);
     assert.equal(
-      cookieValue(res.headers.get("Set-Cookie") || "", "au_art_g"),
+      cookieValue(res.headers.get("Set-Cookie") || "", "__Host-au_art_g"),
       null,
     );
   }
@@ -443,14 +443,16 @@ test("a stale or mismatched callback never passes the gate", async () => {
   const started = await start(env);
   const stateCookie = cookieValue(
     started.headers.get("Set-Cookie") || "",
-    "au_gstate",
+    "__Host-au_gstate",
   );
   const workos = mockWorkos(verifiedAlice);
   try {
     const wrong = await callback(env, stateCookie, "code=abc&state=forged");
     assert.equal(wrong.status, 200);
     assert.match(await wrong.text(), /didn(?:'|&#39;)t finish/);
-    assert.ok(!(wrong.headers.get("Set-Cookie") || "").includes("au_art_g="));
+    assert.ok(
+      !(wrong.headers.get("Set-Cookie") || "").includes("__Host-au_art_g="),
+    );
     const noCookie = await callback(env, null, "code=abc&state=forged");
     assert.match(await noCookie.text(), /expired/);
     const denied = await callback(env, stateCookie, "error=access_denied");
@@ -509,12 +511,12 @@ test("Continue as with a Google identity mints a verified session and renews the
   assert.equal(res.status, 302);
   const setCookie = res.headers.get("Set-Cookie") || "";
   const session = await verifyViewerSession(
-    cookieValue(setCookie, "au_art_g2") || "",
+    cookieValue(setCookie, "__Host-au_art_g2") || "",
     env,
   );
   assert.equal(session?.email, "alice@gmail.com");
   assert.equal(session?.verified, true);
-  assert.ok(cookieValue(setCookie, "au_vid"), "identity renewed");
+  assert.ok(cookieValue(setCookie, "__Host-au_vid"), "identity renewed");
 });
 
 test("a Google identity is never a workspace credential or a viewer session", async () => {
@@ -544,7 +546,7 @@ test("a Google identity is never a workspace credential or a viewer session", as
     env,
   );
   const page = await gatePage(env, "g2-abc123", {
-    Cookie: `au_vid=${encodeURIComponent(viewer)}`,
+    Cookie: `__Host-au_vid=${encodeURIComponent(viewer)}`,
   });
   assert.doesNotMatch(page, /Continue as/);
 });
@@ -567,7 +569,7 @@ test("sign out forgets the Google identity", async () => {
   assert.equal(res.headers.get("Location"), "/go/g-abc123/");
   assert.match(
     res.headers.get("Set-Cookie") || "",
-    /au_vid=; Path=\/; Max-Age=0/,
+    /__Host-au_vid=; Path=\/; Max-Age=0/,
   );
 });
 
@@ -576,7 +578,7 @@ test("gate state cookies and consent tokens never work as viewer sessions", asyn
   const started = await start(env);
   const state = cookieValue(
     started.headers.get("Set-Cookie") || "",
-    "au_gstate",
+    "__Host-au_gstate",
   );
   const identity = (
     await viewerIdentityCookie(env, "alice@gmail.com", "user_01ALICE")
