@@ -84,6 +84,41 @@ export async function setDisplayName(
     .run();
 }
 
+export async function getArtifactDisplayName(
+  env: Env,
+  artifactId: string,
+  email: string,
+): Promise<string | null> {
+  const row = await env.DB.prepare(
+    "SELECT display_name FROM artifact_profiles WHERE artifact_id = ? AND email = ?",
+  )
+    .bind(artifactId, normalizeEmail(email))
+    .first<{ display_name: string }>();
+  return row?.display_name || null;
+}
+
+export async function setArtifactDisplayName(
+  env: Env,
+  artifactId: string,
+  email: string,
+  name: string | null,
+): Promise<void> {
+  if (!name) {
+    await env.DB.prepare(
+      "DELETE FROM artifact_profiles WHERE artifact_id = ? AND email = ?",
+    )
+      .bind(artifactId, normalizeEmail(email))
+      .run();
+    return;
+  }
+  await env.DB.prepare(
+    `INSERT INTO artifact_profiles (artifact_id,email,display_name,updated_at) VALUES (?,?,?,?)
+    ON CONFLICT(artifact_id,email) DO UPDATE SET display_name=excluded.display_name, updated_at=excluded.updated_at`,
+  )
+    .bind(artifactId, normalizeEmail(email), name, nowSec())
+    .run();
+}
+
 export async function rememberWorkosUser(
   env: Env,
   userId: string,
@@ -166,8 +201,9 @@ const WORKOS_LOOKUPS_PER_CALL = 3;
 // share-link identity), resolved in a few batched reads.
 export async function resolveAuthorNames(
   env: Env,
-  artifact: Pick<Artifact, "org_id">,
+  artifact: Pick<Artifact, "org_id"> & { id?: string },
   authors: string[],
+  provenAuthors: Set<string> = new Set(),
 ): Promise<Map<string, string>> {
   const names = new Map<string, string>();
   const unique = [...new Set(authors.filter(Boolean))];
@@ -193,6 +229,7 @@ export async function resolveAuthorNames(
   const emails = [
     ...new Set(
       unique
+        .filter((author) => provenAuthors.has(author) || isWorkosUserId(author))
         .map((a) => emailOf.get(a) || a)
         .filter((a) => a.includes("@") && !a.startsWith("link:"))
         .map(normalizeEmail),
@@ -208,12 +245,26 @@ export async function resolveAuthorNames(
     for (const row of rows) chosen.set(row.email, row.display_name);
   }
   let workspaceName: string | null | undefined;
+  const local = new Map<string, string>();
+  if (artifact.id) {
+    const rows = await env.DB.prepare(
+      "SELECT email, display_name FROM artifact_profiles WHERE artifact_id = ?",
+    )
+      .bind(artifact.id)
+      .all<{ email: string; display_name: string }>();
+    for (const row of rows.results || [])
+      local.set(row.email, row.display_name);
+  }
   for (const author of unique) {
     const email = isWorkosUserId(author) ? emailOf.get(author) : author;
     if (email && email.includes("@")) {
       names.set(
         author,
-        chosen.get(normalizeEmail(email)) || fallbackName(email),
+        local.get(normalizeEmail(email)) ||
+          (provenAuthors.has(author) || isWorkosUserId(author)
+            ? chosen.get(normalizeEmail(email))
+            : null) ||
+          fallbackName(email),
       );
       continue;
     }

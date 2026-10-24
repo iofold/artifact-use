@@ -75,8 +75,10 @@ import {
 import {
   fallbackName,
   getDisplayName,
+  getArtifactDisplayName,
   normalizeDisplayName,
   setDisplayName,
+  setArtifactDisplayName,
 } from "./profiles";
 import {
   commentWriteRateLimit,
@@ -1031,8 +1033,14 @@ async function commentIdentity(
           kind: "agent",
           label: session.agent,
           audience,
+          verified: session.verified,
         }
-      : { email: session.email, viewId: session.view_id, audience };
+      : {
+          email: session.email,
+          viewId: session.view_id,
+          audience,
+          verified: session.verified,
+        };
   }
   const creator = await creatorForArtifact(
     request,
@@ -1058,11 +1066,9 @@ async function commentIdentity(
 }
 
 // The widget's "Commenting as <name>" line and the form that changes it.
-// Only an identity that proved its email may name it: a verified
-// session or a signed-in workspace member. A recipient link is an artifact
-// access grant, not proof of ownership of its publisher-supplied email. A typed email on
-// a plain email gate, a shared password/open link and a delegated agent can
-// read their name but not set it.
+// Verified people may set a global name; recipient-link names stay within
+// this artifact. A link's publisher-supplied email is not a global identity.
+// Typed email, shared password/open links and delegated agents cannot rename.
 export async function handleProfile(
   request: Request,
   env: Env,
@@ -1099,17 +1105,23 @@ export async function handleProfile(
     if (!parsed.ok) return error(400, "invalid_display_name", parsed.message);
     const limit = await rateLimit(
       env,
-      `profile:name:${await hashRateKey(who.editable)}`,
+      `profile:name:${who.scope === "artifact" ? artifact.id : "global"}:${await hashRateKey(who.editable)}`,
       20,
       60 * 60,
     );
     if (!limit.allowed) return rateLimitedResponse(limit);
-    await setDisplayName(env, who.editable, parsed.name);
+    if (who.scope === "artifact")
+      await setArtifactDisplayName(env, artifact.id, who.editable, parsed.name);
+    else {
+      await setDisplayName(env, who.editable, parsed.name);
+      await setArtifactDisplayName(env, artifact.id, who.editable, null);
+    }
   }
   const defaultName = fallbackName(who.author);
   const custom =
-    who.editable && who.author.includes("@")
-      ? await getDisplayName(env, who.author)
+    who.scope && who.author.includes("@")
+      ? (await getArtifactDisplayName(env, artifact.id, who.author)) ||
+        (who.scope === "global" ? await getDisplayName(env, who.author) : null)
       : null;
   return json(
     {
@@ -1126,16 +1138,33 @@ async function profileIdentity(
   request: Request,
   env: Env,
   artifact: Artifact,
-): Promise<{ author: string; editable: string | null } | null> {
+): Promise<{
+  author: string;
+  editable: string | null;
+  scope: "global" | "artifact" | null;
+} | null> {
   const session = await gatePassingSession(request, env, artifact);
   if (session) {
-    const proven =
-      session.verified && !session.agent && !session.email.startsWith("link:");
-    return { author: session.email, editable: proven ? session.email : null };
+    const scope = session.email.startsWith("link:")
+      ? null
+      : session.verified
+        ? "global"
+        : session.link_id
+          ? "artifact"
+          : null;
+    return {
+      author: session.email,
+      editable: scope && !session.agent ? session.email : null,
+      scope,
+    };
   }
   const signedIn = await signedInViewer(request, env, artifact);
   if (signedIn?.member && !refererOutsideArtifact(request, env, artifact))
-    return { author: signedIn.email, editable: signedIn.email };
+    return {
+      author: signedIn.email,
+      editable: signedIn.email,
+      scope: "global",
+    };
   return null;
 }
 

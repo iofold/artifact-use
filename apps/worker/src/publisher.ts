@@ -151,6 +151,7 @@ type AdminRecentView = {
 };
 
 type AdminComment = {
+  author_verified?: number;
   id: number;
   artifact_id: string;
   parent_comment_id: number | null;
@@ -1100,8 +1101,13 @@ export async function handleAdminUiApi(
     const detail = await artifactDetailData(env, session.orgId, id);
     const names = await resolveAuthorNames(
       env,
-      { org_id: session.orgId },
+      { id, org_id: session.orgId },
       detail.comments.map((comment) => comment.email),
+      new Set(
+        detail.comments
+          .filter((comment) => comment.author_verified)
+          .map((comment) => comment.email),
+      ),
     ).catch(() => new Map<string, string>());
     return json({
       shares: detail.shares.map((link) =>

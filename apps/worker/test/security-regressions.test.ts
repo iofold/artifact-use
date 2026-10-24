@@ -41,6 +41,16 @@ test("recipient links cannot read or change a global verified profile", async ()
     { headers: bearer(token) },
   );
   assert.doesNotMatch(await profile.text(), /ORIGINAL_PRIVATE_NAME/);
+  const comment = await f.request("/_au/comments", {
+    method: "POST",
+    headers: { ...bearer(token), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      artifact_key: attacker.url_key,
+      body: "Synthetic reviewer comment",
+    }),
+  });
+  assert.equal(comment.status, 200);
+  assert.doesNotMatch(await comment.text(), /ORIGINAL_PRIVATE_NAME/);
   const set = await f.request("/_au/profile", {
     method: "POST",
     headers: { ...bearer(token), "Content-Type": "application/json" },
@@ -49,7 +59,17 @@ test("recipient links cannot read or change a global verified profile", async ()
       display_name: "ATTACKER_CHOSEN_NAME",
     }),
   });
-  assert.equal(set.status, 403);
+  assert.equal(
+    set.status,
+    200,
+    "recipient reviewers retain artifact-scoped name editing",
+  );
+  assert.match(await set.text(), /ATTACKER_CHOSEN_NAME/);
+  const localComments = await f.request(
+    `/_au/comments?artifact_key=${attacker.url_key}`,
+    { headers: bearer(token) },
+  );
+  assert.match(await localComments.text(), /ATTACKER_CHOSEN_NAME/);
   const victimProfile = await f.request(
     `/_au/profile?artifact_key=${victim.url_key}`,
     { headers: bearer(await f.viewer(victim)) },

@@ -133,6 +133,7 @@ function privateToForNewThread(
 }
 
 export interface CommentAuthor {
+  verified?: boolean;
   email: string;
   // views row for viewer sessions; null for workspace (creator) identities.
   viewId: number | null;
@@ -163,6 +164,7 @@ export interface CommentFilters {
 // Raw row plus agent conveniences: `resolved` as a boolean and `target` as a
 // parsed object. `target_json` stays (the feedback widget consumes it).
 export interface ApiComment {
+  author_verified?: boolean;
   id: number;
   parent_comment_id: number | null;
   email: string;
@@ -202,6 +204,7 @@ export type CommentWriteResult =
   | { ok: false; status: number; code: string; message: string };
 
 interface CommentRow {
+  author_verified?: number;
   id: number;
   parent_comment_id: number | null;
   email: string;
@@ -220,7 +223,7 @@ interface CommentRow {
 }
 
 const ROW_COLUMNS =
-  "c.id, c.parent_comment_id, c.email, c.body, c.target_json, c.page_path, c.version_id, c.created_at, c.resolved_at, c.resolved_by, c.author_kind, c.agent_label, c.view_id, c.private_to, c.author_role";
+  "c.id, c.parent_comment_id, c.email, c.body, c.target_json, c.page_path, c.version_id, c.created_at, c.resolved_at, c.resolved_by, c.author_kind, c.agent_label, c.view_id, c.private_to, c.author_role, c.author_verified";
 
 export async function listComments(
   env: Env,
@@ -501,13 +504,15 @@ export async function createComment(
   const kind: AuthorKind = author.kind === "agent" ? "agent" : "human";
   const label = kind === "agent" ? cleanStr(author.label, 80) : null;
   const authorRole = audience.kind === "workspace" ? "workspace" : null;
+  const authorVerified =
+    author.verified || audience.kind === "workspace" ? 1 : 0;
   const createdAt = nowSec();
   let inserted;
   try {
     inserted = await env.DB.prepare(
       `INSERT INTO comments
-     (artifact_id, view_id, email, body, target_json, page_path, version_id, parent_comment_id, client_ref, created_at, author_kind, agent_label, private_to, author_role)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (artifact_id, view_id, email, body, target_json, page_path, version_id, parent_comment_id, client_ref, created_at, author_kind, agent_label, private_to, author_role, author_verified)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     )
       .bind(
         artifact.id,
@@ -524,6 +529,7 @@ export async function createComment(
         label,
         privateTo,
         authorRole,
+        authorVerified,
       )
       .run();
   } catch (e) {
@@ -582,6 +588,7 @@ export async function createComment(
       view_id: author.viewId,
       private_to: privateTo,
       author_role: authorRole,
+      author_verified: authorVerified,
     }),
   );
   await emitCommentEvent(
@@ -729,6 +736,8 @@ async function visibleComment(
 
 function apiComment(row: CommentRow): ApiComment {
   return {
+    author_verified:
+      row.author_verified === 1 || row.author_role === "workspace",
     id: row.id,
     parent_comment_id: row.parent_comment_id,
     email: row.email,
@@ -771,6 +780,7 @@ export async function withAuthorNames(
       env,
       artifact,
       comments.map((c) => c.email),
+      new Set(comments.filter((c) => c.author_verified).map((c) => c.email)),
     );
   } catch {
     // Names are cosmetic; the fallback already reads well.
