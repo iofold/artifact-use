@@ -9,6 +9,8 @@ export interface Env {
   EMAIL?: SendEmail;
   SITE_BASE_URL: string;
   ARTIFACT_PUBLIC_PATH_PREFIX?: string;
+  // Wildcard DNS/TLS host for isolated artifact origins, e.g. pages.example.com.
+  ARTIFACT_HOST_SUFFIX?: string;
   WORKOS_AUTHKIT_URL: string;
   WORKOS_AUDIENCE: string;
   WORKOS_ISSUER: string;

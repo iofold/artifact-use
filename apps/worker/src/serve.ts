@@ -10,6 +10,12 @@ import { abuseMailto } from "./abuse";
 import { getCreator, requirePermission, signViewerSession } from "./auth";
 import { resolveWorkspaceOrg } from "./workspaces";
 import {
+  artifactOrigin,
+  isTrustedOrigin,
+  consumeArtifactHandoff,
+  redirectToArtifactOrigin,
+} from "./origins";
+import {
   gateConsentToken,
   googleGateEnabled,
   topLevelNavigation,
@@ -128,6 +134,8 @@ export async function servePublic(
     return error(404, "artifact_not_found", "artifact not found");
   const unavailable = unavailableArtifactResponse(request, artifact);
   if (unavailable) return unavailable;
+  const handoff = await consumeArtifactHandoff(request, env, artifact);
+  if (handoff) return handoff;
   // Prior versions live under the reserved `_v/<version_id>/` segment and
   // are served from that version's own files, but only to the publishing
   // workspace (a signed-in member or a workspace token): anyone else is sent
@@ -201,6 +209,25 @@ export async function servePublic(
       (await creatorForArtifact(request, env, artifact, "artifacts:read")) !==
         null;
     if (!sessionPassesGate(artifact, session) && !creatorRead) {
+      // Authentication stays on the trusted origin (Google callback and
+      // publisher SSO cookies), then a one-use handoff returns here.
+      if (
+        !isTrustedOrigin(request, env) &&
+        wantsHtml(request) &&
+        request.method === "GET"
+      ) {
+        const back = new URL(request.url);
+        const trusted = new URL(env.SITE_BASE_URL);
+        back.host = trusted.host;
+        back.protocol = trusted.protocol;
+        return new Response(null, {
+          status: 302,
+          headers: {
+            Location: back.toString(),
+            "Cache-Control": "private, no-store",
+          },
+        });
+      }
       if (linkPreview) {
         return headOnly(
           request,
@@ -333,6 +360,35 @@ export async function servePublic(
   // The gate passed; drop the SSO bounce marker so it never lingers in the
   // address bar or in copied links.
   const requestUrl = new URL(request.url);
+  if (
+    !isUpstream &&
+    request.method === "GET" &&
+    wantsHtml(request) &&
+    !bearerToken(request) &&
+    artifactOrigin(env, artifact) &&
+    isTrustedOrigin(request, env)
+  ) {
+    const member = await signedInViewer(request, env, artifact);
+    if (member?.member && member.userId) {
+      session = {
+        artifact_id: artifact.id,
+        version_id: artifact.current_version_id,
+        email: member.email,
+        verified: true,
+        view_id: session?.view_id || 0,
+        exp: Math.min(session?.exp || Infinity, nowSec() + 86400),
+        workspace_user_id: member.userId,
+      };
+    } else if (!session)
+      session = await gatePassingSession(request, env, artifact);
+    const redirect = await redirectToArtifactOrigin(
+      request,
+      env,
+      artifact,
+      session,
+    );
+    if (redirect) return redirect;
+  }
   if (requestUrl.searchParams.has("au_sso")) {
     requestUrl.searchParams.delete("au_sso");
     return Response.redirect(requestUrl.toString(), 302);
@@ -705,6 +761,14 @@ export async function handleArtifactContext(
   // private, and publishers that each viewer sees only their own threads.
   const feedback = feedbackMode(artifact);
   const viewer = () => json({ role: "viewer", agent, feedback });
+  const scoped = await gatePassingSession(request, env, artifact);
+  if (scoped?.workspace_user_id)
+    return json({
+      role: "publisher",
+      admin_url: `${siteBaseUrl(env)}/admin?open=${encodeURIComponent(artifact.id)}`,
+      agent,
+      feedback,
+    });
   const auth = await getPublisherSessionAuth(request, env);
   if (!auth || auth.session.orgId !== artifact.org_id) return viewer();
   // Defense-in-depth: an artifact page may only ask about itself, so hostile
@@ -728,6 +792,8 @@ async function workspaceMember(
   artifact: Artifact,
   sameOrigin = false,
 ): Promise<boolean> {
+  const scoped = await gatePassingSession(request, env, artifact);
+  if (scoped?.workspace_user_id) return true;
   const auth = await getPublisherSessionAuth(request, env);
   if (
     auth &&
@@ -951,9 +1017,11 @@ async function commentIdentity(
   if (session) {
     // A member who came through the gate still carries their viewer cookie;
     // visibility follows the workspace membership, not the attribution.
-    const audience = (await workspaceSignedIn(request, env, artifact))
-      ? WORKSPACE_AUDIENCE
-      : viewerAudience(session);
+    const audience =
+      session.workspace_user_id ||
+      (await workspaceSignedIn(request, env, artifact))
+        ? WORKSPACE_AUDIENCE
+        : viewerAudience(session);
     // A delegated "Hand to your agent" session writes as an agent under the
     // viewer's email; a plain gate session is the human viewer.
     return session.agent

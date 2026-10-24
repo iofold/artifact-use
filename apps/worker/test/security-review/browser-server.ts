@@ -1,10 +1,12 @@
 // Loopback-only browser reproduction against the actual worker handlers.
 import { createServer } from "node:http";
 import { fixture } from "./fixture.ts";
+import worker from "../../src/index.ts";
 import { setViewerCookie, viewerCookieName } from "../../src/auth.ts";
 
 const origin = "http://localhost:18849";
 const f = fixture(origin);
+f.env.ARTIFACT_HOST_SUFFIX = "localhost:18849";
 const victim = f.artifact("art_victim");
 const attacker = f.artifact("art_attacker", "org_attacker", "public", "shared");
 f.raw
@@ -43,13 +45,16 @@ createServer(async (req, res) => {
     const headers = new Headers();
     for (const [k, v] of Object.entries(req.headers))
       if (v) headers.set(k, Array.isArray(v) ? v.join(", ") : v);
-    const response = await f.request(req.url || "/", {
-      method: req.method,
-      headers,
-      ...(["GET", "HEAD"].includes(req.method || "GET")
-        ? {}
-        : { body: Buffer.concat(chunks) }),
-    });
+    const response = await worker.fetch(
+      new Request(`http://${req.headers.host}${req.url || "/"}`, {
+        method: req.method,
+        headers,
+        ...(["GET", "HEAD"].includes(req.method || "GET")
+          ? {}
+          : { body: Buffer.concat(chunks) }),
+      }),
+      f.env,
+    );
     res.statusCode = response.status;
     for (const [k, v] of response.headers)
       if (k !== "set-cookie") res.setHeader(k, v);

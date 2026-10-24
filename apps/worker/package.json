@@ -8,12 +8,12 @@
     "llms:build": "node scripts/build-llms.mjs",
     "build": "npm run widget:build && npm run llms:build && tsc --noEmit",
     "dev": "wrangler dev",
-    "deploy": "node scripts/check-legal-assets.mjs wrangler.toml && wrangler deploy",
+    "deploy": "node scripts/check-legal-assets.mjs wrangler.toml && node scripts/check-artifact-origin.mjs wrangler.toml && wrangler deploy",
     "typecheck": "npm run widget:build && npm run llms:build && tsc --noEmit",
     "migrate:local": "wrangler d1 migrations apply artifact-use --local",
     "migrate:remote": "wrangler d1 migrations apply artifact-use --remote",
     "check:legal": "node scripts/check-legal-assets.mjs",
-    "deploy:prod": "node scripts/check-legal-assets.mjs wrangler.prod.toml && wrangler deploy --config wrangler.prod.toml"
+    "deploy:prod": "node scripts/check-legal-assets.mjs wrangler.prod.toml && node scripts/check-artifact-origin.mjs wrangler.prod.toml && wrangler deploy --config wrangler.prod.toml"
   },
   "dependencies": {
     "artifact-use-core": "*",
