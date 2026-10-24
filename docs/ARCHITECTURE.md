@@ -104,6 +104,13 @@ Domain. Artifact hosts accept only their own files and viewer endpoints;
 cookies, localStorage and service workers are isolated. Browser mutations check
 Origin; Origin-less agent HTTP calls remain supported.
 
+Protected file and upstream responses also set
+`Cross-Origin-Resource-Policy: same-origin`. Separate origins alone do not block
+classic cross-origin script/resource inclusion with ambient browser cookies.
+The resource policy prevents another artifact from embedding private assets;
+own-origin assets and public shared resources remain usable. JSON responses
+carry the same resource policy and `X-Content-Type-Options: nosniff`.
+
 Workspace grants carry a user id checked against current membership. The
 five-minute membership cache expires closed during directory outages. Long-poll
 comment reads reauthorize before returning. Protected files use

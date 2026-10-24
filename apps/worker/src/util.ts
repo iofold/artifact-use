@@ -21,6 +21,8 @@ export function json(body: unknown, init: ResponseInit = {}): Response {
     headers: {
       "Content-Type": "application/json; charset=utf-8",
       "Cache-Control": "private, no-store",
+      "X-Content-Type-Options": "nosniff",
+      "Cross-Origin-Resource-Policy": "same-origin",
       ...(init.headers || {}),
     },
   });

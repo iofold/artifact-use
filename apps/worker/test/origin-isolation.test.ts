@@ -4,6 +4,62 @@ import worker from "../src/index.ts";
 import { fixture, bearer } from "./security-review/fixture.ts";
 import { viewerCookieName } from "../src/auth.ts";
 
+test("protected script files cannot be embedded by another artifact origin", async () => {
+  const f = fixture();
+  f.env.ARTIFACT_HOST_SUFFIX = "pages.example";
+  const a = f.artifact("art_resource");
+  f.file(
+    a,
+    "private.js",
+    "window.__auditPrivateScript='PRIVATE_SCRIPT_BYTES'",
+    "application/javascript",
+  );
+  const cookie = `${viewerCookieName(a.id)}=${encodeURIComponent(await f.viewer(a))}`;
+  for (const origin of [
+    "https://audit.example",
+    "https://a-resource.pages.example",
+  ]) {
+    const response = await worker.fetch(
+      new Request(`${origin}/go/${a.url_key}/private.js`, {
+        headers: {
+          Cookie: cookie,
+          "Sec-Fetch-Site": "same-site",
+          "Sec-Fetch-Dest": "script",
+          "Sec-Fetch-Mode": "no-cors",
+        },
+      }),
+      f.env,
+    );
+    assert.equal(response.status, 200);
+    assert.equal(
+      response.headers.get("Cross-Origin-Resource-Policy"),
+      "same-origin",
+    );
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+  }
+  const publicArtifact = f.artifact(
+    "art_publicresource",
+    "org_other",
+    "public",
+  );
+  const publicFile = await f.request(
+    `/go/${publicArtifact.url_key}/private.txt`,
+  );
+  assert.notEqual(
+    publicFile.headers.get("Cross-Origin-Resource-Policy"),
+    "same-origin",
+    "public resources stay reusable",
+  );
+  const comments = await f.request(`/_au/comments?artifact_key=${a.url_key}`, {
+    headers: bearer(await f.viewer(a)),
+  });
+  assert.equal(
+    comments.headers.get("Cross-Origin-Resource-Policy"),
+    "same-origin",
+  );
+  assert.equal(comments.headers.get("X-Content-Type-Options"), "nosniff");
+});
+
 test("browser mutations cannot use publisher cookies from a sibling artifact origin", async () => {
   const f = fixture();
   const a = f.artifact("art_blindpost");
