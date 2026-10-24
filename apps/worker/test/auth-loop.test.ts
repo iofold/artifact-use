@@ -4,12 +4,26 @@ import type { Env, PublisherSession } from "../src/types.ts";
 import * as auth from "../src/auth.ts";
 import worker from "../src/index.ts";
 import * as util from "../src/util.ts";
+import { sqliteD1 } from "./helpers/sqlite-d1.ts";
+
+const { db, raw } = sqliteD1();
+raw
+  .prepare(
+    "INSERT INTO workspace_membership_sync (user_id, refreshed_at) VALUES ('user_test', ?)",
+  )
+  .run(util.nowSec());
+raw
+  .prepare(
+    "INSERT INTO workspace_memberships (user_id, org_id, org_name, org_slug, role, checked_at) VALUES ('user_test','org_test','Test','test','member',?)",
+  )
+  .run(util.nowSec());
 
 // The WorkOS AuthKit app points its initiate-login and logout URIs at /login,
 // and /login re-enters WorkOS. These tests pin the worker-side defenses that
 // keep that ring from ever becoming ERR_TOO_MANY_REDIRECTS in a browser.
 
 const testEnv = {
+  DB: db,
   SESSION_SECRET: "auth-loop-test-secret",
   SITE_BASE_URL: "https://artifacts.example.com",
   WORKOS_CLIENT_ID: "client_test",

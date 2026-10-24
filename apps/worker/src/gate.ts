@@ -104,11 +104,17 @@ export async function signedInViewer(
   source: "publisher" | "identity";
   // The signed cookie behind it; "Continue as" consent tokens bind to it.
   raw: string;
+  userId?: string;
 } | null> {
   const auth = await getPublisherSessionAuth(request, env);
   const email = normalizeEmail(auth?.session.email || "");
   if (auth && validEmail(email)) {
-    const found = { email, source: "publisher" as const, raw: auth.raw };
+    const found = {
+      email,
+      source: "publisher" as const,
+      raw: auth.raw,
+      userId: auth.session.sub,
+    };
     if (auth.session.orgId === artifact.org_id)
       return { ...found, member: true };
     try {
@@ -881,6 +887,12 @@ async function consumeVerified(
   redirectTo: string,
   shareLinkId: string | null,
 ): Promise<Response> {
+  if (!isAllowed(artifact, email))
+    return error(
+      403,
+      "email_not_allowed",
+      "this email is no longer allowed for this artifact",
+    );
   await env.DB.prepare("UPDATE viewer_tokens SET used_at = ? WHERE token = ?")
     .bind(nowSec(), token)
     .run();
@@ -949,6 +961,8 @@ export async function issueViewerSession(
     shareLinkId,
     viaLink,
   );
+  if (!minted)
+    return error(410, "link_unavailable", "this link is no longer available");
   if (!wantsHtml(request))
     return json(
       { token: minted.token, token_type: "Bearer", expires_at: minted.exp },
@@ -972,7 +986,13 @@ export async function mintViewerSession(
   token: string;
   cookie: string;
   exp: number;
-}> {
+} | null> {
+  if (
+    viaLink &&
+    shareLinkId &&
+    !(await recordShareLinkOpen(env, artifact.id, shareLinkId))
+  )
+    return null;
   const viewId = await insertView(
     env,
     artifact,
@@ -985,9 +1005,10 @@ export async function mintViewerSession(
       source: await viewSourceFor(request, env, email, verified, shareLinkId),
     },
   );
-  // One open per session: the counter moves here, never on asset requests.
-  if (shareLinkId) await recordShareLinkOpen(env, artifact.id, shareLinkId);
+  // Only a validated link claims an open; form-supplied attribution is not a grant.
   const exp = nowSec() + 30 * 86400;
+  const publisher =
+    verified && !viaLink ? await signedInViewer(request, env, artifact) : null;
   const session: ViewerSession = {
     artifact_id: artifact.id,
     version_id: artifact.current_version_id,
@@ -996,6 +1017,9 @@ export async function mintViewerSession(
     view_id: viewId,
     exp,
     ...(viaLink && shareLinkId ? { link_id: shareLinkId } : {}),
+    ...(publisher?.member && publisher.email === email && publisher.userId
+      ? { workspace_user_id: publisher.userId }
+      : {}),
   };
   const token = await signViewerSession(session, env);
   const cookie = setViewerCookie(viewerCookieName(artifact.id), token);
@@ -1245,8 +1269,22 @@ async function checkPasscode(
     PASSCODE_WINDOW_SEC,
   );
   if (!limit.allowed) return { result: "limited", limit };
+  const aggregateBucket = `gate:link:all:15m:${link.id}`;
+  const aggregate = await rateLimit(
+    env,
+    aggregateBucket,
+    30,
+    PASSCODE_WINDOW_SEC,
+  );
+  if (!aggregate.allowed) return { result: "limited", limit: aggregate };
   if (!passcode || !(await verifyPasscode(link, passcode)))
     return { result: "wrong" };
+  // Successful opens must not exhaust a popular link's failure budget.
+  await env.DB.prepare(
+    "UPDATE rate_counters SET count = MAX(0, count - 1) WHERE bucket = ? AND window_start = ?",
+  )
+    .bind(aggregateBucket, aggregate.windowStart)
+    .run();
   await clearRateLimit(env, bucket, PASSCODE_WINDOW_SEC);
   return { result: "ok" };
 }

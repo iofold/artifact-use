@@ -54,8 +54,7 @@ export function workspaceForbiddenError(requested: string): WorkspaceError {
 }
 
 // The cached membership list for a user, refreshed from WorkOS when stale.
-// On a WorkOS outage a non-empty snapshot is served stale rather than failing
-// every request; emptiness is trusted only when WorkOS confirmed it.
+// A directory outage cannot extend a revoked membership beyond the cache TTL.
 export async function listWorkspaces(
   env: Env,
   userId: string,
@@ -68,8 +67,6 @@ export async function listWorkspaces(
   try {
     return await refreshWorkspaces(env, userId, now);
   } catch {
-    const cached = await cachedWorkspaces(env, userId);
-    if (cached.length) return cached;
     throw new WorkspaceError(
       502,
       "workspace_lookup_failed",

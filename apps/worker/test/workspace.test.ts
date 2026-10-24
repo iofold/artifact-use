@@ -228,7 +228,9 @@ async function setup(
     sync: new Map(),
     workosCalls: 0,
   };
-  const workosOrgs = opts.workos || [];
+  const workosOrgs = opts.workos || [
+    { org_id: HOME_ORG, name: "Home workspace" },
+  ];
 
   const realFetch = globalThis.fetch;
   globalThis.fetch = (async (input: RequestInfo | URL) => {

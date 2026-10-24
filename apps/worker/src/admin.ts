@@ -516,6 +516,13 @@ export async function handleAdminApi(
         .all();
       const links = await listShareLinks(env, artifact.id);
       const count = (key: string) => Number(views?.[key] || 0);
+      let mayShare = false;
+      try {
+        requirePermission(creator, env, "artifacts:manage_access");
+        mayShare = true;
+      } catch {
+        // Statistics do not grant access to the link's bearer credential.
+      }
       return json({
         artifact,
         views: {
@@ -531,7 +538,12 @@ export async function handleAdminApi(
           public: count("public"),
         },
         recent: recent.results || [],
-        links: links.map((link) => shareLinkJson(env, artifact.url_key, link)),
+        links: links.map((link) => {
+          const value = shareLinkJson(env, artifact.url_key, link);
+          if (mayShare) return value;
+          const { id: _id, url: _url, ...statistics } = value;
+          return statistics;
+        }),
       });
     }
 
