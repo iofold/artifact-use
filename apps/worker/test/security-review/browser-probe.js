@@ -15,7 +15,13 @@
       return { blocked: true };
     }
   }
-  const main = "http://localhost:18849";
+  const main =
+    document.body.getAttribute("data-audit-main") || "http://localhost:18849";
+  const otherOrigin = new URL(location.origin);
+  otherOrigin.hostname = otherOrigin.hostname.replace(
+    /^a-attacker\./,
+    "a-victim.",
+  );
   const foreign = await probe("/_au/comments?artifact_key=victim-abcdef", {
     referrerPolicy: "no-referrer",
   });
@@ -28,7 +34,7 @@
     headers: { Accept: "text/html" },
   });
   const otherHost = await probe(
-    "http://a-victim.localhost:18849/go/victim-abcdef/private.txt",
+    `${otherOrigin.origin}/go/victim-abcdef/private.txt`,
     { credentials: "include" },
   );
   const delegation = await probe("/_au/agent-token", {
@@ -37,6 +43,14 @@
     body: JSON.stringify({ artifact_key: "victim-abcdef" }),
   });
   const own = await probe("/go/attacker-abcdef/private.txt");
+  delete window.__auditPrivateScript;
+  const privateScriptLoaded = await new Promise((resolve) => {
+    const script = document.createElement("script");
+    script.src = `${otherOrigin.origin}/go/victim-abcdef/private.js`;
+    script.onload = () => resolve(true);
+    script.onerror = () => resolve(false);
+    document.head.append(script);
+  });
   localStorage.setItem("isolation-test", "attacker");
   const result = {
     origin: location.origin,
@@ -47,6 +61,8 @@
     delegation,
     ownFileStatus: own.status,
     storageWorks: localStorage.getItem("isolation-test") === "attacker",
+    privateScriptBlocked:
+      !privateScriptLoaded && window.__auditPrivateScript === undefined,
   };
   if (
     foreign.status !== 404 ||
@@ -55,7 +71,8 @@
     !file.blocked ||
     !otherHost.blocked ||
     own.status !== 200 ||
-    !result.storageWorks
+    !result.storageWorks ||
+    !result.privateScriptBlocked
   )
     throw new Error(JSON.stringify(result));
   return result;

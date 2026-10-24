@@ -669,6 +669,8 @@ function objectHeaders(
   obj.writeHttpMetadata(headers);
   headers.set("Content-Type", contentType);
   headers.set("Cache-Control", cacheControl(gateLevel, isHtml, path));
+  if (gateLevel !== "public")
+    headers.set("Cross-Origin-Resource-Policy", "same-origin");
   headers.set("Last-Modified", obj.uploaded.toUTCString());
   if (!isHtml) {
     headers.set("ETag", obj.httpEtag);

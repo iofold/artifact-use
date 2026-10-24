@@ -884,6 +884,12 @@ shared or shadowed through a parent domain. Browser mutations check Origin;
 viewer comment/profile/token writes require JSON. Origin-less agent HTTP calls
 remain supported.
 
+Protected static files and upstream responses use
+`Cross-Origin-Resource-Policy: same-origin` so another artifact cannot load
+them as credentialed cross-origin scripts or other resources. Own-origin
+loading works; public static resources remain reusable. JSON responses also
+use same-origin resource policy and `X-Content-Type-Options: nosniff`.
+
 Allowlist changes and share-link revocation/expiry apply to existing file,
 comment, profile and delegated-token requests. Workspace membership caches last
 at most five minutes and expire closed on directory failure. Pending comment

@@ -334,6 +334,11 @@ test("upstream requests never automatically forward secrets through redirects", 
     assert.equal(response.status, 200);
     assert.equal(captured?.redirect, "manual");
     assert.equal(
+      response.headers.get("Cross-Origin-Resource-Policy"),
+      "same-origin",
+    );
+    assert.equal(response.headers.get("X-Content-Type-Options"), "nosniff");
+    assert.equal(
       new Headers(captured?.headers).get("Authorization"),
       "Bearer SYNTHETIC_UPSTREAM_SECRET",
     );

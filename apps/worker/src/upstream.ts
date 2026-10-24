@@ -244,6 +244,8 @@ export async function proxyUpstream(
     if (value) out.set(name, value);
   }
   out.set("Cache-Control", "private, no-store");
+  out.set("Cross-Origin-Resource-Policy", "same-origin");
+  out.set("X-Content-Type-Options", "nosniff");
   out.set("X-Artifact-Upstream", "1");
   return new Response(request.method === "HEAD" ? null : response.body, {
     status: response.status,
