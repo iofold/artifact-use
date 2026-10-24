@@ -90,7 +90,7 @@ test("llms-full.txt is rendered from docs/agent-guide.md for this deployment", a
   assert.match(prompt, /^# Artifact Use Agent Guide\n/);
   assert.match(
     prompt,
-    /https:\/\/artifacts\.example\.com\/p\/\{artifact-slug\}-\{six-character-code\}\//,
+    /https:\/\/artifacts\.example\.com\/p\/\{readable-slug\}-\{random-code\}\//,
   );
   assert.doesNotMatch(
     prompt,

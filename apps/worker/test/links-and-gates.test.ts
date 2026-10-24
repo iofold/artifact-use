@@ -293,7 +293,7 @@ async function sessionFromSetCookie(
   env: Env,
   response: Response,
 ): Promise<ViewerSession | null> {
-  const match = /au_art_gate=([^;]+)/.exec(
+  const match = /__Host-au_art_gate=([^;]+)/.exec(
     response.headers.get("Set-Cookie") || "",
   );
   if (!match) return null;
@@ -480,7 +480,10 @@ test("HTTP Basic with the link id and passcode reads the artifact inline", async
   );
   assert.equal(response.status, 200);
   assert.match(await response.text(), /secret body/);
-  assert.match(response.headers.get("Set-Cookie") || "", /^au_art_gate=/);
+  assert.match(
+    response.headers.get("Set-Cookie") || "",
+    /^__Host-au_art_gate=/,
+  );
   assert.equal(state.viewWrites.length, 1);
   assert.deepEqual(state.opens, ["pwlink0000000001"]);
 
@@ -554,7 +557,7 @@ test("the last permitted open still works; the next one is exhausted", async () 
   const again = await servePublic(
     agent(`${ORIGIN}${ARTIFACT_PATH}index.html`, {
       headers: {
-        Cookie: `au_art_gate=${encodeURIComponent(await signPayload(session, env))}`,
+        Cookie: `__Host-au_art_gate=${encodeURIComponent(await signPayload(session, env))}`,
       },
     }),
     env,
@@ -583,7 +586,7 @@ test("a link session stops working once the link is revoked", async () => {
     exp: nowSec() + 600,
     link_id: "openlink00000001",
   };
-  const cookie = `au_art_gate=${encodeURIComponent(await signPayload(session, env))}`;
+  const cookie = `__Host-au_art_gate=${encodeURIComponent(await signPayload(session, env))}`;
   const before = await servePublic(
     agent(`${ORIGIN}${ARTIFACT_PATH}`, { headers: { Cookie: cookie } }),
     env,

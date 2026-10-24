@@ -58,7 +58,8 @@ async function publisherCookie(env: Env, orgId: string): Promise<string> {
 
 function contextRequest(cookie?: string, referer?: string): Request {
   const headers = new Headers();
-  if (cookie) headers.set("Cookie", `au_pub=${encodeURIComponent(cookie)}`);
+  if (cookie)
+    headers.set("Cookie", `__Host-au_pub=${encodeURIComponent(cookie)}`);
   if (referer) headers.set("Referer", referer);
   return new Request(
     "https://artifacts.example.com/_au/artifact-context?artifact_key=ctx-demo-abc123",

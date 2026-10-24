@@ -4,6 +4,69 @@ import worker from "../src/index.ts";
 import { fixture, bearer } from "./security-review/fixture.ts";
 import { viewerCookieName } from "../src/auth.ts";
 
+test("browser mutations cannot use publisher cookies from a sibling artifact origin", async () => {
+  const f = fixture();
+  const a = f.artifact("art_blindpost");
+  const cookie = `__Host-au_pub=${encodeURIComponent(await f.publisher())}`;
+  for (const endpoint of ["comments", "profile"]) {
+    const body = JSON.stringify({
+      artifact_key: a.url_key,
+      body: "UNTRUSTED_WRITE",
+      display_name: "UNTRUSTED_NAME",
+    });
+    for (const originHeaders of [
+      { Origin: "https://a-attacker.pages.example" },
+      { "Sec-Fetch-Site": "same-site" },
+    ]) {
+      const response = await f.request(`/_au/${endpoint}`, {
+        method: "POST",
+        headers: {
+          Cookie: cookie,
+          "Content-Type": "text/plain",
+          ...originHeaders,
+        },
+        body,
+      });
+      assert.equal(response.status, 403, endpoint);
+    }
+  }
+  assert.equal(
+    (f.raw.prepare("SELECT COUNT(*) AS n FROM comments").get() as { n: number })
+      .n,
+    0,
+  );
+  assert.equal(
+    (f.raw.prepare("SELECT COUNT(*) AS n FROM profiles").get() as { n: number })
+      .n,
+    0,
+  );
+  const legitimate = await f.request("/_au/comments", {
+    method: "POST",
+    headers: {
+      Cookie: cookie,
+      Origin: "https://audit.example",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ artifact_key: a.url_key, body: "LEGITIMATE_WRITE" }),
+  });
+  assert.equal(legitimate.status, 200);
+});
+
+test("handoff state is issued only for browser document navigations", async () => {
+  const f = fixture();
+  f.env.ARTIFACT_HOST_SUFFIX = "pages.example";
+  const a = f.artifact("art_statefetch");
+  const response = await worker.fetch(
+    new Request(
+      `https://a-statefetch.pages.example/go/${a.url_key}/?__au_auth=1`,
+      { headers: { "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty" } },
+    ),
+    f.env,
+  );
+  assert.equal(response.status, 403);
+  assert.equal(response.headers.getSetCookie().length, 0);
+});
+
 test("legacy browser links redirect to the artifact's own origin", async () => {
   const f = fixture();
   f.env.ARTIFACT_HOST_SUFFIX = "pages.example";
@@ -23,7 +86,7 @@ test("artifact hosts cannot use publisher cookies, admin routes, or other artifa
   f.env.ARTIFACT_HOST_SUFFIX = "pages.example";
   const a = f.artifact("art_attacker", "org_other", "public");
   const b = f.artifact("art_victim");
-  const cookie = `au_pub=${encodeURIComponent(await f.publisher())}; ${viewerCookieName(b.id)}=${encodeURIComponent(await f.viewer(b))}`;
+  const cookie = `__Host-au_pub=${encodeURIComponent(await f.publisher())}; ${viewerCookieName(b.id)}=${encodeURIComponent(await f.viewer(b))}`;
   for (const path of [
     "/admin",
     "/api/v1/artifacts",
@@ -93,16 +156,38 @@ test("a signed-in publisher crosses to the target origin with a one-use artifact
   const f = fixture();
   f.env.ARTIFACT_HOST_SUFFIX = "pages.example";
   const a = f.artifact("art_member");
-  const cookie = `au_pub=${encodeURIComponent(await f.publisher())}; ${viewerCookieName(a.id)}=${encodeURIComponent(await f.viewer(a))}`;
+  const cookie = `__Host-au_pub=${encodeURIComponent(await f.publisher())}; ${viewerCookieName(a.id)}=${encodeURIComponent(await f.viewer(a))}`;
   const start = await f.request(`/go/${a.url_key}/`, {
     headers: { Accept: "text/html", Cookie: cookie },
   });
   assert.equal(start.status, 302);
-  const destination = start.headers.get("Location") || "";
-  assert.equal(new URL(destination).origin, "https://a-member.pages.example");
+  const initial = start.headers.get("Location") || "";
+  assert.equal(new URL(initial).origin, "https://a-member.pages.example");
+  assert.equal(new URL(initial).searchParams.get("__au_auth"), "1");
+  const challenge = await worker.fetch(new Request(initial), f.env);
+  assert.equal(challenge.status, 303);
+  const bindingCookie = challenge.headers
+    .getSetCookie()
+    .find((x) => x.startsWith("__Host-au_handoff_"))
+    ?.split(";")[0];
+  assert.ok(bindingCookie);
+  const authorized = await worker.fetch(
+    new Request(challenge.headers.get("Location")!, {
+      headers: { Accept: "text/html", Cookie: cookie },
+    }),
+    f.env,
+  );
+  const destination = authorized.headers.get("Location") || "";
   assert.ok(new URL(destination).searchParams.get("__au_handoff"));
+  assert.equal(
+    (await worker.fetch(new Request(destination), f.env)).status,
+    401,
+    "another browser cannot substitute the sender's identity",
+  );
   const landed = await worker.fetch(
-    new Request(destination, { headers: { Accept: "text/html" } }),
+    new Request(destination, {
+      headers: { Accept: "text/html", Cookie: bindingCookie },
+    }),
     f.env,
   );
   assert.equal(landed.status, 303);
@@ -143,4 +228,73 @@ test("unknown hosts cannot reach the application", async () => {
     f.env,
   );
   assert.equal(r.status, 404);
+});
+
+test("isolated public publisher views remain excluded from audience analytics", async () => {
+  const f = fixture();
+  f.env.ARTIFACT_HOST_SUFFIX = "pages.example";
+  const a = f.artifact("art_publicowner", "org_victim", "public");
+  const token = await f.viewer(a, { workspace_user_id: "user_AUDIT" });
+  const response = await worker.fetch(
+    new Request(`https://a-publicowner.pages.example/go/${a.url_key}/`, {
+      headers: {
+        Accept: "text/html",
+        "User-Agent": "Mozilla/5.0",
+        Cookie: `${viewerCookieName(a.id)}=${encodeURIComponent(token)}`,
+      },
+    }),
+    f.env,
+  );
+  assert.equal(response.status, 200);
+  assert.equal(
+    (
+      f.raw
+        .prepare("SELECT COUNT(*) AS n FROM views WHERE artifact_id=?")
+        .get(a.id) as { n: number }
+    ).n,
+    0,
+  );
+});
+
+test("parallel first navigations keep independent browser handoff state", async () => {
+  const f = fixture();
+  f.env.ARTIFACT_HOST_SUFFIX = "pages.example";
+  const a = f.artifact("art_parallel");
+  const first = await Promise.all(
+    [1, 2].map(() =>
+      worker.fetch(
+        new Request(
+          `https://a-parallel.pages.example/go/${a.url_key}/?__au_auth=1`,
+        ),
+        f.env,
+      ),
+    ),
+  );
+  const states = first.map((r) => r.headers.getSetCookie()[0]!.split(";")[0]);
+  assert.notEqual(states[0].split("=")[0], states[1].split("=")[0]);
+  const grants = await Promise.all(
+    first.map(async (r) =>
+      worker.fetch(
+        new Request(r.headers.get("Location")!, {
+          headers: {
+            Accept: "text/html",
+            Cookie: `__Host-au_pub=${encodeURIComponent(await f.publisher())}; ${viewerCookieName(a.id)}=${encodeURIComponent(await f.viewer(a))}`,
+          },
+        }),
+        f.env,
+      ),
+    ),
+  );
+  for (const grant of grants)
+    assert.equal(
+      (
+        await worker.fetch(
+          new Request(grant.headers.get("Location")!, {
+            headers: { Cookie: states.join("; ") },
+          }),
+          f.env,
+        )
+      ).status,
+      303,
+    );
 });

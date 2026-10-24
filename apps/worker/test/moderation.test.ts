@@ -312,7 +312,7 @@ async function adminPost(
       method: "POST",
       headers: {
         Accept: "application/json",
-        Cookie: `au_pub=${encodeURIComponent(rawSession)}; au_admin_csrf=${encodeURIComponent(csrf.token)}`,
+        Cookie: `__Host-au_pub=${encodeURIComponent(rawSession)}; __Host-au_admin_csrf=${encodeURIComponent(csrf.token)}`,
         "X-CSRF-Token": csrf.token,
       },
       body: new URLSearchParams(fields),

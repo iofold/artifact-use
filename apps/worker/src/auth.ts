@@ -26,7 +26,7 @@ let jwksCache: ReturnType<typeof createRemoteJWKSet> | null = null;
 let jwksUrlCache = "";
 export const CREATOR_TOKEN_PREFIX = "au_creator_";
 export const DEFAULT_TOKEN_DAYS = 90;
-export const ADMIN_CSRF_COOKIE = "au_admin_csrf";
+export const ADMIN_CSRF_COOKIE = "__Host-au_admin_csrf";
 
 type AdminCsrfPayload = {
   typ: "admin_csrf";
@@ -401,7 +401,7 @@ export async function issueAdminCsrfToken(
   const maxAge = Math.max(0, exp - nowSec());
   return {
     token,
-    cookie: `${ADMIN_CSRF_COOKIE}=${encodeURIComponent(token)}; Path=/admin; Max-Age=${maxAge}; Secure; SameSite=Strict`,
+    cookie: `${ADMIN_CSRF_COOKIE}=${encodeURIComponent(token)}; Path=/; Max-Age=${maxAge}; Secure; SameSite=Strict`,
   };
 }
 
@@ -426,7 +426,7 @@ export async function verifyAdminCsrf(
 }
 
 export function expireAdminCsrfCookie(): string {
-  return `${ADMIN_CSRF_COOKIE}=; Path=/admin; Max-Age=0; Secure; SameSite=Strict`;
+  return `${ADMIN_CSRF_COOKIE}=; Path=/; Max-Age=0; Secure; SameSite=Strict`;
 }
 
 export async function signViewerSession(
@@ -651,7 +651,7 @@ export function readCookie(request: Request, name: string): string | null {
 }
 
 export function viewerCookieName(artifactId: string): string {
-  return `au_${artifactId.replace(/[^a-zA-Z0-9]/g, "_")}`;
+  return `__Host-au_${artifactId.replace(/[^a-zA-Z0-9]/g, "_")}`;
 }
 
 export function setViewerCookie(name: string, value: string): string {

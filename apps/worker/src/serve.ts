@@ -77,7 +77,6 @@ import {
   getDisplayName,
   getArtifactDisplayName,
   normalizeDisplayName,
-  setDisplayName,
   setArtifactDisplayName,
 } from "./profiles";
 import {
@@ -96,6 +95,7 @@ import {
   mimeFor,
   nowSec,
   publicArtifactPath,
+  publicArtifactTitle,
   publicArtifactUrl,
   requiresVerified,
   siteBaseUrl,
@@ -252,7 +252,11 @@ export async function servePublic(
       if (access.kind === "dead")
         return deadLinkResponse(request, artifact, access.state);
       if (access.kind === "limited")
-        return rateLimitedResponse(access.limit, request, artifact.title);
+        return rateLimitedResponse(
+          access.limit,
+          request,
+          publicArtifactTitle(artifact),
+        );
       if (access.kind === "pass") {
         const identity = shareLinkIdentity(access.link);
         if (wantsHtml(request) && request.method === "GET") {
@@ -409,6 +413,9 @@ export async function servePublic(
           rest,
           pinnedVersion,
         ),
+        artifact.gate_level === "public" &&
+          !!(await gatePassingSession(request, env, artifact))
+            ?.workspace_user_id,
       );
   return sessionCookie ? withCookie(response, sessionCookie) : response;
 }
@@ -672,9 +679,9 @@ function objectHeaders(
 
 // Bundler-emitted assets carry a content hash in the filename (e.g. Vite's
 // assets/<name>-<hash>.<ext>), so a given path can never serve different
-// bytes — safe to cache as immutable. Gated artifacts still get `private`
-// (browser cache only), and HTML stays no-store so gate checks and widget
-// injection always run.
+// bytes — public artifacts may cache them as immutable. Gated artifacts get
+// no-store, so every protected request checks its current permission. HTML
+// is also no-store so gate checks and widget injection always run.
 const HASHED_ASSET_RE = /(^|\/)assets\/[^/]+-[A-Za-z0-9_-]{8,}\.[a-z0-9]+$/i;
 
 export function cacheControl(
@@ -682,13 +689,10 @@ export function cacheControl(
   isHtml: boolean,
   path: string,
 ): string {
-  if (isHtml) return "private, no-store";
+  if (isHtml || gateLevel !== "public") return "private, no-store";
   if (HASHED_ASSET_RE.test(path)) {
-    return gateLevel === "public"
-      ? "public, max-age=31536000, immutable"
-      : "private, max-age=31536000, immutable";
+    return "public, max-age=31536000, immutable";
   }
-  if (gateLevel !== "public") return "private, no-store";
   return "public, max-age=300, must-revalidate";
 }
 
@@ -756,6 +760,11 @@ export async function handleArtifactContext(
   if (!artifact) return error(404, "artifact_not_found", "artifact not found");
   if (artifact.status !== "active" || artifact.org_suspended)
     return json({ role: "viewer" });
+  if (
+    artifact.gate_level !== "public" &&
+    !(await commentIdentity(request, env, artifact, "read"))
+  )
+    return error(401, "unauthorized", "artifact access required");
   // Agent presence is page-level, not identity-level: every viewer may know
   // whether the publishing agent has checked this artifact recently.
   const agent = await agentPresence(env, artifact.id);
@@ -868,11 +877,21 @@ export async function handleComments(
       audience: author?.audience ?? ANONYMOUS_AUDIENCE,
     };
     const wait = clampWait(url.searchParams.get("wait"));
-    return json(
-      wait
-        ? await waitForComments(env, artifact, filters, wait)
-        : await listComments(env, artifact, filters),
-    );
+    if (wait) {
+      await waitForComments(env, artifact, filters, wait);
+      // The grant or feedback policy may have changed while this request
+      // waited. Re-enter the ordinary read once with current authorization.
+      url.searchParams.delete("wait");
+      return handleComments(
+        new Request(url.toString(), {
+          headers: request.headers,
+          signal: request.signal,
+        }),
+        env,
+        path,
+      );
+    }
+    return json(await listComments(env, artifact, filters));
   }
   if (request.method === "POST") {
     const body = (await request.json()) as {
@@ -1105,23 +1124,18 @@ export async function handleProfile(
     if (!parsed.ok) return error(400, "invalid_display_name", parsed.message);
     const limit = await rateLimit(
       env,
-      `profile:name:${who.scope === "artifact" ? artifact.id : "global"}:${await hashRateKey(who.editable)}`,
+      `profile:name:${artifact.id}:${await hashRateKey(who.editable)}`,
       20,
       60 * 60,
     );
     if (!limit.allowed) return rateLimitedResponse(limit);
-    if (who.scope === "artifact")
-      await setArtifactDisplayName(env, artifact.id, who.editable, parsed.name);
-    else {
-      await setDisplayName(env, who.editable, parsed.name);
-      await setArtifactDisplayName(env, artifact.id, who.editable, null);
-    }
+    await setArtifactDisplayName(env, artifact.id, who.editable, parsed.name);
   }
   const defaultName = fallbackName(who.author);
   const custom =
     who.scope && who.author.includes("@")
       ? (await getArtifactDisplayName(env, artifact.id, who.author)) ||
-        (who.scope === "global" ? await getDisplayName(env, who.author) : null)
+        (who.globalName ? await getDisplayName(env, who.author) : null)
       : null;
   return json(
     {
@@ -1141,21 +1155,21 @@ async function profileIdentity(
 ): Promise<{
   author: string;
   editable: string | null;
-  scope: "global" | "artifact" | null;
+  scope: "artifact" | null;
+  globalName: boolean;
 } | null> {
   const session = await gatePassingSession(request, env, artifact);
   if (session) {
-    const scope = session.email.startsWith("link:")
-      ? null
-      : session.verified
-        ? "global"
-        : session.link_id
-          ? "artifact"
-          : null;
+    const scope =
+      !session.email.startsWith("link:") &&
+      (session.verified || session.link_id)
+        ? "artifact"
+        : null;
     return {
       author: session.email,
       editable: scope && !session.agent ? session.email : null,
       scope,
+      globalName: session.verified,
     };
   }
   const signedIn = await signedInViewer(request, env, artifact);
@@ -1163,7 +1177,8 @@ async function profileIdentity(
     return {
       author: signedIn.email,
       editable: signedIn.email,
-      scope: "global",
+      scope: "artifact",
+      globalName: true,
     };
   return null;
 }

@@ -65,7 +65,7 @@ export const artifactPublishTool: ToolSchema = {
         type: "string",
         maxLength: 200,
         description:
-          "A one- or two-sentence public summary for link previews. This is visible even when the artifact is gated. If omitted for HTML, Artifact Use derives a summary from page metadata or the first paragraph.",
+          "A one- or two-sentence summary. Public artifacts show it in link previews; protected artifacts use a generic preview. If omitted for HTML, Artifact Use derives a summary from page metadata or the first paragraph.",
       },
       gate_level: { type: "string", enum: [...GATE_LEVELS] },
       entrypoint: { type: "string", default: "index.html" },
@@ -106,7 +106,7 @@ export const artifactUploadSessionTool: ToolSchema = {
         type: "string",
         maxLength: 200,
         description:
-          "A one- or two-sentence public summary for link previews. This is visible even when the artifact is gated. If omitted for HTML, Artifact Use derives a summary from page metadata or the first paragraph.",
+          "A one- or two-sentence summary. Public artifacts show it in link previews; protected artifacts use a generic preview. If omitted for HTML, Artifact Use derives a summary from page metadata or the first paragraph.",
       },
       gate_level: { type: "string", enum: [...GATE_LEVELS] },
       entrypoint: { type: "string", default: "index.html" },

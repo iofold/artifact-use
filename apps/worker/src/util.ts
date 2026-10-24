@@ -1,4 +1,4 @@
-import type { Env } from "./types";
+import type { Artifact, Env } from "./types";
 
 export const GATE_LEVELS = new Set([
   "public",
@@ -85,7 +85,17 @@ export function randomId(prefix: string): string {
 }
 
 export function artifactUrlKey(slug: string, id: string): string {
-  return `${slug}-${artifactUrlCode(id)}`;
+  const entropy = id.replace(/^art_/, "");
+  if (!/^[a-f0-9]{32}$/.test(entropy)) throw new Error("invalid artifact id");
+  return `${slug.slice(0, 30).replace(/-+$/, "")}-${entropy}`;
+}
+
+export function publicArtifactTitle(
+  artifact: Pick<Artifact, "title" | "gate_level">,
+): string {
+  return artifact.gate_level === "public"
+    ? artifact.title
+    : "Protected artifact";
 }
 
 export function artifactUrlCode(id: string): string {

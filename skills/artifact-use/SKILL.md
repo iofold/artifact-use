@@ -19,9 +19,9 @@ Artifact Use publishes static artifacts to `https://artifacts.iofold.com` withou
 - Use `artifact_publish` for a single HTML string or small inline files (2 MiB per file). Use `artifact_upload_session` (or the stdio MCP `dir` / CLI `publish-folder`) for local folders, large files, images, PDFs, or many files.
 - Use `artifact_manage` for `list`, `stats`, `set_access`, `set_preview`, `set_upstream`, `share_link`, `share_links`, `revoke_link`, `versions`, `promote` (rollback), `diff`, `move`, `delete` (requires `confirm: true`), and `workspaces`. Use `artifact_comments` for the review loop: long-poll with `wait: 25` or `subscribe` a webhook, fix, republish the same artifact, reply, resolve.
 - Tool failures return `isError: true` with `structuredContent.error = {code, message, status}`; read the code before retrying.
-- Titles and descriptions are public link-preview copy even when the artifact is gated. Never put secrets, recipient details, or confidential content in either. Never put credentials in HTML; use `set_upstream` when a page needs a live backend.
+- Public artifacts show titles and descriptions in previews; protected artifacts use a generic card. Never put credentials in HTML; use `set_upstream` when a page needs a live backend.
 - Default gate is `email`; use `verified_email` when inbox control matters, `allowlist` for restricted customer material, and `public` only when intentionally low sensitivity. Upstream backends require a non-public gate.
-- Keep artifact slugs lower-case hyphen-case. Public URLs are `https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/`.
+- Keep artifact slugs lower-case hyphen-case. Public URLs are `https://artifacts.iofold.com/go/{readable-slug}-{random-code}/`.
 
 ## Authoring Workflow
 

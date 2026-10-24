@@ -91,10 +91,10 @@ import {
   wantsHtml,
 } from "./util";
 
-const SESSION_COOKIE = "au_pub";
-const STATE_COOKIE = "au_state";
-const INVITE_COOKIE = "au_invite";
-const NEXT_COOKIE = "au_next";
+const SESSION_COOKIE = "__Host-au_pub";
+const STATE_COOKIE = "__Host-au_state";
+const INVITE_COOKIE = "__Host-au_invite";
+const NEXT_COOKIE = "__Host-au_next";
 // Redirect-loop breaker. WorkOS is configured to send broken sign-in states
 // (expired authorization sessions, post-logout hops) back to /login, and
 // /login re-enters WorkOS — so any persistent AuthKit-side failure would
@@ -105,7 +105,7 @@ const NEXT_COOKIE = "au_next";
 // LOOP_LIMIT+1 ring cycles under the browser's ~20-redirect budget even for
 // the longest observed cycle (7 hops when AuthKit adds a refresh-token hop),
 // or the browser kills the navigation before the breaker fires.
-const LOOP_COOKIE = "au_loop";
+const LOOP_COOKIE = "__Host-au_loop";
 const LOOP_LIMIT = 2;
 const LOOP_WINDOW_SEC = 60;
 // Same-site relative destinations only (pre-auth deep links, e.g.

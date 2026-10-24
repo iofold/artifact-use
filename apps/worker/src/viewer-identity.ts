@@ -8,27 +8,21 @@
 //
 // Coming back from Google passes the gate the viewer started from and lands
 // on the page (gate.ts finishGoogleSignIn). Staying signed in: a site-wide
-// viewer identity cookie (au_vid) remembers the Google-verified email, so
+// viewer identity cookie (__Host-au_vid) remembers the Google-verified email, so
 // other artifacts' gates offer a one-click "Continue as". It never grants
 // workspace membership and never passes another artifact's gate by itself:
 // that click is the consent.
 //
-// Every artifact shares this origin and runs untrusted script, which can
-// fetch() other pages and even make its own URL look like another artifact's
-// (history.pushState) before submitting a form. So:
-//   - a signed-in address is rendered only on top-level page loads
-//     (topLevelNavigation), which gate pages answer with COOP and
-//     X-Frame-Options so no other page can read them;
-//   - the "Continue as" form carries a consent token bound to the signed-in
-//     cookie and the artifact (gateConsentToken), which a script elsewhere
-//     can neither read nor compute.
+// Artifact scripts run on separate origins. Trusted gates also retain
+// top-level navigation checks and cookie-bound consent tokens so a browser
+// only shares its signed-in address after a deliberate gate action.
 import { readCookie, signPayload, verifyPayload } from "./auth";
 import type { Env } from "./types";
 import { normalizeEmail, nowSec } from "./util";
 
-export const VIEWER_IDENTITY_COOKIE = "au_vid";
+export const VIEWER_IDENTITY_COOKIE = "__Host-au_vid";
 export const VIEWER_IDENTITY_DAYS = 30;
-export const GOOGLE_STATE_COOKIE = "au_gstate";
+export const GOOGLE_STATE_COOKIE = "__Host-au_gstate";
 export const GOOGLE_STATE_SEC = 10 * 60;
 export const GOOGLE_START_PATH = "/_au/gate/google/start";
 export const GOOGLE_CALLBACK_PATH = "/_au/gate/google/callback";
@@ -134,12 +128,12 @@ export async function googleStateCookie(
     GOOGLE_STATE_COOKIE,
     await signPayload(payload, env),
     GOOGLE_STATE_SEC,
-    "/_au/gate/google",
+    "/",
   );
 }
 
 export function expireGoogleStateCookie(): string {
-  return `${GOOGLE_STATE_COOKIE}=; Path=/_au/gate/google; Max-Age=0; Secure; HttpOnly; SameSite=Lax`;
+  return `${GOOGLE_STATE_COOKIE}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax`;
 }
 
 export async function readGoogleState(
@@ -178,7 +172,7 @@ export const GATE_CONSENT_SEC = 12 * 60 * 60;
 interface GateConsent {
   typ: "gate_consent";
   artifact_id: string;
-  // Hash of the signed-in cookie (au_pub or au_vid) the form was shown to.
+  // Hash of the signed-in cookie (__Host-au_pub or __Host-au_vid) the form was shown to.
   b: string;
   exp: number;
 }

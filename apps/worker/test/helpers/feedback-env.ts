@@ -134,7 +134,7 @@ export async function memberCookie(
     roles: ["member"],
     exp: nowSec() + 3600,
   };
-  return `au_pub=${encodeURIComponent(await signPayload(session, env))}`;
+  return `__Host-au_pub=${encodeURIComponent(await signPayload(session, env))}`;
 }
 
 export type Caller =

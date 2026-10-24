@@ -98,6 +98,7 @@ test("artifact metadata is complete, escaped, canonical, and injected at the sta
   const hostile = {
     ...artifact,
     title: `Quarterly <script>alert("x")</script>`,
+    gate_level: "public" as const,
     description: `Private-safe summary with "quotes" & context.`,
   };
   const source = `<!doctype html><html><head><style>body{color:red}</style></head><body>ok</body></html>`;
@@ -122,7 +123,11 @@ test("artifact metadata is complete, escaped, canonical, and injected at the sta
 });
 
 test("preview card and favicon use the Artifact Use visual language", () => {
-  const card = renderPreviewCardHtml(baseEnv(), artifact, "text/html");
+  const card = renderPreviewCardHtml(
+    baseEnv(),
+    { ...artifact, gate_level: "public" },
+    "text/html",
+  );
   assert.match(card, /width:\s*1200px/);
   assert.match(card, /height:\s*630px/);
   assert.match(card, /ARTIFACT USE/);
@@ -231,8 +236,8 @@ test("gated crawler response is a 200 preview envelope and never leaks tracked-s
   assert.equal(response.status, 200);
   assert.match(response.headers.get("Content-Type") || "", /text\/html/);
   assert.match(body, /property="og:image"/);
-  assert.match(body, /<title>Launch brief &amp; next steps<\/title>/);
-  assert.match(body, /Launch brief &amp; next steps/);
+  assert.match(body, /<title>Protected artifact<\/title>/);
+  assert.doesNotMatch(body, /Launch brief|concise rollout/);
   assert.doesNotMatch(body, /viewer@example\.com|share-secret/);
   assert.equal(state.bucketReads, 0);
 });
@@ -280,7 +285,7 @@ test("public non-HTML artifacts give known crawlers metadata rather than file by
   assert.equal(state.bucketReads, 0);
 });
 
-test("preview PNG is generated once through Browser Rendering and stored immutably", async () => {
+test("protected preview PNG is generic and never publicly cached", async () => {
   const png = Uint8Array.from([137, 80, 78, 71, 13, 10, 26, 10, 1, 2, 3]);
   const calls: Array<{ action: string; options: Record<string, unknown> }> = [];
   const writes: Array<{ key: string; bytes: Uint8Array }> = [];
@@ -318,17 +323,18 @@ test("preview PNG is generated once through Browser Rendering and stored immutab
 
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("Content-Type"), "image/png");
-  assert.equal(
-    response.headers.get("Cache-Control"),
-    "public, max-age=31536000, immutable",
-  );
+  assert.equal(response.headers.get("Cache-Control"), "private, no-store");
   assert.deepEqual(new Uint8Array(await response.arrayBuffer()), png);
   assert.equal(calls.length, 1);
   assert.equal(calls[0]?.action, "screenshot");
   assert.deepEqual(calls[0]?.options.viewport, { width: 1200, height: 630 });
-  assert.match(String(calls[0]?.options.html), /Launch brief &amp; next steps/);
+  assert.match(String(calls[0]?.options.html), /Protected artifact/);
+  assert.doesNotMatch(
+    String(calls[0]?.options.html),
+    /Launch brief|concise rollout/,
+  );
   assert.equal(writes.length, 1);
-  assert.match(writes[0]?.key || "", /^previews\/art_preview\//);
+  assert.match(writes[0]?.key || "", /^previews\/art_preview\/safe-v2\//);
 });
 
 test("publish and MCP schemas expose public-safe summaries and editable previews", () => {

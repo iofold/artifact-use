@@ -417,7 +417,7 @@ async function publisherCookie(env: Env, orgId = "org_ver"): Promise<string> {
     name: "Publisher",
     exp: nowSec() + 600,
   };
-  return `au_pub=${encodeURIComponent(await signPayload(session, env))}`;
+  return `__Host-au_pub=${encodeURIComponent(await signPayload(session, env))}`;
 }
 
 async function viewerCookie(env: Env): Promise<string> {
@@ -429,7 +429,7 @@ async function viewerCookie(env: Env): Promise<string> {
     view_id: 1,
     exp: nowSec() + 600,
   };
-  return `au_art_ver=${encodeURIComponent(await signPayload(session, env))}`;
+  return `__Host-au_art_ver=${encodeURIComponent(await signPayload(session, env))}`;
 }
 
 async function mcp(
@@ -1420,7 +1420,7 @@ test("the admin versions panel gets each version's note and file changes", async
   const csrf = await issueAdminCsrfToken(raw, exp, st.env);
   const headers = {
     Accept: "application/json",
-    Cookie: `au_pub=${encodeURIComponent(raw)}; au_admin_csrf=${encodeURIComponent(csrf.token)}`,
+    Cookie: `__Host-au_pub=${encodeURIComponent(raw)}; __Host-au_admin_csrf=${encodeURIComponent(csrf.token)}`,
     "X-CSRF-Token": csrf.token,
   };
   const response = await handleAdminUiApi(

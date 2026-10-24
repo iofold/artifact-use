@@ -314,16 +314,17 @@ The deployed Worker exposes:
 https://artifacts.example.com/mcp
 https://artifacts.example.com/llms.txt
 https://artifacts.example.com/llms-full.txt
-https://artifacts.example.com/go/{artifact-slug}-{six-character-code}/
+https://artifacts.example.com/go/{readable-slug}-{random-code}/
 ```
 
 OAuth-capable MCP clients should be configured with the MCP URL and will receive
 a protected-resource challenge that starts WorkOS/AuthKit login. Non-OAuth
 clients can pass a WorkOS bearer token in the `Authorization` header.
 
-# Artifact browser isolation
+## Artifact browser isolation
 
-Before deploying the security update, apply migration `0021_artifact_isolation.sql`
+Before deploying the security update, apply migrations `0021_artifact_isolation.sql`, `0022_scoped_reviewer_names.sql`,
+and `0023_artifact_url_entropy.sql`
 and configure `ARTIFACT_HOST_SUFFIX` plus a Worker route `*.<suffix>/*`.
 The suffix needs wildcard DNS and a TLS certificate covering `a-<id>.<suffix>`.
 For example, `pages.example.com` requires `*.pages.example.com`; a certificate
@@ -332,9 +333,10 @@ refuse a configuration without the suffix and wildcard route.
 
 Existing `/go/<key>/` links remain stable. Browsers authenticate on
 `SITE_BASE_URL`, then redirect to the artifact's own origin. A server-side,
-single-use handoff expires after 60 seconds and establishes a host-only viewer
-cookie. Google callbacks, publisher login, admin, REST and MCP remain on the
-trusted origin. Never set a parent-domain cookie for these hosts.
+single-use handoff expires after 60 seconds, binds to destination-browser state,
+and establishes a `__Host-` viewer cookie. Google callbacks, publisher login, admin, REST and MCP remain on the
+trusted origin. Never set a parent-domain cookie for these hosts. All auth cookies use the
+`__Host-` prefix; existing browsers must sign in or pass their gate again after rollout.
 
 Interactive HTML, relative assets, upstream requests, comments and localStorage
 work within each artifact's origin. Browser storage formerly on the shared

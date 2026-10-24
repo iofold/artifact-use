@@ -110,11 +110,11 @@ Tool failures return `isError: true` with `structuredContent.error = {code, mess
 - Publish a new artifact with a lower-case `artifact` slug.
 - Republish an existing artifact by passing its `url_key` (from the publish result or `artifact_manage action:"list"`) as `artifact`; the same slug published earlier in the workspace also republishes in place. Omitting `gate_level` on republish keeps the current gate.
 - On every republish also pass your last `version_id` as `base_version_id` and a one-line `change_note` saying what changed (e.g. "Moved demo controls into the header"). People read version history by these notes; each publish result's `next` repeats this reminder.
-- Use the `url_key` for stats, access changes, share links, and comments. Do not guess it; it includes a six-character code from the artifact id.
+- Use the `url_key` for stats, access changes, share links, and comments. Do not guess it; new keys retain 128 random bits. Existing keys remain valid.
 - Public artifact URLs are under:
 
 ```text
-https://artifacts.iofold.com/go/{artifact-slug}-{six-character-code}/
+https://artifacts.iofold.com/go/{readable-slug}-{random-code}/
 ```
 
 ## MCP Selection

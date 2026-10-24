@@ -567,11 +567,20 @@ export async function handleAdminApi(
           limit: Number(q.get("limit")) || null,
         };
         const wait = clampWait(q.get("wait"));
-        return json(
-          wait
-            ? await waitForComments(env, artifact, filters, wait)
-            : await listComments(env, artifact, filters),
-        );
+        if (wait) {
+          await waitForComments(env, artifact, filters, wait);
+          const current = new URL(request.url);
+          current.searchParams.delete("wait");
+          return handleAdminApi(
+            new Request(current.toString(), {
+              headers: request.headers,
+              signal: request.signal,
+            }),
+            env,
+            path,
+          );
+        }
+        return json(await listComments(env, artifact, filters));
       }
       if (request.method === "POST") {
         requirePermission(creator, env, "artifacts:publish");

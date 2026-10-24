@@ -36,7 +36,12 @@ import { UPSTREAM_PATH } from "./upstream";
 import { handleWebhooksApi } from "./webhooks";
 import { isDigestCron, sendFeedbackDigest } from "./digest";
 import { error, json, secureSystemResponse, wantsHtml } from "./util";
-import { checkRequestOrigin, protectTrustedArtifactContent } from "./origins";
+import { artifactDiscoveryLimit } from "./rl";
+import {
+  checkRequestOrigin,
+  checkViewerMutation,
+  protectTrustedArtifactContent,
+} from "./origins";
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -71,6 +76,8 @@ export default {
     const path = url.pathname;
     const deniedOrigin = await checkRequestOrigin(request, env);
     if (deniedOrigin) return deniedOrigin;
+    const deniedMutation = checkViewerMutation(request);
+    if (deniedMutation) return deniedMutation;
     const cors = corsHeaders(path);
     if (request.method === "OPTIONS") {
       const response = new Response(
@@ -154,7 +161,14 @@ async function route(
     // `await` is load-bearing: `return dispatch(...)` would hand the promise
     // straight through and rejected handlers would skip this catch, escaping
     // as raw 1101 worker exceptions.
-    return await dispatch(request, env, path);
+    const blocked = await artifactDiscoveryLimit(request, env);
+    if (blocked) return blocked;
+    const response = await dispatch(request, env, path);
+    if ([401, 403, 404].includes(response.status)) {
+      const limited = await artifactDiscoveryLimit(request, env, true);
+      if (limited) return limited;
+    }
+    return response;
   } catch (e) {
     return error(
       500,

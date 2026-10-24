@@ -1,7 +1,12 @@
 import { getArtifactByUrlKey, getFile, getVersion } from "./db";
 import { unavailableArtifactResponse } from "./moderation";
 import type { Artifact, Env } from "./types";
-import { escapeHtml, publicArtifactUrl, siteBaseUrl } from "./util";
+import {
+  escapeHtml,
+  publicArtifactUrl,
+  siteBaseUrl,
+  publicArtifactTitle,
+} from "./util";
 
 const PREVIEW_WIDTH = 1200;
 const PREVIEW_HEIGHT = 630;
@@ -45,7 +50,8 @@ export function extractArtifactDescription(html: string): string | null {
 }
 
 export function artifactPreviewImageUrl(env: Env, artifact: Artifact): string {
-  const revision = previewRevision(artifact);
+  const revision =
+    artifact.gate_level === "public" ? previewRevision(artifact) : "protected";
   return `${siteBaseUrl(env)}/_au/preview/${encodeURIComponent(artifact.url_key)}/${encodeURIComponent(revision)}.png`;
 }
 
@@ -81,8 +87,10 @@ export function renderArtifactPreviewDocument(
   contentType: string,
 ): Response {
   const description = previewDescription(artifact);
-  const type = previewTypeLabel(contentType);
-  const body = `<!doctype html><html lang="en"><head><title>${escapeHtml(artifact.title)}</title></head><body><main><p>ARTIFACT USE · ${escapeHtml(type)}</p><h1>${escapeHtml(artifact.title)}</h1><p>${escapeHtml(description)}</p><p>LLM-agnostic artifacts with feedback loops.</p></main></body></html>`;
+  const type = previewTypeLabel(
+    artifact.gate_level === "public" ? contentType : "",
+  );
+  const body = `<!doctype html><html lang="en"><head><title>${escapeHtml(publicArtifactTitle(artifact))}</title></head><body><main><p>ARTIFACT USE · ${escapeHtml(type)}</p><h1>${escapeHtml(publicArtifactTitle(artifact))}</h1><p>${escapeHtml(description)}</p><p>LLM-agnostic artifacts with feedback loops.</p></main></body></html>`;
   return new Response(
     injectArtifactMetadata(body, env, artifact, contentType),
     {
@@ -103,9 +111,11 @@ export function renderPreviewCardHtml(
   artifact: Artifact,
   contentType: string,
 ): string {
-  const title = escapeHtml(artifact.title);
+  const title = escapeHtml(publicArtifactTitle(artifact));
   const description = escapeHtml(previewDescription(artifact));
-  const type = escapeHtml(previewTypeLabel(contentType));
+  const type = escapeHtml(
+    previewTypeLabel(artifact.gate_level === "public" ? contentType : ""),
+  );
   const host = escapeHtml(safeHost(env));
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><style>
 *{box-sizing:border-box}html,body{margin:0;width:${PREVIEW_WIDTH}px;height:${PREVIEW_HEIGHT}px;overflow:hidden;background:#f6f4ec;color:#132420}
@@ -161,10 +171,16 @@ export async function handleArtifactPreviewAsset(
   // times in one month before this).
   const revision = previewRevision(artifact);
 
-  const storageKey = `previews/${artifact.id}/${revision}.png`;
+  const storageKey = `previews/${artifact.id}/safe-v2/${revision}.png`;
   const cached = await env.BUCKET.get(storageKey);
   if (cached && "body" in cached) {
-    return pngResponse(request, cached.body, cached.size, cached.httpEtag);
+    return pngResponse(
+      request,
+      cached.body,
+      cached.size,
+      cached.httpEtag,
+      artifact.gate_level !== "public",
+    );
   }
   if (!env.BROWSER) return previewError(503, "preview_unavailable");
 
@@ -191,7 +207,13 @@ export async function handleArtifactPreviewAsset(
       cacheControl: "public, max-age=31536000, immutable",
     },
   });
-  return pngResponse(request, bytes, bytes.byteLength);
+  return pngResponse(
+    request,
+    bytes,
+    bytes.byteLength,
+    undefined,
+    artifact.gate_level !== "public",
+  );
 }
 
 function artifactMetadata(
@@ -199,16 +221,22 @@ function artifactMetadata(
   artifact: Artifact,
   contentType: string,
 ): string {
-  const title = escapeHtml(artifact.title);
+  const title = escapeHtml(publicArtifactTitle(artifact));
   const description = escapeHtml(previewDescription(artifact));
   const canonical = escapeHtml(publicArtifactUrl(env, artifact.url_key));
   const image = escapeHtml(artifactPreviewImageUrl(env, artifact));
-  const imageAlt = escapeHtml(`${artifact.title} — Artifact Use preview`);
-  const type = escapeHtml(previewTypeLabel(contentType));
+  const imageAlt = escapeHtml(
+    `${publicArtifactTitle(artifact)} — Artifact Use preview`,
+  );
+  const type = escapeHtml(
+    previewTypeLabel(artifact.gate_level === "public" ? contentType : ""),
+  );
   return `<meta property="og:type" content="website"><meta property="og:site_name" content="Artifact Use"><meta property="og:title" content="${title}"><meta property="og:description" content="${description}"><meta property="og:url" content="${canonical}"><meta property="og:image" content="${image}"><meta property="og:image:secure_url" content="${image}"><meta property="og:image:type" content="image/png"><meta property="og:image:width" content="${PREVIEW_WIDTH}"><meta property="og:image:height" content="${PREVIEW_HEIGHT}"><meta property="og:image:alt" content="${imageAlt}"><meta name="description" content="${description}"><meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="${title}"><meta name="twitter:description" content="${description}"><meta name="twitter:image" content="${image}"><meta name="twitter:image:alt" content="${imageAlt}"><meta name="artifact-use:type" content="${type}"><link rel="canonical" href="${canonical}"><link rel="icon" type="image/svg+xml" href="${escapeHtml(`${siteBaseUrl(env)}/_au/artifact-icon.svg`)}">`;
 }
 
 function previewDescription(artifact: Artifact): string {
+  if (artifact.gate_level !== "public")
+    return "Sign in to view this protected artifact.";
   return (
     normalizeArtifactDescription(artifact.description) ||
     `${artifact.title} — a published artifact shared with Artifact Use.`
@@ -305,11 +333,14 @@ function pngResponse(
   body: BodyInit,
   size: number,
   etag?: string,
+  protectedPreview = false,
 ): Response {
   const headers = new Headers({
     "Content-Type": "image/png",
     "Content-Length": String(size),
-    "Cache-Control": "public, max-age=31536000, immutable",
+    "Cache-Control": protectedPreview
+      ? "private, no-store"
+      : "public, max-age=31536000, immutable",
     "X-Content-Type-Options": "nosniff",
   });
   if (etag) headers.set("ETag", etag);

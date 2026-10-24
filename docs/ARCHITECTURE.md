@@ -45,9 +45,9 @@ Prior versions are served under `_v/{version_id}/` to the publishing workspace o
 
 ## Public Preview Envelope
 
-Artifact title and description are explicitly public metadata. The Worker injects Open Graph, X card, canonical, and artifact-favicon tags at the start of HTML heads. Known link-preview crawlers receive a small metadata document for every artifact type; they never receive gated artifact bytes, viewer sessions, tracked-share recipients, or share capability IDs.
+Public artifacts expose title and description metadata. Protected artifacts use generic metadata without title, description, version, or file type. The Worker injects Open Graph, X card, canonical, and artifact-favicon tags at the start of HTML heads. Known link-preview crawlers receive a small metadata document for every artifact type; they never receive gated artifact bytes, viewer sessions, tracked-share recipients, or share capability IDs.
 
-Preview images are deterministic 1200×630 proof sheets rendered through the `BROWSER` binding and cached in R2 under a versioned metadata revision. Title, description, gate label, and entrypoint type are the only artifact details rendered into the card.
+Preview images are deterministic 1200×630 proof sheets rendered through the `BROWSER` binding and cached in R2 under a versioned metadata revision. Only public cards render title, description, and entrypoint type. Protected cards use generic copy and are not publicly cached.
 
 ## Folder Artifacts
 
@@ -88,3 +88,23 @@ request re-checks the current allowlist against the session's email. Request
 and response headers are allowlisted, upstream cookies are dropped, and
 proxied responses are never cached. Upstream URLs are limited to public hostnames over HTTPS; the secret is
 write-only through the API.
+
+## Browser isolation and current grants
+
+Stable links remain on `SITE_BASE_URL`. Interactive documents run on a dedicated
+`a-<artifact-id>.<ARTIFACT_HOST_SUFFIX>` origin. The trusted origin keeps publisher
+auth, Google callbacks, admin, REST, and MCP. Agent reads through stable links
+still receive original bytes, with a restrictive browser sandbox CSP.
+
+The destination establishes independent signed state for each navigation. The
+trusted origin then issues a single-use, 60-second database ticket bound to its
+nonce hash and artifact. A different browser cannot redeem it. Authentication
+cookies use the browser-enforced `__Host-` prefix, Secure and Path=/, without
+Domain. Artifact hosts accept only their own files and viewer endpoints;
+cookies, localStorage and service workers are isolated. Browser mutations check
+Origin; Origin-less agent HTTP calls remain supported.
+
+Workspace grants carry a user id checked against current membership. The
+five-minute membership cache expires closed during directory outages. Long-poll
+comment reads reauthorize before returning. Protected files use
+`private, no-store`, including assets with content hashes.

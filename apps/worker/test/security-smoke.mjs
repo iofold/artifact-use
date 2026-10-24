@@ -56,7 +56,7 @@ const rawSession = await signPayload(
   },
   { SESSION_SECRET: secret },
 );
-const sessionCookie = `au_pub=${encodeURIComponent(rawSession)}`;
+const sessionCookie = `__Host-au_pub=${encodeURIComponent(rawSession)}`;
 const jsonHeaders = {
   Accept: "application/json",
   Cookie: sessionCookie,
@@ -75,11 +75,13 @@ const shell = await expect("/admin/connect", 200, {
 });
 const csrfSetCookie = shell.response.headers
   .getSetCookie()
-  .find((value) => value.startsWith("au_admin_csrf="));
+  .find((value) => value.startsWith("__Host-au_admin_csrf="));
 if (!csrfSetCookie)
-  throw new Error("GET /admin/connect: missing au_admin_csrf Set-Cookie");
+  throw new Error(
+    "GET /admin/connect: missing __Host-au_admin_csrf Set-Cookie",
+  );
 const csrfToken = decodeURIComponent(
-  /^au_admin_csrf=([^;]+)/.exec(csrfSetCookie)?.[1] || "",
+  /^__Host-au_admin_csrf=([^;]+)/.exec(csrfSetCookie)?.[1] || "",
 );
 if (!csrfToken) throw new Error("GET /admin/connect: empty CSRF token");
 if (shell.body.includes(csrfToken))
@@ -157,7 +159,7 @@ assertions += 1;
 
 const protectedHeaders = {
   ...jsonHeaders,
-  Cookie: `${sessionCookie}; au_admin_csrf=${encodeURIComponent(csrfToken)}`,
+  Cookie: `${sessionCookie}; __Host-au_admin_csrf=${encodeURIComponent(csrfToken)}`,
   "X-CSRF-Token": csrfToken,
 };
 await expect("/admin/api/connect/approve", 200, {

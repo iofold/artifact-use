@@ -97,7 +97,7 @@ async function viewerCookie(
     view_id: 42,
     exp: nowSec() + 600,
   };
-  return `au_art_console=${encodeURIComponent(await signPayload(session, env))}`;
+  return `__Host-au_art_console=${encodeURIComponent(await signPayload(session, env))}`;
 }
 
 type Captured = { url: string; init: RequestInit & { headers: Headers } };
@@ -287,7 +287,7 @@ test("a nonlisted workspace member's real SSO viewer session cannot reach the up
     new Request(`${ORIGIN}/_au/gate/session`, {
       method: "POST",
       headers: {
-        Cookie: `au_pub=${encodeURIComponent(pub)}`,
+        Cookie: `__Host-au_pub=${encodeURIComponent(pub)}`,
         Accept: "application/json",
         Referer: `${ORIGIN}${ARTIFACT_PATH}`,
         "Sec-Fetch-Mode": "navigate",

@@ -79,8 +79,8 @@ test("admin CSRF token is signed, session-bound, and double submitted", async ()
     env,
   );
 
-  assert.match(issued.cookie, /^au_admin_csrf=/);
-  assert.match(issued.cookie, /; Path=\/admin(?:;|$)/);
+  assert.match(issued.cookie, /^__Host-au_admin_csrf=/);
+  assert.match(issued.cookie, /; Path=\/(?:;|$)/);
   assert.match(issued.cookie, /; Secure(?:;|$)/);
   assert.match(issued.cookie, /; SameSite=Strict(?:;|$)/);
   assert.doesNotMatch(issued.cookie, /HttpOnly/i);
@@ -134,7 +134,7 @@ test("admin CSRF rejects expired and cross-type signed payloads", async () => {
 
 function csrfRequest(cookieToken: string, headerToken: string | null): Request {
   const headers = new Headers({
-    Cookie: `au_admin_csrf=${encodeURIComponent(cookieToken)}`,
+    Cookie: `__Host-au_admin_csrf=${encodeURIComponent(cookieToken)}`,
   });
   if (headerToken) headers.set("X-CSRF-Token", headerToken);
   return new Request("https://artifacts.example.com/admin/api/overview", {
@@ -146,7 +146,7 @@ test("admin SPA sends its path-scoped CSRF cookie on reads and writes", async ()
   assert.equal(typeof adminApi.adminCsrfToken, "function");
   assert.equal(
     adminApi.adminCsrfToken(
-      "other=x; au_admin_csrf=signed%2Etoken%3D; final=y",
+      "other=x; __Host-au_admin_csrf=signed%2Etoken%3D; final=y",
     ),
     "signed.token=",
   );
@@ -156,7 +156,7 @@ test("admin SPA sends its path-scoped CSRF cookie on reads and writes", async ()
   const originalDocument = globalThis.document;
   const originalWindow = globalThis.window;
   Object.assign(globalThis, {
-    document: { cookie: "au_admin_csrf=csrf-token" },
+    document: { cookie: "__Host-au_admin_csrf=csrf-token" },
     window: { location: { href: "" } },
     fetch: async (url: string, init?: RequestInit) => {
       calls.push({ url, init });
@@ -281,10 +281,10 @@ test("authenticated admin shell issues CSRF without rendering it", async () => {
   assert.equal(response.status, 200);
   const csrfCookie = response.headers
     .getSetCookie()
-    .find((value) => value.startsWith("au_admin_csrf="));
+    .find((value) => value.startsWith("__Host-au_admin_csrf="));
   assert.ok(csrfCookie);
   const token = decodeURIComponent(
-    /^au_admin_csrf=([^;]+)/.exec(csrfCookie)?.[1] || "",
+    /^__Host-au_admin_csrf=([^;]+)/.exec(csrfCookie)?.[1] || "",
   );
   assert.ok(token);
   assert.doesNotMatch(await response.text(), new RegExp(escapeRegExp(token)));
@@ -340,7 +340,7 @@ function publisherRequest(
   init: RequestInit = {},
 ): Request {
   const headers = new Headers(init.headers);
-  headers.set("Cookie", `au_pub=${encodeURIComponent(rawSession)}`);
+  headers.set("Cookie", `__Host-au_pub=${encodeURIComponent(rawSession)}`);
   headers.set("Accept", headers.get("Accept") || "application/json");
   return new Request(`https://artifacts.example.com${path}`, {
     ...init,

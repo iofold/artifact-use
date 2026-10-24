@@ -10,18 +10,18 @@ test("html is never cached, regardless of gate or path shape", () => {
   );
 });
 
-test("hashed bundler assets are immutable; gated stays private", () => {
+test("public hashed assets are immutable; protected assets always check access", () => {
   assert.equal(
     cacheControl("public", false, "assets/mount-0445okQG.js"),
     "public, max-age=31536000, immutable",
   );
   assert.equal(
     cacheControl("email", false, "assets/mount-0445okQG.js"),
-    "private, max-age=31536000, immutable",
+    "private, no-store",
   );
   assert.equal(
     cacheControl("allowlist", false, "deep/dir/assets/queue-C6QTutkh.css"),
-    "private, max-age=31536000, immutable",
+    "private, no-store",
   );
 });
 

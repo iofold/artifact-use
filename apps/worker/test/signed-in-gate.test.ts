@@ -116,7 +116,7 @@ async function publisherCookie(
     exp: nowSec() + 600,
     ...overrides,
   };
-  return `au_pub=${encodeURIComponent(await signPayload(session, env))}`;
+  return `__Host-au_pub=${encodeURIComponent(await signPayload(session, env))}`;
 }
 
 function browserGet(url: string, cookie?: string): Request {
@@ -133,7 +133,7 @@ function browserGet(url: string, cookie?: string): Request {
 // The consent token the gate page would have rendered for this cookie.
 async function consentFor(cookie: string | null): Promise<string> {
   if (!cookie) return "";
-  const raw = decodeURIComponent(cookie.replace(/^au_pub=/, ""));
+  const raw = decodeURIComponent(cookie.replace(/^__Host-au_pub=/, ""));
   return gateConsentToken(
     { SESSION_SECRET: "signed-in-gate-secret" } as unknown as Env,
     "art_gate",
@@ -181,7 +181,7 @@ async function viewerFromCookie(
   response: Response,
 ): Promise<ViewerSession | null> {
   const setCookie = response.headers.get("Set-Cookie") || "";
-  const match = /au_art_gate=([^;]+)/.exec(setCookie);
+  const match = /__Host-au_art_gate=([^;]+)/.exec(setCookie);
   if (!match) return null;
   return verifyPayload<ViewerSession>(decodeURIComponent(match[1]), env);
 }

@@ -114,7 +114,9 @@ export async function recordPublicView(
   env: Env,
   artifact: Artifact,
   response: Response,
+  scopedPublisher = false,
 ): Promise<Response> {
+  if (scopedPublisher) return response;
   if (artifact.gate_level !== "public") return response;
   if (request.method !== "GET" || response.status !== 200) return response;
   if (!isHtmlResponse(response) || !wantsHtml(request)) return response;

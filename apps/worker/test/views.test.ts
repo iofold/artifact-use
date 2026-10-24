@@ -398,7 +398,7 @@ async function publisherCookie(
     exp: nowSec() + 600,
     ...overrides,
   };
-  return `au_pub=${encodeURIComponent(await signPayload(session, env))}`;
+  return `__Host-au_pub=${encodeURIComponent(await signPayload(session, env))}`;
 }
 
 const SEEN = seenCookieName("art_gate");
@@ -580,7 +580,7 @@ test("gated artifacts never take the public path: a session read adds no row and
   };
   const response = await servePublic(
     browser(`${ORIGIN}${ARTIFACT_PATH}`, {
-      cookie: `au_art_gate=${encodeURIComponent(await signPayload(session, env))}`,
+      cookie: `__Host-au_art_gate=${encodeURIComponent(await signPayload(session, env))}`,
     }),
     env,
     ARTIFACT_PATH,
@@ -641,7 +641,7 @@ test("a gate pass tags the row with the viewer's kind and how it got in", async 
           consented.env,
           "art_gate",
           decodeURIComponent(
-            String(headers.get("Cookie")).replace(/^au_pub=/, ""),
+            String(headers.get("Cookie")).replace(/^__Host-au_pub=/, ""),
           ),
         ),
       }),
@@ -859,7 +859,7 @@ test("the admin overview reports people and agents separately for totals, rows, 
     new Request(`${ORIGIN}/admin/api/overview`, {
       headers: {
         Accept: "application/json",
-        Cookie: `au_pub=${encodeURIComponent(raw)}; au_admin_csrf=${encodeURIComponent(csrf.token)}`,
+        Cookie: `__Host-au_pub=${encodeURIComponent(raw)}; __Host-au_admin_csrf=${encodeURIComponent(csrf.token)}`,
         "X-CSRF-Token": csrf.token,
       },
     }),
