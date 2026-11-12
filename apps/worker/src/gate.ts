@@ -1190,7 +1190,7 @@ export function validEmail(email: string): boolean {
 const LOCAL_PART_RE =
   /^[a-z0-9!#$%&'*+/=?^_`{|}~-]+(\.[a-z0-9!#$%&'*+/=?^_`{|}~-]+)*$/i;
 
-function validEmailDomain(domain: string): boolean {
+export function validEmailDomain(domain: string): boolean {
   if (domain.length > 253) return false;
   const labels = domain.split(".");
   if (labels.length < 2) return false;

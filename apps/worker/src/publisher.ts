@@ -59,6 +59,7 @@ import {
 import {
   deleteArtifact,
   listShareLinks,
+  revokeShareLink,
   migratePublisherDataToOrg,
   moveArtifactToOrg,
   updateArtifactAccess,
@@ -68,6 +69,13 @@ import {
 import { createShareLinkFromInput } from "./admin";
 import { isTrustedOrigin } from "./origins";
 import { type ShareLink, UNLISTED_NOTE, shareLinkJson } from "./links";
+import {
+  applyAccessChange,
+  parseAllowlistEntries,
+  publicNeedsNoUpstream,
+  shareSheetPath,
+  shareStateJson,
+} from "./share";
 import { promoteVersion, versionHistory } from "./versions";
 import { moderateArtifact, moderateOrganization } from "./moderation";
 import {
@@ -1009,7 +1017,9 @@ export async function handlePublisherAdmin(
     request.method === "GET" &&
     (path === "/admin" ||
       path === "/admin/connect" ||
+      path === "/admin/agents" ||
       path === "/admin/team" ||
+      path === "/admin/share" ||
       path === "/admin/super")
   )
     return spaShell(request, env, raw, session.exp);
@@ -1154,6 +1164,86 @@ export async function handleAdminUiApi(
     );
     if (created instanceof Response) return created;
     return json(created);
+  }
+  // The share sheet (share.ts): who can open the artifact and through which
+  // links, read in one call and changed in place. Asked for by artifact id,
+  // because that is what the widget's Share link carries.
+  if (path === "/admin/api/artifact/share" && request.method === "GET") {
+    const id = new URL(request.url).searchParams.get("id") || "";
+    const artifact = id.startsWith("art_")
+      ? await env.DB.prepare("SELECT * FROM artifacts WHERE id = ?")
+          .bind(id)
+          .first<Artifact>()
+      : null;
+    if (artifact && artifact.org_id === session.orgId)
+      return json(await shareStateJson(env, artifact));
+    // The link was opened while signed in to another of this person's
+    // workspaces: name the one to switch to. Membership is checked first, so
+    // nobody learns that an artifact exists in a workspace they are not in.
+    const other = artifact
+      ? (await listWorkspaces(env, session.sub).catch(() => [])).find(
+          (row) => row.org_id === artifact.org_id,
+        )
+      : null;
+    if (artifact && other)
+      return json(
+        {
+          error: {
+            code: "other_workspace",
+            message: `this artifact belongs to ${other.org_name}`,
+          },
+          workspace: {
+            org_id: other.org_id,
+            name: other.org_name,
+            switch_url: `/admin/switch?org=${encodeURIComponent(other.org_id)}&next=${encodeURIComponent(shareSheetPath(artifact.id))}`,
+          },
+        },
+        { status: 409 },
+      );
+    return error(404, "artifact_not_found", "artifact not found");
+  }
+  if (path === "/admin/api/artifact/access" && request.method === "POST") {
+    const body = (await request.json().catch(() => ({}))) as {
+      artifact_key?: unknown;
+      gate_level?: unknown;
+      add?: unknown;
+      remove?: unknown;
+    };
+    const artifact = await publisherArtifactByKey(
+      env,
+      session,
+      String(body.artifact_key || ""),
+    );
+    if (!artifact)
+      return error(404, "artifact_not_found", "artifact not found");
+    const updated = await applyAccessChange(env, artifact, body);
+    if (updated instanceof Response) return updated;
+    return json(await shareStateJson(env, updated));
+  }
+  if (
+    path === "/admin/api/artifact/share-link/revoke" &&
+    request.method === "POST"
+  ) {
+    const body = (await request.json().catch(() => ({}))) as {
+      artifact_key?: unknown;
+      id?: unknown;
+    };
+    const artifact = await publisherArtifactByKey(
+      env,
+      session,
+      String(body.artifact_key || ""),
+    );
+    if (!artifact)
+      return error(404, "artifact_not_found", "artifact not found");
+    const link = await env.DB.prepare(
+      "SELECT id FROM share_links WHERE id = ? AND artifact_id = ?",
+    )
+      .bind(String(body.id || ""), artifact.id)
+      .first<{ id: string }>();
+    if (!link)
+      return error(404, "share_link_not_found", "share link not found");
+    await revokeShareLink(env, artifact.id, link.id);
+    return json(await shareStateJson(env, artifact));
   }
   // Versions panel: the history for the SPA (each version's change note, what
   // its publish changed and its thread counts), and promote (rollback is
@@ -1759,7 +1849,14 @@ async function switchWorkspace(
   const target = (url.searchParams.get("org") || "").trim();
   if (!isWorkosOrgId(target))
     return error(400, "invalid_workspace", "org must be a WorkOS org id");
-  if (target === session.orgId) return redirect("/admin");
+  // Where to land afterwards: the share sheet hands over its own address so
+  // a switch made to reach an artifact returns to that artifact.
+  const wanted = url.searchParams.get("next") || "";
+  const dest =
+    wanted.startsWith("/admin/") && SAFE_NEXT_RE.test(wanted)
+      ? wanted
+      : "/admin";
+  if (target === session.orgId) return redirect(dest);
   // A cross-site link must not silently re-point someone's admin session.
   // Same-origin navigations (the switcher) and direct address-bar loads pass;
   // browsers too old for fetch metadata send no header and also pass.
@@ -1798,7 +1895,7 @@ async function switchWorkspace(
       Math.max(0, session.exp - nowSec()),
     ),
   );
-  return redirect("/admin", headers);
+  return redirect(dest, headers);
 }
 
 // The signed-in workspace plus every other workspace this user could switch
@@ -2707,19 +2804,24 @@ function allowlistLines(value: string | null): string {
   }
 }
 
-function parseAllowlist(value: FormDataEntryValue | null): string | undefined {
+// The whole list as the form sends it. An entry that is neither an address
+// nor a domain is refused by name: stored, it would make the gate turn
+// everybody away (isAllowed treats a malformed policy as "nobody").
+function parseAllowlist(
+  value: FormDataEntryValue | null,
+): string | undefined | Response {
   if (value === null) return undefined;
-  const lines = String(value)
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const domains: string[] = [];
-  const emails: string[] = [];
-  for (const line of lines) {
-    if (line.includes("@")) emails.push(normalizeEmail(line));
-    else domains.push(line.replace(/^@/, "").toLowerCase());
-  }
-  return JSON.stringify({ domains, emails });
+  const parsed = parseAllowlistEntries(String(value));
+  if (!parsed.ok)
+    return error(
+      400,
+      "invalid_allowlist_entry",
+      `not an email address or a domain: ${parsed.invalid.slice(0, 5).join(", ")}`,
+    );
+  return JSON.stringify({
+    domains: parsed.list.domains,
+    emails: parsed.list.emails,
+  });
 }
 
 function dateLabelFromIso(value: string | null | undefined): string {
@@ -2740,13 +2842,11 @@ async function updateAccess(
     return error(400, "invalid_gate_level", "gate_level is not supported");
   const artifact = await publisherArtifact(env, session, form);
   if (!artifact) return error(404, "artifact_not_found", "artifact not found");
-  await updateArtifactAccess(
-    env,
-    artifact,
-    null,
-    gateLevel,
-    parseAllowlist(form.get("allowlist_lines")),
-  );
+  const guarded = await publicNeedsNoUpstream(env, artifact, gateLevel);
+  if (guarded) return guarded;
+  const allowlist = parseAllowlist(form.get("allowlist_lines"));
+  if (allowlist instanceof Response) return allowlist;
+  await updateArtifactAccess(env, artifact, null, gateLevel, allowlist);
   return redirect(`/admin?open=${encodeURIComponent(artifact.id)}`);
 }
 
