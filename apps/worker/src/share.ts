@@ -28,6 +28,10 @@ export interface Allowlist {
 // Enough for a real review group; keeps one row from growing without bound.
 export const ALLOWLIST_MAX = 500;
 
+// Exactly what shareSheetPath produces; the one address /admin/switch will
+// return to.
+export const SHARE_SHEET_PATH_RE = /^\/admin\/share\?artifact=art_[\w-]+$/;
+
 export function shareSheetPath(artifactId: string): string {
   return `/admin/share?artifact=${encodeURIComponent(artifactId)}`;
 }

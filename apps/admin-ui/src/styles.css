@@ -1084,12 +1084,13 @@ code {
   letter-spacing: 0.1em;
   color: var(--muted);
 }
-/* Open artifact on the left; Access, then Feedback, stacked on the right. */
+/* Open artifact on the left, Feedback on the right; sharing has its own
+   panel below (share.tsx). */
 .sheet-actions {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 10px;
-  align-items: stretch;
+  align-items: end;
 }
 .sheet-actions > .access-control + .access-control {
   grid-column: 2;
@@ -2308,6 +2309,11 @@ code {
 .share-panel .link-created {
   margin-top: 0;
 }
+/* Keep the address clear of the Copy button that sits over the field. */
+.share-panel .copywrap input {
+  padding-right: 68px;
+  text-overflow: ellipsis;
+}
 .share-panel > .text-button {
   justify-self: start;
   font-size: 13px;
@@ -2368,7 +2374,7 @@ code {
 .share-foot .text-button {
   font-size: 13px;
 }
-@media (max-width: 480px) {
+@media (max-width: 400px) {
   .share-linkrow,
   .share-add {
     grid-template-columns: 1fr;

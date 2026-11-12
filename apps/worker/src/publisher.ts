@@ -70,6 +70,7 @@ import { createShareLinkFromInput } from "./admin";
 import { isTrustedOrigin } from "./origins";
 import { type ShareLink, UNLISTED_NOTE, shareLinkJson } from "./links";
 import {
+  SHARE_SHEET_PATH_RE,
   applyAccessChange,
   parseAllowlistEntries,
   publicNeedsNoUpstream,
@@ -1849,13 +1850,11 @@ async function switchWorkspace(
   const target = (url.searchParams.get("org") || "").trim();
   if (!isWorkosOrgId(target))
     return error(400, "invalid_workspace", "org must be a WorkOS org id");
-  // Where to land afterwards: the share sheet hands over its own address so
-  // a switch made to reach an artifact returns to that artifact.
+  // Where to land afterwards. Only the share sheet asks for this (a switch
+  // made to reach an artifact returns to that artifact), so only its own
+  // address is accepted; anything else lands on the dashboard.
   const wanted = url.searchParams.get("next") || "";
-  const dest =
-    wanted.startsWith("/admin/") && SAFE_NEXT_RE.test(wanted)
-      ? wanted
-      : "/admin";
+  const dest = SHARE_SHEET_PATH_RE.test(wanted) ? wanted : "/admin";
   if (target === session.orgId) return redirect(dest);
   // A cross-site link must not silently re-point someone's admin session.
   // Same-origin navigations (the switcher) and direct address-bar loads pass;
