@@ -67,7 +67,7 @@ function contextRequest(cookie?: string, referer?: string): Request {
   );
 }
 
-test("publishers of the artifact's org get the admin deep link", async () => {
+test("publishers of the artifact's org get the admin and share-sheet links", async () => {
   const env = ctxEnv(artifact);
   const cookie = await publisherCookie(env, "org_ctx");
   const res = await handleArtifactContext(contextRequest(cookie), env);
@@ -76,6 +76,7 @@ test("publishers of the artifact's org get the admin deep link", async () => {
   assert.deepEqual(body, {
     role: "publisher",
     admin_url: "/admin?open=art_ctx",
+    share_url: "/admin/share?artifact=art_ctx",
     agent: noAgent,
     feedback: "shared",
   });
@@ -165,9 +166,22 @@ test("the response never carries capability or identity fields", async () => {
     contextRequest(await publisherCookie(env, "org_ctx")),
     env,
   );
-  // The feedback mode's value "shared" is page-level and expected.
-  const raw = (await res.text()).replace('"feedback":"shared"', "");
-  for (const needle of ["share", "token", "email", "stats", "allowlist"])
+  // The feedback mode's value "shared" is page-level and expected. So is the
+  // share sheet's address: it names a page on the admin origin that opens
+  // only with the publisher's own session, and grants nothing by itself.
+  // Share links (`?v=<id>`), their ids and who was invited stay out.
+  const raw = (await res.text())
+    .replace('"feedback":"shared"', "")
+    .replace('"share_url":"/admin/share?artifact=art_ctx"', "");
+  for (const needle of [
+    "share",
+    "token",
+    "email",
+    "stats",
+    "allowlist",
+    "?v=",
+    "shr_",
+  ])
     assert.ok(!raw.includes(needle), `response leaks "${needle}"`);
 });
 

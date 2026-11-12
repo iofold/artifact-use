@@ -44,6 +44,13 @@
  * changed in files and its thread counts,
  * opening at its own URL. Viewers never see it: /_au/versions answers only the
  * publishing workspace, and prior-version URLs send everyone else to current.
+ *
+ * Share (landed): publishers get a "Share" pill beside the launcher and in the
+ * panel header. It opens the share sheet on the trusted admin origin in a
+ * small window of its own. Sharing never happens in this page: the widget
+ * shares a JS realm with the artifact, so it holds a link to the sheet and
+ * nothing else — no share links, no gate controls, no list of who was invited.
+ * Viewers never see it.
  */
 (function () {
   if (window.__artifactUseWidget) return;
@@ -54,6 +61,8 @@
   if (!artifactKey) return;
   var versionId = CFG.versionId || "";
   var abuseUrl = String(CFG.abuseUrl || "");
+  // Present only for a signed-in member of the artifact's workspace.
+  var shareUrl = String(CFG.shareUrl || "");
 
   // ---- state ----
   var target = null; // element chosen for a NEW comment
@@ -820,6 +829,7 @@
     } else {
       badge.style.display = "none";
     }
+    placeShare();
   }
   function visibleForScope(c) {
     if (scope === "all") return true;
@@ -1923,6 +1933,10 @@
         if (j && j.role) viewerRole = j.role;
         if (!j || j.role !== "publisher" || !j.admin_url) return;
         loadVersions();
+        if (j.share_url && !shareUrl) {
+          shareUrl = String(j.share_url);
+          mountShare();
+        }
         var tools = panel.querySelector(".au-tools");
         var a = document.createElement("a");
         a.className = "au-icon au-admin";
@@ -1935,10 +1949,77 @@
           "aria-label",
           "Open this artifact in your admin dashboard",
         );
-        tools.insertBefore(a, tools.firstChild);
+        tools.insertBefore(a, $("[data-agent]"));
       })
       .catch(function () {});
   }
+
+  // ---- share (publishers only) ----
+  // Each control is a plain link to the share sheet, so it still works as a
+  // new tab (phones, middle-click, a blocked popup). On a desktop it opens as
+  // a small window over the artifact instead, with no handle back to this
+  // page: the sheet runs with the publisher's admin session and this realm
+  // is the artifact's.
+  var shareBtn = null;
+  function openShare(e) {
+    if (mobileSheet() || !window.open) return;
+    var w = 480;
+    var h = Math.max(520, Math.min(760, (screen.availHeight || 800) - 80));
+    var x = Math.round(
+      (window.screenX || 0) + Math.max(0, ((window.outerWidth || w) - w) / 2),
+    );
+    var y = Math.round(
+      (window.screenY || 0) + Math.max(0, ((window.outerHeight || h) - h) / 2),
+    );
+    try {
+      window.open(
+        this.href,
+        "_blank",
+        "popup,noopener,noreferrer,width=" +
+          w +
+          ",height=" +
+          h +
+          ",left=" +
+          x +
+          ",top=" +
+          y,
+      );
+      e.preventDefault();
+    } catch (err) {}
+  }
+  function shareControl(cls) {
+    var a = el("a", cls, "Share");
+    a.href = shareUrl;
+    a.target = "_blank";
+    a.rel = "noopener noreferrer";
+    a.title = "Share this artifact";
+    a.setAttribute("aria-label", "Share this artifact");
+    a.dataset.auWidget = "1";
+    a.onclick = openShare;
+    return a;
+  }
+  function mountShare() {
+    if (!shareUrl || shareBtn) return;
+    shareBtn = shareControl("au-share");
+    root.insertBefore(shareBtn, btn);
+    popover(shareBtn);
+    showTop(shareBtn);
+    var tools = panel.querySelector(".au-tools");
+    tools.insertBefore(shareControl("au-icon au-admin"), tools.firstChild);
+    // Four header controls: the agent handoff keeps its icon, drops its label.
+    panel.classList.add("is-publisher");
+    placeShare();
+  }
+  // The pill sits to the launcher's left, whatever the badge does to its width.
+  function placeShare() {
+    if (!shareBtn) return;
+    var r = btn.getBoundingClientRect();
+    if (!r.width) return;
+    shareBtn.style.right =
+      Math.round(document.documentElement.clientWidth - r.left + 8) + "px";
+    shareBtn.style.height = Math.round(r.height) + "px";
+  }
+  addEventListener("resize", placeShare);
 
   // ---- versions (publishers only) ----
   // The server answers /_au/versions for the publishing workspace alone, so
@@ -2384,6 +2465,7 @@
   // visible surfaces back above it.
   function promoteAll() {
     reTop(btn);
+    if (shareBtn) reTop(shareBtn);
     if (panel.classList.contains("is-open")) reTop(panel);
     if (banner.classList.contains("is-on")) reTop(banner);
     if (toastEl && toastEl.classList.contains("is-on")) reTop(toastEl);
@@ -2400,6 +2482,7 @@
     ) {
       document.documentElement.appendChild(host);
       showTop(btn);
+      if (shareBtn) showTop(shareBtn);
     }
   });
   mo.observe(document.documentElement, { childList: true });
@@ -2410,6 +2493,7 @@
     promoteAll();
   });
 
+  mountShare();
   renderTarget();
   loadOutbox();
   // prime the badge even while the panel is closed.
@@ -2576,6 +2660,11 @@
       ".au-pin:hover{background:#0c585b;transform:scale(1.08)}",
       "button:focus-visible,input:focus-visible{outline:2px solid #2a7d82;outline-offset:1px}",
       ".au-launch:hover{background:#0e2d30}",
+      ".au-share{position:fixed;right:132px;bottom:18px;z-index:2147483647;display:flex;align-items:center;border:1px solid #c3d0cc;border-radius:8px;background:#fff;color:#12383b;padding:0 14px;min-height:38px;font-weight:750;text-decoration:none;box-shadow:0 10px 30px rgba(0,0,0,.16);cursor:pointer}",
+      ".au-share:hover{background:#eef4f2}",
+      ".au-share:active{transform:translateY(1px)}",
+      ".au-share:focus-visible{outline:2px solid #0c585b;outline-offset:2px}",
+      ".au-panel.is-publisher .au-agentbtn-label{display:none}",
       ".au-launch:active{transform:translateY(1px)}",
       ".au-icon:active{background:#cfdedb}",
       ".au-seg:hover:not(.is-on){background:#eef4f2}",
@@ -2616,7 +2705,7 @@
       // Mobile: the panel becomes a bottom sheet (dvh keeps it above the keyboard).
       // Mobile bottom sheet. No fake drag handle (no drag gesture exists), the
       // toolbar wraps deliberately, and link actions get real touch targets.
-      "@media (max-width:640px){.au-panel{left:0;right:0;bottom:0;top:auto;width:100%;height:82dvh;max-height:82dvh;border-radius:16px 16px 0 0;border-bottom:0}.au-head{padding-top:6px}.au-launch{right:12px;bottom:12px}.au-cta{right:12px;bottom:64px;max-width:calc(100vw - 24px)}.au-banner{left:8px;right:8px;max-width:none}.au-toolbar{flex-wrap:wrap;row-gap:6px}.au-scope{flex:0 0 auto}.au-link{min-height:44px;display:inline-flex;align-items:center;padding:0 10px}.au-icon{min-width:44px;height:44px}.au-agentbtn-label{display:none}.au-seg{padding:10px 12px}}",
+      "@media (max-width:640px){.au-panel{left:0;right:0;bottom:0;top:auto;width:100%;height:82dvh;max-height:82dvh;border-radius:16px 16px 0 0;border-bottom:0}.au-head{padding-top:6px}.au-launch{right:12px;bottom:12px}.au-share{bottom:12px}.au-cta{right:12px;bottom:64px;max-width:calc(100vw - 24px)}.au-banner{left:8px;right:8px;max-width:none}.au-toolbar{flex-wrap:wrap;row-gap:6px}.au-scope{flex:0 0 auto}.au-link{min-height:44px;display:inline-flex;align-items:center;padding:0 10px}.au-icon{min-width:44px;height:44px}.au-agentbtn-label{display:none}.au-seg{padding:10px 12px}}",
       // Respect reduced-motion preferences.
       "@media (prefers-reduced-motion:reduce){.au-mark.au-pulse,.au-skel-line,.au-panel.is-busy .au-loadbar,.au-pin:hover,.au-cta.is-on,.au-item.is-pending.au-enter,.au-reply.is-pending.au-enter{animation:none;transition:none}}",
     ].join("");
