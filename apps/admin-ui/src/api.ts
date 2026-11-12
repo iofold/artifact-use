@@ -136,6 +136,24 @@ export type Comment = {
 
 export type ArtifactDetail = { shares: ShareLink[]; comments: Comment[] };
 
+// Everything the share sheet shows for one artifact: its stable link, who the
+// gate lets in, and the direct links that pass the gate on their own.
+export type ShareState = {
+  artifact: {
+    id: string;
+    url_key: string;
+    title: string;
+    url: string;
+    gate_level: string;
+    status: "active" | "suspended";
+    org_suspended: boolean;
+    // An upstream backend needs a gate, so "anyone with the link" is off.
+    has_upstream: boolean;
+    allowlist: { emails: string[]; domains: string[] };
+  };
+  links: ShareLink[];
+};
+
 // One completed publish. `url` opens that version at its own `_v/` address;
 // `current` marks the one the stable URL serves. `change_note` is the
 // publishing agent's one line on what changed; `changes` counts files against
@@ -295,6 +313,43 @@ function adminHeaders(init?: HeadersInit): Headers {
   return headers;
 }
 
+// A failed call, carrying the worker's own {error:{code,message}} so forms can
+// say what was wrong ("recipient_email is not a valid address") instead of a
+// bare status, plus the rest of the body for answers that explain themselves
+// (the share sheet's "this artifact belongs to another workspace").
+export class ApiError extends Error {
+  status: number;
+  code: string;
+  body: Record<string, unknown>;
+  constructor(
+    status: number,
+    code: string,
+    message: string,
+    body: Record<string, unknown>,
+  ) {
+    super(message);
+    this.status = status;
+    this.code = code;
+    this.body = body;
+  }
+}
+
+async function apiError(res: Response, url: string): Promise<ApiError> {
+  let body: Record<string, unknown> = {};
+  try {
+    body = (await res.json()) as Record<string, unknown>;
+  } catch {
+    // non-JSON error body; the status is all there is
+  }
+  const detail = (body.error || {}) as { code?: string; message?: string };
+  return new ApiError(
+    res.status,
+    detail.code || "request_failed",
+    detail.message || `${url} failed: ${res.status}`,
+    body,
+  );
+}
+
 async function getJson<T>(url: string): Promise<T> {
   const res = await fetch(url, {
     headers: adminHeaders({ accept: "application/json" }),
@@ -303,7 +358,7 @@ async function getJson<T>(url: string): Promise<T> {
     window.location.href = "/login";
     throw new Error("signed out");
   }
-  if (!res.ok) throw new Error(`${url} failed: ${res.status}`);
+  if (!res.ok) throw await apiError(res, url);
   return res.json() as Promise<T>;
 }
 
@@ -347,7 +402,7 @@ export async function postJson<T>(
     window.location.href = "/login";
     throw new Error("signed out");
   }
-  if (!res.ok) throw new Error(`${url} failed: ${res.status}`);
+  if (!res.ok) throw await apiError(res, url);
   return res.json() as Promise<T>;
 }
 
@@ -508,6 +563,23 @@ export const api = {
     expires_days: string;
     max_opens: string;
   }) => postJson<CreatedShareLink>("/admin/api/artifact/share-link", input),
+  shareState: (artifactId: string) =>
+    getJson<ShareState>(
+      `/admin/api/artifact/share?id=${encodeURIComponent(artifactId)}`,
+    ),
+  // Any combination of a gate level, entries to add and entries to remove;
+  // `add` takes addresses and domains as typed (commas, spaces or lines).
+  updateAccess: (input: {
+    artifact_key: string;
+    gate_level?: string;
+    add?: string;
+    remove?: string[];
+  }) => postJson<ShareState>("/admin/api/artifact/access", input),
+  revokeShareLink: (artifactKey: string, id: string) =>
+    postJson<ShareState>("/admin/api/artifact/share-link/revoke", {
+      artifact_key: artifactKey,
+      id,
+    }),
   artifactVersions: (artifactKey: string) =>
     getJson<ArtifactVersions>(
       `/admin/api/artifact/versions?artifact_key=${encodeURIComponent(artifactKey)}`,

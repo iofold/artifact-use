@@ -2143,3 +2143,237 @@ code {
 .comment-name-form .mini {
   margin: 0;
 }
+
+/* The share sheet (share.tsx): on its own page at /admin/share, and at the
+   top of the dashboard's artifact sheet. */
+.share-panel {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+.share-panel > h3 {
+  margin: 14px 0 0;
+  font: 600 11px var(--mono);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+}
+.share-panel > .mini,
+.share-panel .share-kind-hint {
+  margin: 0;
+}
+.share-linkrow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.share-linkrow input {
+  font: 12.5px var(--mono);
+  text-overflow: ellipsis;
+}
+.share-linkrow .button.copied {
+  background: var(--accent-deep);
+}
+.share-levels {
+  display: grid;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+.share-level {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 11px;
+  align-items: start;
+  margin: 0;
+  padding: 10px 12px;
+  border-top: 1px solid var(--line-soft);
+  font: 14px var(--sans);
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--ink);
+  cursor: pointer;
+}
+.share-level:first-child {
+  border-top: 0;
+}
+.share-level:hover {
+  background: var(--panel);
+}
+.share-level.on {
+  background: rgba(11, 93, 82, 0.07);
+}
+.share-level.blocked {
+  cursor: not-allowed;
+  color: var(--muted);
+}
+.share-level input {
+  width: 16px;
+  min-height: 16px;
+  height: 16px;
+  margin: 3px 0 0;
+  padding: 0;
+  accent-color: var(--accent);
+}
+.share-level strong {
+  display: block;
+  font-weight: 600;
+}
+.share-level small {
+  display: block;
+  margin-top: 1px;
+  font-size: 12.5px;
+  color: var(--muted);
+}
+.share-people {
+  display: grid;
+  gap: 8px;
+}
+.share-add {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+.share-people .mini,
+.share-link-form .mini {
+  margin: 0;
+}
+.share-people-list li,
+.share-panel .links-list li {
+  align-items: center;
+}
+.share-people-list li > span:first-child,
+.share-panel .links-list li > span:first-child {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.share-link-form {
+  display: grid;
+  gap: 9px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel);
+}
+.share-seg {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  overflow: hidden;
+}
+.share-seg button {
+  min-height: 34px;
+  padding: 0 6px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--muted);
+  font: 600 13px var(--sans);
+}
+.share-seg button:first-child {
+  border-left: 0;
+}
+.share-seg button:hover {
+  background: var(--line-soft);
+}
+.share-seg button.on {
+  background: var(--accent);
+  color: #fff;
+}
+.share-seg button:focus-visible,
+.share-level input:focus-visible {
+  outline: 2px solid var(--accent-deep);
+  outline-offset: 2px;
+}
+.share-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px 10px;
+}
+.share-fields label {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+.share-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  align-items: center;
+}
+.share-panel .link-created {
+  margin-top: 0;
+}
+.share-panel > .text-button {
+  justify-self: start;
+  font-size: 13px;
+}
+.share-form-actions .text-button {
+  font-size: 13px;
+}
+.sheet-body h3.share-heading {
+  margin-top: 18px;
+}
+
+.share-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+.share-top {
+  height: 52px;
+  display: flex;
+  align-items: center;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+.share-card {
+  width: 100%;
+  max-width: 560px;
+  margin: 0 auto;
+  padding: 22px 20px 28px;
+  display: grid;
+  gap: 12px;
+  align-content: start;
+}
+.share-card .eyebrow {
+  margin: 0;
+}
+.share-card h1 {
+  margin: 0 0 4px;
+  font-size: 24px;
+  line-height: 1.25;
+  overflow-wrap: anywhere;
+}
+.share-card > .muted {
+  margin: 0;
+}
+.share-card > .button {
+  justify-self: start;
+}
+.share-foot {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+.share-foot .text-button {
+  font-size: 13px;
+}
+@media (max-width: 480px) {
+  .share-linkrow,
+  .share-add {
+    grid-template-columns: 1fr;
+  }
+  .share-seg button {
+    font-size: 12px;
+  }
+}

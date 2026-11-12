@@ -5,6 +5,7 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router";
 import Agents from "./pages/Agents";
 import Connect from "./pages/Connect";
 import Dashboard from "./pages/Dashboard";
+import Share from "./pages/Share";
 import SuperAdmin from "./pages/SuperAdmin";
 import Team from "./pages/Team";
 import "./styles.css";
@@ -24,6 +25,7 @@ createRoot(document.getElementById("root")!).render(
           <Route path="/admin/connect" element={<Connect />} />
           <Route path="/admin/agents" element={<Agents />} />
           <Route path="/admin/team" element={<Team />} />
+          <Route path="/admin/share" element={<Share />} />
           <Route path="/admin/super" element={<SuperAdmin />} />
           <Route path="*" element={<Navigate to="/admin" replace />} />
         </Routes>

@@ -6,17 +6,14 @@ import {
   postForm,
   type ArtifactRow,
   type ArtifactVersion,
-  type CreatedShareLink,
   type DailyRow,
   type Me,
   type Overview,
   type RecentView,
-  type ShareLink,
-  type ShareLinkKind,
 } from "../api";
+import { SharePanel } from "../share";
 import {
   BarChart,
-  CopyButton,
   Shell,
   Skeleton,
   ago,
@@ -98,39 +95,6 @@ function CommentName({ me }: { me: Me }) {
     </form>
   );
 }
-
-// The four gate levels, described by what they mean for the person opening
-// the link. `verified_email` is the "share with a client" preset: a one-time
-// code proves the inbox, so every view is attributable.
-const GATE_LEVELS: Array<{ value: string; label: string; hint: string }> = [
-  { value: "public", label: "public", hint: "anyone with the link" },
-  { value: "email", label: "email", hint: "asks for an email, unverified" },
-  {
-    value: "verified_email",
-    label: "verified_email",
-    hint: "share with a client: one-time code",
-  },
-  {
-    value: "allowlist",
-    label: "allowlist",
-    hint: "verified, listed emails or domains only",
-  },
-];
-
-const LINK_KINDS: Array<{ value: ShareLinkKind; label: string; hint: string }> =
-  [
-    {
-      value: "recipient",
-      label: "Recipient",
-      hint: "the URL is the credential for one named person",
-    },
-    {
-      value: "password",
-      label: "Passcode",
-      hint: "the viewer types a passcode; no email asked",
-    },
-    { value: "open", label: "Open", hint: "anyone holding the URL gets in" },
-  ];
 
 // How a recorded view identified itself: proven, vouched for by a link,
 // anonymous on a public artifact, or typed into the plain email gate. A
@@ -620,230 +584,6 @@ function Onboarding({ docsUrl }: { docsUrl: string }) {
   );
 }
 
-function LinkRow({
-  link,
-  revoking,
-  onRevoke,
-}: {
-  link: ShareLink;
-  revoking: boolean;
-  onRevoke: () => void;
-}) {
-  const kind = LINK_KINDS.find((k) => k.value === link.kind);
-  const name =
-    link.label ||
-    link.recipient_label ||
-    link.recipient_email ||
-    `${kind?.label || "Link"} ${link.id.slice(0, 6)}`;
-  const opens = link.max_opens
-    ? `${formatNumber(link.open_count)}/${formatNumber(link.max_opens)} opens`
-    : `${formatNumber(link.open_count)} opens`;
-  const detail = [
-    kind?.label.toLowerCase() || link.kind,
-    link.recipient_email && link.label ? link.recipient_email : null,
-    opens,
-    link.last_opened_at
-      ? `last opened ${ago(link.last_opened_at)}`
-      : "never opened",
-    link.expires_at && link.state === "active"
-      ? `expires ${dateLabel(link.expires_at)}`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
-  return (
-    <li>
-      <span>
-        <strong>
-          {name}{" "}
-          <span
-            className={`pill${link.state === "active" ? " ok" : link.state === "revoked" ? " danger" : ""}`}
-          >
-            {link.state}
-          </span>
-        </strong>
-        <small>{detail}</small>
-      </span>
-      <span className="link-actions">
-        {link.state === "active" ? (
-          <>
-            <CopyButton
-              text={link.url}
-              label="Copy URL"
-              className="button small ghost"
-            />
-            <button
-              type="button"
-              className="button small ghost danger"
-              disabled={revoking}
-              onClick={onRevoke}
-            >
-              Revoke
-            </button>
-          </>
-        ) : null}
-      </span>
-    </li>
-  );
-}
-
-const EMPTY_LINK_FORM = {
-  kind: "recipient" as ShareLinkKind,
-  label: "",
-  recipient_email: "",
-  recipient_label: "",
-  passcode: "",
-  expires_days: "",
-  max_opens: "",
-};
-
-function LinkCreateForm({
-  artifact,
-  onCreated,
-}: {
-  artifact: ArtifactRow;
-  onCreated: () => void;
-}) {
-  const [form, setForm] = useState(EMPTY_LINK_FORM);
-  const [created, setCreated] = useState<CreatedShareLink | null>(null);
-  const mutation = useMutation({
-    mutationFn: () =>
-      api.createShareLink({ artifact_key: artifact.url_key, ...form }),
-    onSuccess: (link) => {
-      setCreated(link);
-      setForm(EMPTY_LINK_FORM);
-      onCreated();
-    },
-  });
-  const kind = LINK_KINDS.find((k) => k.value === form.kind);
-  const set = (patch: Partial<typeof EMPTY_LINK_FORM>) =>
-    setForm({ ...form, ...patch });
-  return (
-    <>
-      {created ? (
-        <div className="link-created" role="status">
-          <strong>
-            {created.kind === "password" ? "Passcode link" : "Link"} created
-          </strong>
-          <div className="copywrap">
-            <CopyButton text={created.url} />
-            <input readOnly value={created.url} />
-          </div>
-          {created.passcode ? (
-            <>
-              <div className="copywrap">
-                <CopyButton text={created.passcode} />
-                <input readOnly value={created.passcode} />
-              </div>
-              <small>
-                Send the passcode separately from the URL. It is shown only now
-                and never stored.
-              </small>
-            </>
-          ) : null}
-          <button
-            type="button"
-            className="button small ghost"
-            onClick={() => setCreated(null)}
-          >
-            Done
-          </button>
-        </div>
-      ) : null}
-      <form
-        className="link-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          mutation.mutate();
-        }}
-      >
-        <label>
-          <span>Kind</span>
-          <select
-            value={form.kind}
-            onChange={(e) => set({ kind: e.target.value as ShareLinkKind })}
-          >
-            {LINK_KINDS.map((k) => (
-              <option key={k.value} value={k.value}>
-                {k.label} — {k.hint}
-              </option>
-            ))}
-          </select>
-        </label>
-        {form.kind === "recipient" ? (
-          <>
-            <label>
-              <span>Recipient email</span>
-              <input
-                type="email"
-                placeholder="client@example.com"
-                value={form.recipient_email}
-                onChange={(e) => set({ recipient_email: e.target.value })}
-              />
-            </label>
-            <label>
-              <span>Recipient name</span>
-              <input
-                placeholder="optional"
-                value={form.recipient_label}
-                onChange={(e) => set({ recipient_label: e.target.value })}
-              />
-            </label>
-          </>
-        ) : (
-          <label>
-            <span>Label</span>
-            <input
-              placeholder={
-                form.kind === "password" ? "Board deck" : "Launch review"
-              }
-              value={form.label}
-              onChange={(e) => set({ label: e.target.value })}
-            />
-          </label>
-        )}
-        {form.kind === "password" ? (
-          <label>
-            <span>Passcode</span>
-            <input
-              placeholder="auto-generated when blank"
-              autoComplete="off"
-              value={form.passcode}
-              onChange={(e) => set({ passcode: e.target.value })}
-            />
-          </label>
-        ) : null}
-        <label>
-          <span>Expires in days</span>
-          <input
-            inputMode="numeric"
-            placeholder="never"
-            value={form.expires_days}
-            onChange={(e) => set({ expires_days: e.target.value })}
-          />
-        </label>
-        <label>
-          <span>Max opens</span>
-          <input
-            inputMode="numeric"
-            placeholder="unlimited"
-            value={form.max_opens}
-            onChange={(e) => set({ max_opens: e.target.value })}
-          />
-        </label>
-        <button type="submit" disabled={mutation.isPending}>
-          {mutation.isPending
-            ? "Creating…"
-            : `Create ${kind?.label.toLowerCase() || ""} link`}
-        </button>
-        {mutation.isError ? (
-          <p className="mini error">{mutation.error.message}</p>
-        ) : null}
-      </form>
-    </>
-  );
-}
-
 // What a publish changed in files ("2 files modified", "3 files: 1 added,
 // 2 modified"), for versions published without a note.
 function changesLabel(changes: ArtifactVersion["changes"]): string {
@@ -998,15 +738,6 @@ function ArtifactSheet({
       queryKey: ["artifact-detail", artifact.id],
     });
   };
-  const gateMutation = useMutation({
-    mutationFn: (gate: string) =>
-      postForm("/admin/artifact/access", {
-        artifact_key: artifact.url_key,
-        gate_level: gate,
-      }),
-    onSettled: invalidate,
-  });
-  const [gate, setGate] = useState(artifact.gate_level);
   const feedbackMutation = useMutation({
     mutationFn: (feedback: string) =>
       postForm("/admin/artifact/feedback", {
@@ -1033,21 +764,6 @@ function ArtifactSheet({
         title: preview.title,
         description: preview.description,
       }),
-    onSettled: invalidate,
-  });
-  const [allowlist, setAllowlist] = useState(artifact.allowlist_lines);
-  const allowlistMutation = useMutation({
-    mutationFn: () =>
-      postForm("/admin/artifact/access", {
-        artifact_key: artifact.url_key,
-        gate_level: "allowlist",
-        allowlist_lines: allowlist,
-      }),
-    onSettled: invalidate,
-  });
-  const revokeShare = useMutation({
-    mutationFn: (id: string) =>
-      postForm("/admin/artifact/share-link/revoke", { id }),
     onSettled: invalidate,
   });
   // Play the exit animation before unmounting.
@@ -1130,30 +846,6 @@ function ArtifactSheet({
               Open artifact ↗
             </a>
             <div className="access-control">
-              <label htmlFor={`artifact-access-${artifact.id}`}>Access</label>
-              <div className="access">
-                <select
-                  id={`artifact-access-${artifact.id}`}
-                  value={gate}
-                  onChange={(e) => setGate(e.target.value)}
-                >
-                  {GATE_LEVELS.map((level) => (
-                    <option key={level.value} value={level.value}>
-                      {level.label} — {level.hint}
-                    </option>
-                  ))}
-                </select>
-                <button
-                  type="button"
-                  className="small"
-                  disabled={gateMutation.isPending}
-                  onClick={() => gateMutation.mutate(gate)}
-                >
-                  {gateMutation.isPending ? "Saving…" : "Update"}
-                </button>
-              </div>
-            </div>
-            <div className="access-control">
               <label htmlFor={`artifact-feedback-${artifact.id}`}>
                 Feedback
               </label>
@@ -1174,6 +866,8 @@ function ArtifactSheet({
               </div>
             </div>
           </div>
+          <h3 className="share-heading">Share</h3>
+          <SharePanel artifactId={artifact.id} onChanged={invalidate} />
           <h3>Link preview</h3>
           <section className="preview-editor">
             <a
@@ -1290,29 +984,6 @@ function ArtifactSheet({
               </ul>
             </>
           ) : null}
-          <h3>Links</h3>
-          <p className="mini">
-            A link passes this artifact's gate on its own — for one named
-            recipient, behind a passcode, or for anyone holding it — until it
-            expires, runs out of opens, or you revoke it.
-          </p>
-          {isPending ? (
-            <Skeleton style={{ height: 46 }} />
-          ) : detail?.shares.length ? (
-            <ul className="detail-list links-list">
-              {detail.shares.slice(0, 12).map((link) => (
-                <LinkRow
-                  key={link.id}
-                  link={link}
-                  revoking={revokeShare.isPending}
-                  onRevoke={() => revokeShare.mutate(link.id)}
-                />
-              ))}
-            </ul>
-          ) : (
-            <div className="empty small-empty">No links yet.</div>
-          )}
-          <LinkCreateForm artifact={artifact} onCreated={invalidate} />
           <VersionsPanel artifact={artifact} onChanged={invalidate} />
           <h3>Comments</h3>
           {isPending ? (
@@ -1336,29 +1007,6 @@ function ArtifactSheet({
           ) : (
             <div className="empty small-empty">No comments yet.</div>
           )}
-          <h3>Allowlist</h3>
-          <form
-            className="allowlist-form"
-            onSubmit={(e) => {
-              e.preventDefault();
-              allowlistMutation.mutate();
-            }}
-          >
-            <textarea
-              rows={5}
-              placeholder={"acme.com\njane@acme.com"}
-              value={allowlist}
-              onChange={(e) => setAllowlist(e.target.value)}
-            />
-            <button type="submit" disabled={allowlistMutation.isPending}>
-              {allowlistMutation.isPending ? "Saving…" : "Save allowlist"}
-            </button>
-          </form>
-          <h3>Public URL</h3>
-          <div className="copywrap">
-            <CopyButton text={artifact.url} />
-            <input readOnly value={artifact.url} />
-          </div>
           <h3>Delete artifact</h3>
           <p className="mini">
             Permanently removes every version, share link, comment, and view
