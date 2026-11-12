@@ -41,6 +41,7 @@ import {
   updateArtifactPreview,
 } from "./db";
 import { validEmail } from "./gate";
+import { normalizeAllowlistPolicy } from "./share";
 import {
   PASSCODE_MAX,
   PASSCODE_MIN,
@@ -306,10 +307,15 @@ export async function handleAdminApi(
         body.gate_level || gateLevelForPreset(body.access_preset) || null;
       if (level && !GATE_LEVELS.has(level))
         return error(400, "invalid_gate_level", "gate_level is not supported");
-      const allowlistJson =
+      // Checked and normalized before it is stored: a single entry that is
+      // not an address or a domain would make the gate refuse everybody.
+      const allowlist =
         body.allowlist === undefined
-          ? undefined
-          : JSON.stringify(body.allowlist);
+          ? null
+          : normalizeAllowlistPolicy(body.allowlist);
+      if (allowlist && !allowlist.ok)
+        return error(400, "invalid_allowlist", allowlist.message);
+      const allowlistJson = allowlist ? allowlist.json : undefined;
       let updated = artifact;
       // An upstream backend is only reachable through a gate (see
       // upstream.ts); never let the two be combined from either direction.
