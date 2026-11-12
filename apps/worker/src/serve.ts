@@ -66,6 +66,7 @@ import {
 } from "./gate";
 import { type ShareLink, shareLinkIdentity, shareLinkKind } from "./links";
 import { getPublisherSessionAuth } from "./publisher";
+import { shareSheetPath, shareSheetUrl } from "./share";
 import { unavailableArtifactResponse } from "./moderation";
 import {
   injectArtifactMetadata,
@@ -611,7 +612,13 @@ async function serveVersion(
           html,
           versionBanner(env, artifact, pinnedVersion),
         );
-      html = injectWidget(html, artifact, version.id, env);
+      html = injectWidget(
+        html,
+        artifact,
+        version.id,
+        env,
+        await sharePathForMember(request, env, artifact),
+      );
     }
     return new Response(html, { headers });
   }
@@ -744,10 +751,13 @@ function rangeBounds(
 }
 
 // Read-only role probe for the injected widget: is this browser a publisher
-// of the artifact it is viewing? Publishers get a deep link into their admin
-// sidesheet; everyone else gets an identical minimal "viewer" response. The
-// response deliberately carries nothing else — the widget shares a JS realm
-// with untrusted artifact content, so no stats, emails, or capability URLs.
+// of the artifact it is viewing? Publishers get two links onto the trusted
+// origin — the artifact's admin sidesheet and its share sheet; everyone else
+// gets an identical minimal "viewer" response. The response deliberately
+// carries nothing else — the widget shares a JS realm with untrusted artifact
+// content, so no stats, emails, or capability URLs. Sharing itself (minting
+// links, changing the gate, reading who was invited) happens on the page the
+// share link opens, never here.
 export async function handleArtifactContext(
   request: Request,
   env: Env,
@@ -779,6 +789,7 @@ export async function handleArtifactContext(
     return json({
       role: "publisher",
       admin_url: `${siteBaseUrl(env)}/admin?open=${encodeURIComponent(artifact.id)}`,
+      share_url: shareSheetUrl(env, artifact.id),
       agent,
       feedback,
     });
@@ -790,6 +801,7 @@ export async function handleArtifactContext(
   return json({
     role: "publisher",
     admin_url: `/admin?open=${encodeURIComponent(artifact.id)}`,
+    share_url: shareSheetPath(artifact.id),
     agent,
     feedback,
   });
@@ -1479,16 +1491,37 @@ export async function handleAgentToken(
   });
 }
 
+// The share sheet's address, for a page being loaded by a member of the
+// artifact's workspace; null for everyone else. It lets the widget put Share
+// next to the Comments launcher without a role probe on every page view.
+// Top-level page loads only: under a shared origin, a fetch() from another
+// artifact's JS must not learn which workspaces its visitor belongs to.
+async function sharePathForMember(
+  request: Request,
+  env: Env,
+  artifact: Artifact,
+): Promise<string | null> {
+  if (!topLevelNavigation(request)) return null;
+  const scoped = await gatePassingSession(request, env, artifact);
+  if (scoped?.workspace_user_id) return shareSheetUrl(env, artifact.id);
+  const auth = await getPublisherSessionAuth(request, env);
+  return auth && auth.session.orgId === artifact.org_id
+    ? shareSheetPath(artifact.id)
+    : null;
+}
+
 export function injectWidget(
   html: string,
   artifact: Artifact,
   versionId: string,
   env: Env,
+  shareUrl: string | null = null,
 ): string {
   const config = JSON.stringify({
     artifactKey: artifact.url_key,
     versionId,
     gateLevel: artifact.gate_level,
+    ...(shareUrl ? { shareUrl } : {}),
     abuseUrl: abuseMailto(env, {
       artifactKey: artifact.url_key,
       artifactUrl: publicArtifactUrl(env, artifact.url_key),
