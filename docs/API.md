@@ -228,7 +228,10 @@ any of them seeing another's feedback:
   private.
 
 `GET /_au/artifact-context` returns `feedback: "shared" | "private"`, and the
-`_au/index.json` descriptor states the mode in `feedback.visibility`.
+`_au/index.json` descriptor states the mode in `feedback.visibility`. For a
+member of the publishing workspace it also returns `role: "publisher"` with
+`admin_url` and `share_url`, two links onto the admin origin; it never
+returns share links, the allowlist or viewer addresses.
 
 The publisher endpoint `/api/v1/artifacts/{artifact_key}/comments` speaks the
 same shapes (`GET` with the same filters including `wait`; `POST` with `body`,
@@ -405,6 +408,18 @@ Google**:
 `PATCH` also accepts `access_preset` as a friendlier alias for the same four
 levels: `open`, `email`, `client` (= `verified_email`), `restricted`
 (= `allowlist`). No other levels exist.
+
+`PATCH` takes the allowlist as `allowlist: {"emails": [...], "domains":
+[...]}` and replaces the stored list. Every entry must be an email address or
+a domain (`acme.com`; a leading `@` or `*.` is dropped); entries are
+lower-cased and de-duplicated, at most 500 in total. Anything else is
+`400 invalid_allowlist` naming the entries, and nothing is stored.
+
+People do the same from the **Share** button on the artifact (shown to
+signed-in members of its workspace) or the admin's artifact sheet. Both open
+the share sheet at `/admin/share?artifact=<artifact id>`, which needs the
+publisher's browser session; it has no token-authenticated equivalent beyond
+the routes in this document.
 
 `PATCH` also takes `feedback`: `shared` (the default; every viewer sees every
 comment thread) or `private` (each viewer sees only their own threads; see

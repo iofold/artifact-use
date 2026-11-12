@@ -349,7 +349,9 @@ Results and errors:
   restricted customer material, and `public` only for intentionally
   low-sensitivity artifacts. Upstream backends (section 12) require a
   non-public gate. `set_access` also takes `access_preset`: `open`, `email`,
-  `client` (= `verified_email`), `restricted` (= `allowlist`).
+  `client` (= `verified_email`), `restricted` (= `allowlist`). `allowlist` is
+  `{"emails": [...], "domains": [...]}` and replaces the stored list; an entry
+  that is not an address or a domain is `400 invalid_allowlist`.
 - Share links are how a gated artifact reaches people without an account: a
   link passes the gate at every level until it expires, is revoked, or hits
   `max_opens`. Use `recipient` for one named person (views attributed to

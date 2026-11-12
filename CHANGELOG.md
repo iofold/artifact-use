@@ -4,6 +4,27 @@ Notable changes to Artifact Use are documented here.
 
 ## Unreleased
 
+- Share from the artifact: members of the publishing workspace get a
+  **Share** button on the artifact itself (beside the Comments launcher and
+  in the panel header). It opens a share sheet in a small window: copy the
+  link, choose who can open it, add or remove people and domains, and create
+  or revoke direct links.
+  - The sheet lives on the admin origin (`/admin/share?artifact=<id>`) and
+    needs the publisher's own session. The artifact page only holds a link
+    to it: nothing on an artifact's origin can mint a link, change the gate
+    or read who was invited.
+  - The dashboard's artifact sheet uses the same panel in place of the
+    separate Access, Links, Allowlist and Public URL sections.
+- Allowlists are validated wherever they are saved. An entry that is not an
+  email address or a domain is refused (`400 invalid_allowlist` on
+  `PATCH /api/v1/artifacts/{key}`, `invalid_allowlist_entry` in the admin)
+  instead of being stored: a stored bad entry made the gate turn away every
+  address on the list. Entries are lower-cased and de-duplicated; at most 500.
+- Admin: making an artifact with an upstream backend public is refused in
+  the admin too (`409 upstream_requires_gate`), as it already was over the
+  API; `/admin/agents` loads on a direct visit or refresh; form errors show
+  the reason instead of a status code.
+
 - Author display names: comments carry `author_name` (the name the author
   set, else their email's local part; `Guest` for shared-link sessions) and
   `author_role` (`workspace` for the publishing team, shown as a "Team" tag in
