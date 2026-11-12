@@ -192,14 +192,11 @@ test("switching workspaces can return to the share sheet, and nowhere off the ad
     "//evil.example/admin/",
     "/go/some-artifact/",
     "/admin/../go/x",
+    "/admin/share?artifact=art_x&open=/go/x",
+    "/admin/super",
   ]) {
     const response = await go(next);
-    const location = response.headers.get("Location") || "";
-    assert.ok(
-      location === "/admin" || location.startsWith("/admin/"),
-      `${next} -> ${location}`,
-    );
-    assert.ok(!location.includes("evil"), `${next} -> ${location}`);
+    assert.equal(response.headers.get("Location"), "/admin", next);
   }
 });
 

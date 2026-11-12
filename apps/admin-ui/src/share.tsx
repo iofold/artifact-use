@@ -55,12 +55,16 @@ const LINK_KINDS: Array<{ value: ShareLinkKind; label: string; hint: string }> =
     },
     {
       value: "open",
-      label: "Anyone holding it",
+      label: "Open link",
       hint: "Whoever has the link gets in. Revoke it to close the door.",
     },
   ];
 
 const shareKey = (artifactId: string) => ["artifact-share", artifactId];
+
+// The worker's messages are written for API clients, in lower case.
+const sentence = (message: string) =>
+  message ? message.charAt(0).toUpperCase() + message.slice(1) : message;
 
 export function useShareState(artifactId: string) {
   return useQuery({
@@ -86,18 +90,23 @@ function LinkRow({
     link.recipient_label ||
     link.recipient_email ||
     `${kind?.label || "Link"} · ${link.id.slice(-6)}`;
+  const opened = link.open_count > 0;
   const opens = link.max_opens
     ? `${formatNumber(link.open_count)}/${formatNumber(link.max_opens)} opens`
-    : `${formatNumber(link.open_count)} ${link.open_count === 1 ? "open" : "opens"}`;
+    : opened
+      ? `${formatNumber(link.open_count)} ${link.open_count === 1 ? "open" : "opens"}`
+      : null;
   const detail = [
     kind?.label.toLowerCase() || link.kind,
     link.recipient_email && (link.label || link.recipient_label)
       ? link.recipient_email
       : null,
     opens,
-    link.last_opened_at
+    link.last_opened_at && opened
       ? `last opened ${ago(link.last_opened_at)}`
-      : "never opened",
+      : opened
+        ? null
+        : "never opened",
     link.expires_at && link.state === "active"
       ? `expires ${dateLabel(link.expires_at)}`
       : null,
@@ -322,7 +331,7 @@ function LinkCreateForm({
         </div>
         {mutation.isError ? (
           <p className="mini error" role="alert">
-            {mutation.error.message}
+            {sentence(mutation.error.message)}
           </p>
         ) : null}
       </form>
@@ -371,7 +380,7 @@ function PeopleList({
       </form>
       {error ? (
         <p className="mini error" role="alert">
-          {error}
+          {sentence(error)}
         </p>
       ) : null}
       {rows.length ? (
@@ -511,7 +520,7 @@ export function SharePanel({
       </div>
       {levelError ? (
         <p className="mini error" role="alert">
-          {levelError}
+          {sentence(levelError)}
         </p>
       ) : null}
       <p className="mini">Members of your workspace can always open it.</p>
@@ -550,7 +559,7 @@ export function SharePanel({
       ) : null}
       {revoke.isError ? (
         <p className="mini error" role="alert">
-          {revoke.error.message}
+          {sentence(revoke.error.message)}
         </p>
       ) : null}
       <LinkCreateForm
