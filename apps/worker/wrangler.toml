@@ -43,6 +43,9 @@ pattern = "artifacts.example.com/go*"
 zone_name = "example.com"
 
 # Configure wildcard DNS and a wildcard TLS certificate for this suffix.
+# Not ready for that? Drop this route and ARTIFACT_HOST_SUFFIX and set
+# ARTIFACT_SHARED_ORIGIN = "true" (see "Keeping artifacts on the site origin"
+# in docs/DEPLOY.md for what that gives up).
 [[routes]]
 pattern = "*.pages.example.com/*"
 zone_name = "example.com"

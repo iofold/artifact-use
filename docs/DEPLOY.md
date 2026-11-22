@@ -329,7 +329,8 @@ and configure `ARTIFACT_HOST_SUFFIX` plus a Worker route `*.<suffix>/*`.
 The suffix needs wildcard DNS and a TLS certificate covering `a-<id>.<suffix>`.
 For example, `pages.example.com` requires `*.pages.example.com`; a certificate
 covering only `*.example.com` does not cover these hosts. Deployment checks
-refuse a configuration without the suffix and wildcard route.
+refuse a configuration that has neither the suffix and wildcard route nor the
+shared-origin setting below.
 
 Existing `/go/<key>/` links remain stable. Browsers authenticate on
 `SITE_BASE_URL`, then redirect to the artifact's own origin. A server-side,
@@ -346,3 +347,28 @@ served on the trusted origin carry a restrictive sandbox CSP, including when
 isolation configuration is missing; deploy only after wildcard DNS/TLS works
 to preserve browser interactivity. Verify sign-in, a protected file, comments,
 delegation and version history on the isolated origin before rollout.
+
+### Keeping artifacts on the site origin
+
+A deployment that is not ready for wildcard DNS/TLS can leave
+`ARTIFACT_HOST_SUFFIX` unset and set `ARTIFACT_SHARED_ORIGIN = "true"`.
+Artifact pages then keep running at their `/go/<key>/` links on
+`SITE_BASE_URL`, with scripts, relative assets, comments and the Share button,
+and no redirect. Only the exact value `"true"` does this; without it, a missing
+suffix still serves uploaded pages inert.
+
+This is the pre-isolation behaviour, and it carries the risk isolation removes:
+an artifact's scripts run on the same origin as the admin and as every other
+artifact. A script in a hostile artifact can act as the signed-in publisher who
+opens it (read and change access, mint share links, read comments) and, given
+another artifact's link, can read it through a gate that browser has already
+passed. Use it only while everyone who can publish is someone you trust, and
+plan the move:
+set the suffix and route, remove `ARTIFACT_SHARED_ORIGIN`, and deploy. Links
+do not change either way. The deploy check prints a warning on every deploy in
+this mode and refuses a configuration that sets both.
+
+Everything else in the security update applies in both modes: `__Host-`
+cookies (browsers sign in or pass their gate once more after rollout),
+current-membership and allowlist checks, Origin checks on browser writes, and
+the failed-discovery rate limit.

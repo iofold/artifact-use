@@ -1,4 +1,5 @@
 import type { Env } from "./types";
+import { sharedOriginArtifacts } from "./origins";
 import {
   escapeHtml,
   htmlPage,
@@ -80,13 +81,14 @@ export async function clearRateLimit(
 
 // Count failed discovery across keys rather than successful asset loads. Once
 // exhausted, check before lookup so successful guesses cannot bypass the limit.
-// Deployment requires the isolation suffix; keyless test/dev setups stay local.
+// A deployment sets the isolation suffix or opts into the shared origin;
+// test/dev setups with neither stay unlimited.
 export async function artifactDiscoveryLimit(
   request: Request,
   env: Env,
   failed = false,
 ): Promise<Response | null> {
-  if (!env.ARTIFACT_HOST_SUFFIX) return null;
+  if (!env.ARTIFACT_HOST_SUFFIX && !sharedOriginArtifacts(env)) return null;
   const path = new URL(request.url).pathname;
   if (
     !path.startsWith(`${artifactPathPrefix(env)}/`) &&

@@ -51,6 +51,19 @@ export function checkViewerMutation(request: Request): Response | null {
   return null;
 }
 
+// Running without isolation is a choice a deployment makes by name, never
+// what a missing suffix falls back to. Artifact pages then execute on
+// SITE_BASE_URL as they did before per-artifact hosts existed, which leaves
+// uploaded scripts same-origin with the admin and with every other artifact:
+// a hostile page can act as whoever opens it. The suffix wins when both are
+// set.
+export function sharedOriginArtifacts(env: Env): boolean {
+  return (
+    !(env.ARTIFACT_HOST_SUFFIX || "").trim() &&
+    (env.ARTIFACT_SHARED_ORIGIN || "").trim().toLowerCase() === "true"
+  );
+}
+
 export function artifactOrigin(env: Env, artifact: Artifact): string | null {
   const suffix = (env.ARTIFACT_HOST_SUFFIX || "").trim().toLowerCase();
   if (!suffix) return null;
@@ -115,6 +128,7 @@ export function protectTrustedArtifactContent(
   response: Response,
 ): Response {
   if (
+    sharedOriginArtifacts(env) ||
     !isTrustedOrigin(request, env) ||
     !(
       response.headers.has("X-Artifact-Version") ||
@@ -124,7 +138,8 @@ export function protectTrustedArtifactContent(
     return response;
   const headers = new Headers(response.headers);
   // Agents still receive the original bytes; a browser cannot execute them
-  // with the publisher origin, even if isolation configuration is missing.
+  // with the publisher origin, even if isolation configuration is missing
+  // (only ARTIFACT_SHARED_ORIGIN, set on purpose, serves them live here).
   headers.set("Content-Security-Policy", "sandbox; frame-ancestors 'none'");
   headers.set("X-Frame-Options", "DENY");
   headers.set("Cross-Origin-Opener-Policy", "same-origin");

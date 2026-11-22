@@ -15,6 +15,12 @@ Notable changes to Artifact Use are documented here.
     or read who was invited.
   - The dashboard's artifact sheet uses the same panel in place of the
     separate Access, Links, Allowlist and Public URL sections.
+- `ARTIFACT_SHARED_ORIGIN = "true"` keeps artifact pages running at their
+  existing links on the site origin for deployments without
+  `ARTIFACT_HOST_SUFFIX` (no wildcard DNS/TLS, no redirect). Uploaded scripts
+  then share an origin with the admin and with other artifacts, so it is
+  opt-in by exact name, the host suffix wins when both are set, and the deploy
+  check warns on every deploy. Share from the artifact works in both modes.
 - Allowlists are validated wherever they are saved. An entry that is not an
   email address or a domain is refused (`400 invalid_allowlist` on
   `PATCH /api/v1/artifacts/{key}`, `invalid_allowlist_entry` in the admin)

@@ -95,6 +95,10 @@ Stable links remain on `SITE_BASE_URL`. Interactive documents run on a dedicated
 `a-<artifact-id>.<ARTIFACT_HOST_SUFFIX>` origin. The trusted origin keeps publisher
 auth, Google callbacks, admin, REST, and MCP. Agent reads through stable links
 still receive original bytes, with a restrictive browser sandbox CSP.
+Without the suffix, uploaded pages are served inert under that sandbox unless
+the deployment sets `ARTIFACT_SHARED_ORIGIN = "true"`, which runs them on
+`SITE_BASE_URL` as before isolation existed: uploaded scripts are then
+same-origin with the admin (see `docs/DEPLOY.md`).
 
 The destination establishes independent signed state for each navigation. The
 trusted origin then issues a single-use, 60-second database ticket bound to its
