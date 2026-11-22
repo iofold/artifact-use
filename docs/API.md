@@ -899,6 +899,11 @@ shared or shadowed through a parent domain. Browser mutations check Origin;
 viewer comment/profile/token writes require JSON. Origin-less agent HTTP calls
 remain supported.
 
+A deployment may instead keep artifacts on the stable origin
+(`ARTIFACT_SHARED_ORIGIN = "true"`, see `docs/DEPLOY.md`): links then serve the
+page directly with no redirect or handoff, and artifacts are not isolated from
+the admin or from each other.
+
 Protected static files and upstream responses use
 `Cross-Origin-Resource-Policy: same-origin` so another artifact cannot load
 them as credentialed cross-origin scripts or other resources. Own-origin

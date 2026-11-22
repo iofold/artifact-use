@@ -11,6 +11,10 @@ export interface Env {
   ARTIFACT_PUBLIC_PATH_PREFIX?: string;
   // Wildcard DNS/TLS host for isolated artifact origins, e.g. pages.example.com.
   ARTIFACT_HOST_SUFFIX?: string;
+  // "true" keeps artifact pages running on SITE_BASE_URL when no host suffix
+  // is set. Uploaded scripts then share an origin with the admin; see
+  // sharedOriginArtifacts.
+  ARTIFACT_SHARED_ORIGIN?: string;
   WORKOS_AUTHKIT_URL: string;
   WORKOS_AUDIENCE: string;
   WORKOS_ISSUER: string;
